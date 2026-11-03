@@ -77,7 +77,11 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 
 - [ ] Trusted-sender image auto-loading preference.
 - [ ] Participant photos and verified Graph presence.
-- [ ] Display received message reactions (including likes), with grouped counts and who reacted. Keep reaction changes out of unread/new-message indicators and suppress reaction notifications.
+- [x] Display received message reactions (including likes), grouped counts, and expandable participant lists. Reaction-only changes do not create unread/new-message indicators or notifications. Custom reactions use text-only fallback. See [REACTIONS.md](REACTIONS.md).
+- [x] User confirmed received reactions render correctly and a changed reaction from Teams appeared in TAUT within about 15-20 seconds (2026-11-03).
+- [x] Add explicit Unicode reaction selection and removal of own standard reactions, with server verification and no automatic retries.
+- [x] Enable searchable categorized emoji insertion into the composer at the caret/selection, preserving local per-chat drafts and explicit Send.
+- [x] User confirmed reaction add/remove and composer emoji insertion all perform as expected (2026-11-03).
 - [ ] Native message notifications with reaction noise suppressed.
 - [ ] Code-block formatting and syntax highlighting.
 - [ ] Typing indicators, subject to API support.

@@ -6,6 +6,10 @@
  import { conversationActivity, activityIdentities, identityKey, type EventDetail, type EventIdentity, type IdentityNames } from './lib/activity';
  import type { Message } from './lib/types';
  import DeletionDialog from './lib/DeletionDialog.svelte';
+ import EmojiPicker from './lib/EmojiPicker.svelte';
+ import {insertEmoji} from './lib/emoji';
+ import MessageReactions from './lib/MessageReactions.svelte';
+ import {groupReactions,reactionIdentities,type ApiReaction} from './lib/reactions';
  import GroupMembers from './lib/GroupMembers.svelte';
  import { messagePreview, previewUnread, type ChatPreview } from './lib/chat-summary';
  import { conversations } from './lib/mock';
@@ -25,6 +29,12 @@
  let showHidden=$state(false);
  type ChangeTarget={kind:'delete'|'restore'|'hide'|'unhide';chatId:string;messageId?:string;name:string;preview?:string};
  let changeTarget=$state<ChangeTarget|null>(null);
+ type EmojiTarget={mode:'compose';chatId:string;start:number;end:number}|{mode:'react';chatId:string;messageId:string};
+ let emojiTarget=$state<EmojiTarget|null>(null);
+ let reactionError=$state('');let reactionUncertain=$state(false);
+ const uncertainReactions=new Set<string>();
+ let composerInput=$state<HTMLTextAreaElement>();
+ let emojiReturnFocus:HTMLElement|undefined;
  let changeError=$state('');let changeUncertain=$state(false);
  const confirmedDeleted=new Set<string>();
  const uncertainChanges=new Set<string>();
@@ -130,7 +140,7 @@
  function openPalette(){paletteOpen=true;commandSearch='';tick().then(()=>paletteInput?.focus());}
  function execCommand(fn:()=>void){fn();paletteOpen=false;}
  function keys(e:KeyboardEvent){
-  if(changeTarget)return;
+  if(changeTarget||emojiTarget)return;
   if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette();}
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='\\'){e.preventDefault();sidebarOpen=!sidebarOpen;}
   if(e.key==='Escape'){if(lightbox){lightbox=null;imageZoom=1;}else{paletteOpen=false;settingsOpen=false;newChatOpen=false;}}
@@ -142,7 +152,7 @@
    return dateKey(date.toISOString())===dateKey(new Date().toISOString())?date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):date.toLocaleDateString();
  }
  function markVisibleRead(){
-   if(!isLive||!selectedReadEligible||!chatWritePermission||reauthRequired||authBusy||mode!=='chats'||changeTarget||newChatOpen||settingsOpen||paletteOpen||lightbox||document.hidden||!document.hasFocus()||!messageViewport||messageViewport.scrollHeight-messageViewport.scrollTop-messageViewport.clientHeight>2)return;
+   if(!isLive||!selectedReadEligible||!chatWritePermission||reauthRequired||authBusy||mode!=='chats'||changeTarget||emojiTarget||newChatOpen||settingsOpen||paletteOpen||lightbox||document.hidden||!document.hasFocus()||!messageViewport||messageViewport.scrollHeight-messageViewport.scrollTop-messageViewport.clientHeight>2)return;
    const chat=chats.find(c=>c.id===selectedId);if(!chat||chat.hidden||!chat.unread||chat.id.startsWith('pending:'))return;
    const raw=knownChats.find(c=>c.id===chat.id);
    const latest=[...chat.messages].reverse().find(m=>!m.activity);
@@ -162,7 +172,7 @@
  type ChatMember={id?:string;tenantId?:string;userId?:string;displayName?:string;email?:string;userPrincipalName?:string;roles?:string[]};
  type ApiChat={id:string;topic?:string;chatType?:string;lastUpdatedDateTime?:string;lastMessagePreview?:ChatPreview;viewpoint?:{isHidden?:boolean;lastMessageReadDateTime?:string};members?:ChatMember[]};
  function memberLabel(m:ChatMember):string {return m.displayName?.trim()||m.email?.trim()||m.userPrincipalName?.trim()||'';}
- type ApiMessage={deletedDateTime?:string|null;eventDetail?:EventDetail|null;messageType?:string;id:string;createdDateTime?:string;from?:{user?:{id?:string;displayName?:string}};body?:{content?:string;contentType?:string};attachments?:{id?:string;name?:string;contentType?:string;contentUrl?:string}[]};
+ type ApiMessage={reactions?:ApiReaction[];deletedDateTime?:string|null;eventDetail?:EventDetail|null;messageType?:string;id:string;createdDateTime?:string;from?:{user?:{id?:string;displayName?:string}};body?:{content?:string;contentType?:string};attachments?:{id?:string;name?:string;contentType?:string;contentUrl?:string}[]};
  function allowedMicrosoftUrl(raw:string):boolean {
   try {
    const u=new URL(raw);
@@ -328,7 +338,7 @@
      const me=await invoke<{id:string;displayName:string}>('graph_profile');
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
      if(priorOwn&&!sameAccount){
-       drafts={};attachmentDrafts={};attachmentProgress={};readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();hiddenOverrides={};
+       drafts={};attachmentDrafts={};attachmentProgress={};readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
        imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
      }
      ownId=me.id;signedInName=me.displayName;
@@ -367,7 +377,7 @@
  async function signOut(){
    if(authBusy || sendBusy || stagingBusy || groupBusy || operationBusy)return;
    authBusy=true;authError='';persistenceNotice='';sessionSaved=false;reauthRequired=false;
-   readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';chatWritePermission=false;showHidden=false;confirmedDeleted.clear();uncertainChanges.clear();imageVersions.clear();imageCache={};imageErrors={};imageLoading={};lightbox=null;hiddenOverrides={};changeTarget=null;chatListSerial++;
+   readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';chatWritePermission=false;showHidden=false;confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;imageVersions.clear();imageCache={};imageErrors={};imageLoading={};lightbox=null;hiddenOverrides={};changeTarget=null;chatListSerial++;
    nameSession++;leftGroupIds.clear();groupMemberPermission=false;activityNames={};attemptedNames.clear();nameRetryAfter=0;
    attachmentDrafts={};attachmentProgress={};attachmentPermission=false;
    knownChats=[];drafts={};isLive=false;openChatSerial++;
@@ -436,6 +446,7 @@
      const atBottom=messageViewport?isAtBottom(messageViewport):true;
      const height=messageViewport?.scrollHeight??0;const top=messageViewport?.scrollTop??0;
      for(const chat of chats)for(const message of chat.messages){
+       if(message.reactionSource)message.reactions=groupReactions(message.reactionSource,activityNames,ownId);
        if(!message.activity)continue;
        const activity=conversationActivity({messageType:'systemEventMessage',eventDetail:message.activity.source},activityNames,ownId);
        if(activity){message.activity=activity;message.text=activity.summary;}
@@ -461,7 +472,7 @@
      const chat=chats.find(c=>c.id===chatId);if(!chat)return;
      const previousIDs=new Set(chat.messages.map(m=>m.id));
      for(const raw of knownChats)for(const member of raw.members??[])rememberIdentity({id:member.userId,displayName:member.displayName,tenantId:member.tenantId});
-     const identities=(data.value??[]).flatMap(activityIdentities);
+     const identities=(data.value??[]).flatMap(m=>[...activityIdentities(m),...(m.deletedDateTime||confirmedDeleted.has(JSON.stringify([chatId,m.id]))?[]:reactionIdentities(m.reactions))]);
      for(const m of data.value??[]){if(m.from?.user)rememberIdentity(m.from.user);}
      identities.forEach(rememberIdentity);
      const ordered=(data.value??[]).filter(m=>isUserMessage(m)||conversationActivity(m,activityNames,ownId)).slice().sort((a,b)=>{
@@ -476,11 +487,11 @@
        if(serverDeleted){confirmedDeleted.delete(key);clearMessageImages(chatId,m.id);}
        const previous=chat.messages.find(old=>old.id===m.id);
        const sender=m.from?.user?.id?(m.from.user.id.toLowerCase()===ownId.toLowerCase()?'me':'them'):(deleted?previous?.sender??'them':'them');
-       return {id:m.id,deleted,activity,attachments:activity||deleted?[]:extractAttachments(m),images:activity||deleted?[]:extractImages(m),senderName:m.from?.user?.displayName,sender,text:deleted?'Message deleted':activity?.summary??plainText(m.body?.content??''),createdDateTime:m.createdDateTime??'',time:m.createdDateTime?new Date(m.createdDateTime).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):''};
+       return {id:m.id,deleted,activity,reactions:activity||deleted?[]:groupReactions(m.reactions,activityNames,ownId),reactionSource:activity||deleted?undefined:m.reactions,attachments:activity||deleted?[]:extractAttachments(m),images:activity||deleted?[]:extractImages(m),senderName:m.from?.user?.displayName,sender,text:deleted?'Message deleted':activity?.summary??plainText(m.body?.content??''),createdDateTime:m.createdDateTime??'',time:m.createdDateTime?new Date(m.createdDateTime).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):''};
      });
      // Resolve missing historical names in the background; never delay normal messages.
      void resolveActivityNames(identities);
-     const changed=mapped.length!==chat.messages.length || mapped.some((m,i)=>m.id!==chat.messages[i]?.id || m.text!==chat.messages[i]?.text || m.deleted!==chat.messages[i]?.deleted || JSON.stringify(m.activity)!==JSON.stringify(chat.messages[i]?.activity) || m.senderName!==chat.messages[i]?.senderName || JSON.stringify(m.attachments)!==JSON.stringify(chat.messages[i]?.attachments) || JSON.stringify(m.images)!==JSON.stringify(chat.messages[i]?.images));
+     const changed=mapped.length!==chat.messages.length || mapped.some((m,i)=>m.id!==chat.messages[i]?.id || m.text!==chat.messages[i]?.text || m.deleted!==chat.messages[i]?.deleted || JSON.stringify(m.reactions)!==JSON.stringify(chat.messages[i]?.reactions) || JSON.stringify(m.reactionSource)!==JSON.stringify(chat.messages[i]?.reactionSource) || JSON.stringify(m.activity)!==JSON.stringify(chat.messages[i]?.activity) || m.senderName!==chat.messages[i]?.senderName || JSON.stringify(m.attachments)!==JSON.stringify(chat.messages[i]?.attachments) || JSON.stringify(m.images)!==JSON.stringify(chat.messages[i]?.images));
      if(!changed){markVisibleRead();return;}
      const newlyReceived=mapped.some(m=>!m.activity&&!m.deleted&&m.sender==='them'&&!previousIDs.has(m.id));
      chat.messages=mapped;
@@ -512,6 +523,7 @@
    }finally{messageInFlight.delete(chatId);}
  }
  function selectChat(id:string,read=false){
+   emojiTarget=null;
    selectedReadEligible=read;readSelection++;readError='';
    drafts[selectedId]=draft;
    draft=drafts[id]??'';
@@ -617,6 +629,52 @@
  function composerKeys(event:KeyboardEvent){
    if(event.key==='Enter' && !event.shiftKey && !event.isComposing){event.preventDefault();void send();}
  }
+ function openComposerEmoji(event:MouseEvent){
+   emojiReturnFocus=event.currentTarget as HTMLElement;
+   if(!isLive||!composerInput||selected.id==='empty'||selected.hidden||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy)return;
+   reactionError='';reactionUncertain=false;
+   emojiTarget={mode:'compose',chatId:selectedId,start:composerInput.selectionStart??draft.length,end:composerInput.selectionEnd??draft.length};
+ }
+ function openReaction(message:Message,trigger?:HTMLElement){
+   if(!isLive||!chatWritePermission||selected.id==='empty'||selected.id.startsWith('pending:')||message.deleted||message.activity||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired)return false;
+   emojiReturnFocus=trigger??document.activeElement as HTMLElement;
+   emojiTarget={mode:'react',chatId:selectedId,messageId:message.id};
+   reactionUncertain=uncertainReactions.has(JSON.stringify([selectedId,message.id]));
+   reactionError=reactionUncertain?'An earlier reaction change was not confirmed. Refresh its status before retrying.':'';
+   return true;
+ }
+ function returnEmojiFocus(){void tick().then(()=>{if(emojiReturnFocus?.isConnected)emojiReturnFocus.focus();else composerInput?.focus();});}
+ function closeEmojiPicker(){if(operationBusy)return;emojiTarget=null;returnEmojiFocus();}
+ async function chooseEmoji(emoji:string){
+   const target=emojiTarget;if(!target||operationBusy)return;
+   if(target.mode==='compose'){
+     if(target.chatId!==selectedId)return;
+     const result=insertEmoji(draft,emoji,target.start,target.end);draft=result.text;drafts[selectedId]=draft;emojiTarget=null;
+     await tick();composerInput?.focus();composerInput?.setSelectionRange(result.caret,result.caret);
+   }else await changeReaction(emoji,false);
+ }
+ async function changeReaction(emoji:string,remove:boolean){
+   if(emojiTarget?.mode!=='react'||reactionUncertain||operationBusy||!chatWritePermission||reauthRequired)return;
+   const target={...emojiTarget};const key=JSON.stringify([target.chatId,target.messageId]);
+   operationBusy=true;reactionError='';
+   try{
+     await invoke('graph_change_reaction',{chatId:target.chatId,messageId:target.messageId,emoji,remove});
+     uncertainReactions.delete(key);emojiTarget=null;
+     await loadMessages(target.chatId,'manual');
+   }catch(e){uncertainReactions.add(key);reactionError=String(e);reactionUncertain=true;}
+   finally{operationBusy=false;if(!emojiTarget)returnEmojiFocus();}
+ }
+ function removeReaction(message:Message,emoji:string,trigger?:HTMLElement){if(openReaction(message,trigger)&&!reactionUncertain)void changeReaction(emoji,true);}
+ async function checkReactionStatus(){
+   if(emojiTarget?.mode!=='react'||operationBusy)return;
+   const target={...emojiTarget};operationBusy=true;reactionError='';
+   try{
+     await invoke<string[]>('graph_reaction_state',{chatId:target.chatId,messageId:target.messageId});
+     await loadMessages(target.chatId,'manual');
+     uncertainReactions.delete(JSON.stringify([target.chatId,target.messageId]));reactionUncertain=false;
+   }catch(e){reactionError=String(e);}
+   finally{operationBusy=false;}
+ }
  function leaveGroupLocally(id:string){
    leftGroupIds.add(id);knownChats=knownChats.filter(c=>c.id!==id);chats=chats.filter(c=>c.id!==id);
    if(!chats.length)chats=[{id:'empty',name:'No conversations found',initials:'—',status:'offline',preview:'Start a conversation',time:'',unread:0,messages:[]}];
@@ -650,7 +708,7 @@
    if(target.kind==='delete'){
      confirmedDeleted.add(JSON.stringify([target.chatId,target.messageId]));
      const message=chat.messages.find(m=>m.id===target.messageId);
-     if(message){message.deleted=true;message.text='Message deleted';message.attachments=[];message.images=[];message.reactions=undefined;}
+     if(message){message.deleted=true;message.text='Message deleted';message.attachments=[];message.images=[];message.reactions=undefined;message.reactionSource=undefined;}
      clearMessageImages(target.chatId,target.messageId!);
      chat.preview=[...chat.messages].reverse().find(m=>!m.activity)?.text??'No messages';
    }else if(target.kind==='restore'){
@@ -744,7 +802,7 @@
       {/each}
       {#if !m.text && !(m.images?.length || m.attachments?.length)}<span>Unsupported message content</span>{/if}
       {#if m.text.startsWith('[Image or attachment') && !(m.images?.length || m.attachments?.length)}<span>{m.text}</span>{/if}
-     </div><div class="message-foot"><span>{m.time}</span>{#if m.reactions}<span class="reaction">{m.reactions.join(' ')}</span>{/if}{#if m.sender==='me'&&!m.deleted}<Check size={12}/>{/if}{#if isLive&&m.sender==='me'}<button type="button" class="message-action" aria-label={m.deleted?'Restore message':'Delete message'} title={chatWritePermission?(m.deleted?'Restore to the shared conversation':'Delete from the shared conversation'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(m.deleted?'restore':'delete',m)}>{#if m.deleted}<Undo2 size={12}/>{:else}<Trash2 size={12}/>{/if}{m.deleted?'Restore':'Delete'}</button>{/if}</div></div></div>{/if}{/each}<div bind:this={listEnd}></div></section>
+     </div>{#if !m.deleted&&m.reactions?.length}<MessageReactions groups={m.reactions} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onRemove={isLive?(emoji,trigger)=>removeReaction(m,emoji,trigger):undefined}/>{/if}<div class="message-foot"><span>{m.time}</span>{#if isLive&&!m.deleted&&!selected.id.startsWith('pending:')}<button class="message-action" type="button" aria-label="Add reaction" title={chatWritePermission?'React to this message':'Requires delegated Chat.ReadWrite and a fresh sign-in'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={event=>openReaction(m,event.currentTarget)}><Smile size={13}/></button>{/if}{#if m.sender==='me'&&!m.deleted}<Check size={12}/>{/if}{#if isLive&&m.sender==='me'}<button type="button" class="message-action" aria-label={m.deleted?'Restore message':'Delete message'} title={chatWritePermission?(m.deleted?'Restore to the shared conversation':'Delete from the shared conversation'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(m.deleted?'restore':'delete',m)}>{#if m.deleted}<Undo2 size={12}/>{:else}<Trash2 size={12}/>{/if}{m.deleted?'Restore':'Delete'}</button>{/if}</div></div></div>{/if}{/each}<div bind:this={listEnd}></div></section>
    {#if jumpVisible && mode==='chats'}<button class="jump-latest" onclick={jumpToLatest}>↓ Snap to Now</button>{/if}
    {#if isLive && syncStatus==='offline'}<div class="sync-warning" role="status">Sync paused after an error. Automatic retry is enabled.</div>{/if}
    {#if readError}<div class="pending-notice" role="status">{readError}</div>{/if}
@@ -769,7 +827,7 @@
     <button type="button" onclick={()=>{if(selected)selected.creationUncertain=false;sendError=''}}>I checked Teams — enable retry</button>
    </div>{/if}
    <input class="file-picker" type="file" multiple bind:this={fileInput} aria-label="Choose attachment files" onchange={selectFiles} disabled={!isLive||sendBusy||stagingBusy}/>
-   <form class="composer" onsubmit={(e)=>{e.preventDefault();send()}}><button type="button" title="Attach files (up to 5 files, 10 MB each)" aria-label="Attach files" disabled={!isLive||sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.id==='empty'} onclick={()=>fileInput?.click()}><Paperclip size={19}/></button><textarea rows="1" use:autosizeComposer={draft} onkeydown={composerKeys} value={draft} oninput={(e)=>{draft=e.currentTarget.value;drafts[selectedId]=draft}} placeholder={isLive?`Message ${selected.name}…`:`Demo message ${selected.name}…`} disabled={sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || selected.hidden || selected.id==='empty'} aria-label="Message" title="Enter to send; Shift+Enter for a new line"></textarea><button type="button" title="Reactions coming later" aria-label="Emoji unavailable" disabled><Smile size={19}/></button><button type="submit" class="send" disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.creationUncertain||(!draft.trim()&&(!selectedFiles.length||selected.id.startsWith('pending:')))||selected.id==='empty'} aria-label="Send message"><Send size={18}/></button></form>
+   <form class="composer" onsubmit={(e)=>{e.preventDefault();send()}}><button type="button" title="Attach files (up to 5 files, 10 MB each)" aria-label="Attach files" disabled={!isLive||sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.id==='empty'} onclick={()=>fileInput?.click()}><Paperclip size={19}/></button><textarea rows="1" bind:this={composerInput} use:autosizeComposer={draft} onkeydown={composerKeys} value={draft} oninput={(e)=>{draft=e.currentTarget.value;drafts[selectedId]=draft}} placeholder={isLive?`Message ${selected.name}…`:`Demo message ${selected.name}…`} disabled={sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || selected.hidden || selected.id==='empty'} aria-label="Message" title="Enter to send; Shift+Enter for a new line"></textarea><button type="button" title="Insert emoji into your draft" aria-label="Insert emoji" disabled={!isLive||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onclick={openComposerEmoji}><Smile size={19}/></button><button type="submit" class="send" disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.creationUncertain||(!draft.trim()&&(!selectedFiles.length||selected.id.startsWith('pending:')))||selected.id==='empty'} aria-label="Send message"><Send size={18}/></button></form>
   {:else}<div class="section-placeholder">{#if !sidebarOpen}<button class="small-button left-restore" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={18}/></button>{/if}<LayoutPanelTop size={36}/><h2>{nav.find(n=>n.id===mode)?.label}</h2><p>TAUT owns this workspace. Connecting Microsoft 365 data is the next phase.</p><button class="outline-button" onclick={()=>mode='chats'}>Return to messages</button></div>{/if}
  </main>
  {#if detailsOpen&&mode==='chats'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot"></span>{selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
@@ -787,3 +845,5 @@
 {#if settingsOpen}<div class="overlay" role="presentation" onclick={(e)=>{if(e.target===e.currentTarget)settingsOpen=false}}><div class="settings-dialog" role="dialog" aria-modal="true" aria-label="TAUT preferences"><div class="dialog-top"><div><span class="eyebrow">TAUT PREFERENCES</span><h2>Make it yours.</h2></div><button onclick={()=>settingsOpen=false} aria-label="Close settings"><X size={18}/></button></div><div class="setting-row"><div><strong>Accent</strong><p>Subtle highlights, not an entire screen of purple.</p></div><div class="swatches">{#each ['amber','teal','violet'] as value}<button class:chosen={accent===value} style={`--swatch:${value==='amber'?'#efbb70':value==='teal'?'#63d4c1':'#b3a0ff'}`} aria-label={`${value} accent`} title={value} onclick={()=>accent=value as typeof accent}></button>{/each}</div></div><div class="setting-row"><div><strong>Compact conversations</strong><p>Reduce vertical spacing and fit more on screen.</p></div><input type="checkbox" bind:checked={dense}/></div><div class="setting-row"><div><strong>Details panel</strong><p>Show information alongside the conversation.</p></div><input type="checkbox" bind:checked={detailsOpen}/></div><div class="setting-row"><div><strong>Microsoft 365 connection</strong><p>{isLive?`Connected as ${signedInName}. Messages can be sent after confirmation by Graph.`:"Not connected. Sign in to load real chats."}</p></div>{#if isLive}<span class="session-storage-status">{sessionSaved?"Sign-in saved in macOS Keychain":"Temporary sign-in"}</span><button disabled={authBusy} onclick={signOut}>Sign out</button>{:else}<button disabled={authBusy} onclick={restoreSavedSession}>Retry saved sign-in</button><button disabled={authBusy} onclick={signOut}>Clear saved sign-in</button><button disabled={authBusy} onclick={signIn}>{authBusy?authPhase:"Sign in"}</button>{/if}</div><div class="settings-bottom"><span>TAUT Alpha · Svelte + Tauri</span><button onclick={()=>settingsOpen=false}>Done</button></div></div></div>{/if}
 
 {#if changeTarget}<DeletionDialog target={changeTarget} busy={operationBusy} uncertain={changeUncertain} error={changeError} onConfirm={confirmChange} onCheck={checkChangeStatus} onClose={()=>{if(!operationBusy)changeTarget=null}}/>{/if}
+
+{#if emojiTarget}<EmojiPicker mode={emojiTarget.mode} busy={operationBusy} error={reactionError} uncertain={reactionUncertain} onChoose={chooseEmoji} onClose={closeEmojiPicker} onCheck={checkReactionStatus}/>{/if}

@@ -1,5 +1,6 @@
 mod auth;
 mod read_state;
+mod reaction_ops;
 mod attachments;
 mod groups;
 mod deletion;
@@ -344,6 +345,16 @@ async fn graph_mark_chat_read(state:State<'_,AuthState>,chat_id:String,message_i
     let state=AuthState(state.0.clone());
     tauri::async_runtime::spawn_blocking(move ||read_state::mark_read(chat_write_permission_granted(&state)?,&chat_id,&message_id,TENANT,&mut |m,p,b|graph_operation_request(&state,m,p,b))).await.map_err(|_|"Read-state update was not confirmed. Refresh before retrying.")?
 }
+#[tauri::command]
+async fn graph_change_reaction(state:State<'_,AuthState>,chat_id:String,message_id:String,emoji:String,remove:bool)->Result<(),String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||reaction_ops::change(chat_write_permission_granted(&state)?,&chat_id,&message_id,&emoji,remove,&mut |m,p,b|graph_operation_request(&state,m,p,b))).await.map_err(|_|"Reaction change was not confirmed. Refresh status before retrying.")?
+}
+#[tauri::command]
+async fn graph_reaction_state(state:State<'_,AuthState>,chat_id:String,message_id:String)->Result<Vec<String>,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||reaction_ops::status(&chat_id,&message_id,&mut |m,p,b|graph_operation_request(&state,m,p,b))).await.map_err(|_|"Reaction status could not be refreshed")?
+}
 // Side effect: creates or returns a 1:1 chat. Only explicit first-message Send may call this.
 #[tauri::command]
 fn graph_create_chat(state: State<'_, AuthState>, recipient: String, own_id: String, first_message: String) -> Result<Value, String> {
@@ -432,7 +443,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

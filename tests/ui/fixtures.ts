@@ -14,6 +14,7 @@ export type MockMessage = {
   id: string; messageType: string; createdDateTime: string; deletedDateTime?:string|null;
   from?: { user: { id: string; displayName?:string } }; body: { content: string; contentType: string };
   eventDetail?:import('../../src/lib/activity').EventDetail;
+  reactions?:import('../../src/lib/reactions').ApiReaction[];
   attachments?: { id: string; name: string; contentType: string; contentUrl: string }[];
 };
 export function message(id: string, content: string, sender = alex.id): MockMessage {
@@ -37,6 +38,9 @@ export class MockGraph {
   profileId = me.id;
   messagesError = '';
   readError = '';
+  reactionError = '';
+  reactionGate?: Promise<void>;
+  reactionStatusError = '';
   readConfirmed = true;
   createError = '';
   sendError = '';
@@ -57,7 +61,7 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
@@ -97,6 +101,21 @@ export class MockGraph {
         if(!this.readConfirmed||latest?.id!==args.messageId)return false;
         const target=this.chats.find(c=>c.id===args.chatId)!;
         target.viewpoint={...target.viewpoint,lastMessageReadDateTime:latest.createdDateTime};return true;
+      }
+      case 'graph_reaction_state': {
+        if(this.reactionStatusError)throw Error(this.reactionStatusError);
+        return (this.messages[args.chatId]?.find(m=>m.id===args.messageId)?.reactions??[]).filter(r=>r.user?.user?.id===me.id).map(r=>r.reactionType);
+      }
+      case 'graph_change_reaction': {
+        if(!this.allowWrites)break;
+        await this.reactionGate;
+        if(this.reactionError)throw Error(this.reactionError);
+        const target=this.messages[args.chatId]!.find(m=>m.id===args.messageId)!;
+        const aliases:Record<string,string>={like:'👍',heart:'❤️',laugh:'😆',surprised:'😮',sad:'😢',angry:'😠'};
+        const matches=(r:NonNullable<MockMessage['reactions']>[number])=>r.user?.user?.id===me.id&&(aliases[r.reactionType??'']??r.reactionType)===args.emoji;
+        if(args.remove)target.reactions=(target.reactions??[]).filter(r=>!matches(r));
+        else if(!(target.reactions??[]).some(matches))target.reactions=[...(target.reactions??[]),{reactionType:args.emoji,user:{user:{id:me.id,displayName:me.displayName}}}];
+        return null;
       }
       case 'graph_chat_members': return {value:this.chats.find(c=>c.id===args.chatId)?.members??[],...(this.membershipIncomplete?{'@odata.nextLink':'https://graph.microsoft.com/next'}:{})};
       case 'graph_chats': return { value: this.chats };

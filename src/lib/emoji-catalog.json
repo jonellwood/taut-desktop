@@ -1,0 +1,386 @@
+[
+  {
+    "emoji": "\ud83d\udc4d",
+    "name": "Thumbs up",
+    "category": "Common",
+    "keywords": "like yes approve"
+  },
+  {
+    "emoji": "\u2764\ufe0f",
+    "name": "Heart",
+    "category": "Common",
+    "keywords": "love"
+  },
+  {
+    "emoji": "\ud83d\ude06",
+    "name": "Laugh",
+    "category": "Common",
+    "keywords": "funny lol"
+  },
+  {
+    "emoji": "\ud83d\ude2e",
+    "name": "Surprised",
+    "category": "Common",
+    "keywords": "wow"
+  },
+  {
+    "emoji": "\ud83d\ude22",
+    "name": "Sad",
+    "category": "Common",
+    "keywords": "cry"
+  },
+  {
+    "emoji": "\ud83d\ude20",
+    "name": "Angry",
+    "category": "Common",
+    "keywords": "mad"
+  },
+  {
+    "emoji": "\ud83c\udf89",
+    "name": "Celebrate",
+    "category": "Common",
+    "keywords": "party congratulations"
+  },
+  {
+    "emoji": "\ud83d\udc4f",
+    "name": "Applause",
+    "category": "Common",
+    "keywords": "clap bravo"
+  },
+  {
+    "emoji": "\ud83d\udd25",
+    "name": "Fire",
+    "category": "Common",
+    "keywords": "great hot"
+  },
+  {
+    "emoji": "\u2705",
+    "name": "Check mark",
+    "category": "Common",
+    "keywords": "done yes complete"
+  },
+  {
+    "emoji": "\ud83d\ude4f",
+    "name": "Folded hands",
+    "category": "Common",
+    "keywords": "thanks please pray"
+  },
+  {
+    "emoji": "\ud83d\udc40",
+    "name": "Eyes",
+    "category": "Common",
+    "keywords": "looking watching"
+  },
+  {
+    "emoji": "\ud83d\ude00",
+    "name": "Grinning face",
+    "category": "Faces",
+    "keywords": "happy smile"
+  },
+  {
+    "emoji": "\ud83d\ude0a",
+    "name": "Smiling face",
+    "category": "Faces",
+    "keywords": "happy blush"
+  },
+  {
+    "emoji": "\ud83d\ude02",
+    "name": "Tears of joy",
+    "category": "Faces",
+    "keywords": "laugh funny lol"
+  },
+  {
+    "emoji": "\ud83e\udd23",
+    "name": "Rolling on the floor laughing",
+    "category": "Faces",
+    "keywords": "funny rofl"
+  },
+  {
+    "emoji": "\ud83d\ude09",
+    "name": "Wink",
+    "category": "Faces",
+    "keywords": "smile"
+  },
+  {
+    "emoji": "\ud83d\ude0d",
+    "name": "Heart eyes",
+    "category": "Faces",
+    "keywords": "love"
+  },
+  {
+    "emoji": "\ud83e\udd70",
+    "name": "Smiling face with hearts",
+    "category": "Faces",
+    "keywords": "love"
+  },
+  {
+    "emoji": "\ud83e\udd14",
+    "name": "Thinking",
+    "category": "Faces",
+    "keywords": "question ponder"
+  },
+  {
+    "emoji": "\ud83d\ude0e",
+    "name": "Sunglasses",
+    "category": "Faces",
+    "keywords": "cool"
+  },
+  {
+    "emoji": "\ud83d\ude05",
+    "name": "Sweat smile",
+    "category": "Faces",
+    "keywords": "relief"
+  },
+  {
+    "emoji": "\ud83d\ude43",
+    "name": "Upside down face",
+    "category": "Faces",
+    "keywords": "sarcasm"
+  },
+  {
+    "emoji": "\ud83d\ude42",
+    "name": "Slight smile",
+    "category": "Faces",
+    "keywords": "happy"
+  },
+  {
+    "emoji": "\ud83d\ude34",
+    "name": "Sleeping",
+    "category": "Faces",
+    "keywords": "tired"
+  },
+  {
+    "emoji": "\ud83e\udd2f",
+    "name": "Exploding head",
+    "category": "Faces",
+    "keywords": "mind blown"
+  },
+  {
+    "emoji": "\ud83d\ude2d",
+    "name": "Loudly crying",
+    "category": "Faces",
+    "keywords": "sad"
+  },
+  {
+    "emoji": "\ud83e\udd73",
+    "name": "Party face",
+    "category": "Faces",
+    "keywords": "celebrate"
+  },
+  {
+    "emoji": "\ud83e\udd17",
+    "name": "Hug",
+    "category": "Faces",
+    "keywords": "thanks"
+  },
+  {
+    "emoji": "\ud83d\ude2c",
+    "name": "Grimace",
+    "category": "Faces",
+    "keywords": "oops"
+  },
+  {
+    "emoji": "\ud83d\udc4b",
+    "name": "Wave",
+    "category": "People",
+    "keywords": "hello goodbye"
+  },
+  {
+    "emoji": "\ud83d\udcaa",
+    "name": "Flexed biceps",
+    "category": "People",
+    "keywords": "strong"
+  },
+  {
+    "emoji": "\ud83e\udd1d",
+    "name": "Handshake",
+    "category": "People",
+    "keywords": "agreement deal"
+  },
+  {
+    "emoji": "\ud83d\ude4c",
+    "name": "Raised hands",
+    "category": "People",
+    "keywords": "celebrate"
+  },
+  {
+    "emoji": "\u270c\ufe0f",
+    "name": "Victory",
+    "category": "People",
+    "keywords": "peace"
+  },
+  {
+    "emoji": "\ud83e\udd1e",
+    "name": "Crossed fingers",
+    "category": "People",
+    "keywords": "luck"
+  },
+  {
+    "emoji": "\ud83d\udc4c",
+    "name": "OK hand",
+    "category": "People",
+    "keywords": "okay"
+  },
+  {
+    "emoji": "\ud83d\udc4e",
+    "name": "Thumbs down",
+    "category": "People",
+    "keywords": "no disagree"
+  },
+  {
+    "emoji": "\ud83d\udc4d\ud83c\udffb",
+    "name": "Thumbs up light skin",
+    "category": "People",
+    "keywords": "like approve"
+  },
+  {
+    "emoji": "\ud83d\udc4d\ud83c\udffc",
+    "name": "Thumbs up medium light skin",
+    "category": "People",
+    "keywords": "like approve"
+  },
+  {
+    "emoji": "\ud83d\udc4d\ud83c\udffd",
+    "name": "Thumbs up medium skin",
+    "category": "People",
+    "keywords": "like approve"
+  },
+  {
+    "emoji": "\ud83d\udc4d\ud83c\udffe",
+    "name": "Thumbs up medium dark skin",
+    "category": "People",
+    "keywords": "like approve"
+  },
+  {
+    "emoji": "\ud83d\udc4d\ud83c\udfff",
+    "name": "Thumbs up dark skin",
+    "category": "People",
+    "keywords": "like approve"
+  },
+  {
+    "emoji": "\ud83d\udc9b",
+    "name": "Yellow heart",
+    "category": "Symbols",
+    "keywords": "love"
+  },
+  {
+    "emoji": "\ud83d\udc99",
+    "name": "Blue heart",
+    "category": "Symbols",
+    "keywords": "love"
+  },
+  {
+    "emoji": "\ud83d\udc9a",
+    "name": "Green heart",
+    "category": "Symbols",
+    "keywords": "love"
+  },
+  {
+    "emoji": "\ud83d\udc9c",
+    "name": "Purple heart",
+    "category": "Symbols",
+    "keywords": "love"
+  },
+  {
+    "emoji": "\ud83d\udcaf",
+    "name": "Hundred points",
+    "category": "Symbols",
+    "keywords": "perfect"
+  },
+  {
+    "emoji": "\u2753",
+    "name": "Question mark",
+    "category": "Symbols",
+    "keywords": "help"
+  },
+  {
+    "emoji": "\u2757",
+    "name": "Exclamation",
+    "category": "Symbols",
+    "keywords": "important"
+  },
+  {
+    "emoji": "\u26a0\ufe0f",
+    "name": "Warning",
+    "category": "Symbols",
+    "keywords": "caution"
+  },
+  {
+    "emoji": "\u2b50",
+    "name": "Star",
+    "category": "Symbols",
+    "keywords": "favorite"
+  },
+  {
+    "emoji": "\u2728",
+    "name": "Sparkles",
+    "category": "Symbols",
+    "keywords": "magic"
+  },
+  {
+    "emoji": "\ud83d\ude80",
+    "name": "Rocket",
+    "category": "Objects",
+    "keywords": "launch"
+  },
+  {
+    "emoji": "\ud83d\udca1",
+    "name": "Light bulb",
+    "category": "Objects",
+    "keywords": "idea"
+  },
+  {
+    "emoji": "\ud83d\udccc",
+    "name": "Pushpin",
+    "category": "Objects",
+    "keywords": "pin"
+  },
+  {
+    "emoji": "\ud83d\udcc5",
+    "name": "Calendar",
+    "category": "Objects",
+    "keywords": "date schedule"
+  },
+  {
+    "emoji": "\ud83d\udcdd",
+    "name": "Memo",
+    "category": "Objects",
+    "keywords": "note write"
+  },
+  {
+    "emoji": "\u2615",
+    "name": "Coffee",
+    "category": "Objects",
+    "keywords": "break"
+  },
+  {
+    "emoji": "\ud83c\udf55",
+    "name": "Pizza",
+    "category": "Objects",
+    "keywords": "food lunch"
+  },
+  {
+    "emoji": "\ud83c\udf82",
+    "name": "Birthday cake",
+    "category": "Objects",
+    "keywords": "birthday"
+  },
+  {
+    "emoji": "\ud83d\udc1b",
+    "name": "Bug",
+    "category": "Objects",
+    "keywords": "debug"
+  },
+  {
+    "emoji": "\ud83e\udd86",
+    "name": "Duck",
+    "category": "Objects",
+    "keywords": "rubber debug"
+  },
+  {
+    "emoji": "\ud83c\udfc6",
+    "name": "Trophy",
+    "category": "Objects",
+    "keywords": "win award"
+  }
+]

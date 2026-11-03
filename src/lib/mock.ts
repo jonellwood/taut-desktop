@@ -2,7 +2,7 @@ import type { Conversation } from './types';
 export const conversations:Conversation[]=[
 {id:'hannah',name:'Hannah',initials:'HM',status:'online',preview:'That actually looks fantastic.',time:'9:41 AM',unread:2,favorite:true,messages:[
 {id:'m1',sender:'them',text:'I saw the new workspace concept. This is so much cleaner.',time:'9:14 AM'},
-{id:'m2',sender:'me',text:'Less noise. More signal. That’s the whole point.',time:'9:16 AM',reactions:['🔥']},
+{id:'m2',sender:'me',text:'Less noise. More signal. That’s the whole point.',time:'9:16 AM',reactions:[{key:'🔥',emoji:'🔥',label:'Fire',count:1,people:['Hannah'],mine:false}]},
 {id:'m3',sender:'them',text:'The amber accent is a great touch. Does the sidebar collapse?',time:'9:20 AM'},
 {id:'m4',sender:'me',text:'Completely. And the editor gets every pixel back.',time:'9:23 AM'},
 {id:'m5',sender:'them',text:'That actually looks fantastic.',time:'9:41 AM'}]},
