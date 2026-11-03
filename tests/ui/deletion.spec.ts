@@ -140,9 +140,9 @@ test('hidden chats loaded from Graph stay out of normal list and new activity ca
  test('all chats hidden leaves a safe empty view with access to hidden list',async({page,graph})=>{
   graph.chats.forEach(c=>c.viewpoint={isHidden:true});
   await page.goto('/');await page.getByRole('button',{name:'Sign in',exact:true}).click();
-  await expect(page.locator('.conversation-header')).toContainText('No visible conversations');
+  await expect(page.locator('.conversation-header')).toContainText('Select a conversation');
   await page.clock.runFor(30_000);
-  await expect(page.locator('.conversation-header')).toContainText('No visible conversations');
+  await expect(page.locator('.conversation-header')).toContainText('Select a conversation');
   await expect(page.getByRole('button',{name:'Send message',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:/^Hidden chats/}).click();
   await expect(row(page,alex.displayName)).toBeVisible();expect(graph.writes).toEqual([]);

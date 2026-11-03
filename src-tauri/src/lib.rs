@@ -1,3 +1,5 @@
+mod auth;
+mod read_state;
 mod attachments;
 mod groups;
 mod deletion;
@@ -15,8 +17,7 @@ const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
 const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite";
 
 #[derive(Default)]
-struct AuthState(std::sync::Arc<Mutex<Option<TokenState>>>);
-struct TokenState { access: String, refresh: Option<String>, expires_at: Instant, scopes: String }
+struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
 
 fn random_urlsafe() -> String {
     let mut bytes = [0u8; 32];
@@ -26,44 +27,44 @@ fn random_urlsafe() -> String {
 fn http_client() -> Result<Client, String> {
     Client::builder().timeout(Duration::from_secs(20)).build().map_err(|_| "HTTP client unavailable".into())
 }
-fn exchange_token(form: &[(&str, &str)]) -> Result<Value, String> {
+fn exchange_token(form: &[(&str, &str)]) -> Result<Value, auth::ExchangeError> {
     let url = format!("https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token");
-    let resp = http_client()?.post(url).form(form).send().map_err(|_| "Token exchange network error".to_string())?;
-    if !resp.status().is_success() { return Err(format!("Microsoft sign-in returned HTTP {} (verify redirect URI and tenant settings)", resp.status())); }
-    resp.json().map_err(|_| "Invalid token exchange response".into())
+    let resp = http_client().map_err(|_|auth::ExchangeError::Unavailable)?.post(url).form(form).send().map_err(|_|auth::ExchangeError::Unavailable)?;
+    let status=resp.status();
+    let value:Value=resp.json().map_err(|_|auth::ExchangeError::InvalidResponse)?;
+    if !status.is_success(){
+        return Err(match value["error"].as_str(){
+            Some("invalid_grant"|"interaction_required"|"login_required"|"consent_required"|"invalid_scope")=>auth::ExchangeError::Reauthenticate,
+            _=>auth::ExchangeError::Unavailable,
+        });
+    }
+    Ok(value)
 }
-fn store_token(state: &AuthState, value: Value) -> Result<(), String> {
-    let access = value["access_token"].as_str().ok_or("Missing access token")?.to_owned();
-    let refresh = value["refresh_token"].as_str().map(str::to_owned);
-    let ttl = value["expires_in"].as_u64().unwrap_or(3600);
-    *state.0.lock().map_err(|_| "Authentication state unavailable")? = Some(TokenState {
-        access, refresh, scopes: value["scope"].as_str().unwrap_or("").to_owned(), expires_at: Instant::now() + Duration::from_secs(ttl.saturating_sub(90).max(1))
-    });
-    Ok(())
+fn refresh_exchange(refresh:&str)->Result<Value,auth::ExchangeError>{
+    exchange_token(&[("client_id",CLIENT_ID),("grant_type","refresh_token"),("refresh_token",refresh),("scope",SCOPES)])
+}
+#[cfg(test)]
+fn store_token(state:&AuthState,value:Value)->Result<(),String>{
+    state.0.lock().map_err(|_|"Authentication state unavailable")?.set_test_token(value)
 }
 fn get_access_token(state: &AuthState) -> Result<String, String> {
-    let (refresh, access, scopes) = {
-        let guard = state.0.lock().map_err(|_| "Authentication state unavailable")?;
-        let saved = guard.as_ref().ok_or("Not signed in")?;
-        if Instant::now() < saved.expires_at { return Ok(saved.access.clone()); }
-        (saved.refresh.clone(), saved.access.clone(), saved.scopes.clone())
-    };
-    let refresh = refresh.ok_or("Session expired; sign in again")?;
-    let token = exchange_token(&[("client_id", CLIENT_ID), ("grant_type", "refresh_token"), ("refresh_token", &refresh), ("scope", SCOPES)])?;
-    let token = if token.get("refresh_token").is_some() { token } else {
-        let mut token = token;
-        token["refresh_token"] = Value::String(refresh);
-        token
-    };
-    let mut token = token;
-    if token.get("scope").is_none() { token["scope"] = Value::String(scopes); }
-    store_token(state, token)?;
-    let guard = state.0.lock().map_err(|_| "Authentication state unavailable")?;
-    Ok(guard.as_ref().map(|v|v.access.clone()).unwrap_or(access))
+    // Serialize refresh, Keychain updates and logout to prevent stale saves after sign-out.
+    state.0.lock().map_err(|_|"Authentication state unavailable")?.access(&mut auth::Keychain,&mut refresh_exchange)
+}
+#[tauri::command]
+async fn restore_session(state:State<'_,AuthState>)->Result<auth::Status,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||state.0.lock().map_err(|_|"Authentication state unavailable")?.restore(&mut auth::Keychain,&mut refresh_exchange)).await.map_err(|_|"Saved sign-in restoration stopped")?
+}
+#[tauri::command]
+async fn auth_persistence_status(state:State<'_,AuthState>)->Result<auth::Status,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||Ok(state.0.lock().map_err(|_|"Authentication state unavailable")?.status())).await.map_err(|_|"Sign-in status unavailable")?
 }
 
 #[tauri::command]
 async fn sign_in(state: State<'_, AuthState>) -> Result<(), String> {
+    let epoch=state.0.lock().map_err(|_|"Authentication state unavailable")?.begin_login();
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|_| "Could not open localhost sign-in listener")?;
     let port = listener.local_addr().map_err(|_| "Could not determine sign-in port")?.port();
     listener.set_nonblocking(true).map_err(|_| "Could not configure callback listener")?;
@@ -116,8 +117,9 @@ async fn sign_in(state: State<'_, AuthState>) -> Result<(), String> {
     let result = tauri::async_runtime::spawn_blocking(move || exchange_token(&[
         ("client_id", CLIENT_ID), ("grant_type", "authorization_code"),
         ("code", &callback), ("redirect_uri", &redirect), ("code_verifier", &verifier), ("scope", SCOPES),
-    ])).await.map_err(|_| "Token request failed")??;
-    store_token(&state, result)
+    ])).await.map_err(|_| "Token request failed")?.map_err(|e|e.message().to_owned())?;
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||state.0.lock().map_err(|_|"Authentication state unavailable")?.accept_login(epoch,result,&mut auth::Keychain)).await.map_err(|_|"Sign-in session storage stopped")?
 }
 
 fn graph_read_builder(client:&Client,token:String,endpoint:&str,system_events:bool)->reqwest::blocking::RequestBuilder {
@@ -167,8 +169,9 @@ async fn graph_event_names(state:State<'_,AuthState>,people:Vec<EventPerson>)->R
 }
 #[tauri::command]
 fn graph_profile(state: State<'_, AuthState>) -> Result<Value, String> { graph_request(&state, "/me?$select=id,displayName,userPrincipalName") }
+const CHAT_LIST_PATH:&str="/me/chats?$top=50&$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime%20desc";
 #[tauri::command]
-fn graph_chats(state: State<'_, AuthState>) -> Result<Value, String> { graph_request(&state, "/me/chats?$top=50&$expand=members") }
+fn graph_chats(state: State<'_, AuthState>) -> Result<Value, String> { graph_get(&state, CHAT_LIST_PATH,true) }
 #[tauri::command]
 fn graph_chat_members(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
     let id: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
@@ -196,7 +199,7 @@ fn graph_search_users(state: State<'_, AuthState>, query: String) -> Result<Valu
 fn graph_messages(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
     if chat_id.len() > 512 || chat_id.is_empty() { return Err("Invalid chat identifier".into()); }
     let encoded: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
-    graph_get(&state, &format!("/chats/{encoded}/messages?$top=50"),true)
+    graph_get(&state, &format!("/chats/{encoded}/messages?$top=50&$orderby=createdDateTime%20desc"),true)
 }
 #[tauri::command]
 fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String) -> Result<Value, String> {
@@ -218,7 +221,7 @@ fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String
 fn attachment_permission_granted(state: &AuthState) -> Result<bool, String> {
     get_access_token(state)?;
     let guard=state.0.lock().map_err(|_| "Authentication state unavailable")?;
-    Ok(guard.as_ref().map(|t| t.scopes.split_whitespace().any(|s| s.eq_ignore_ascii_case("Files.ReadWrite"))).unwrap_or(false))
+    Ok(guard.token.as_ref().map(|t| t.scopes.split_whitespace().any(|s| s.eq_ignore_ascii_case("Files.ReadWrite"))).unwrap_or(false))
 }
 #[tauri::command]
 async fn attachment_permission(state: State<'_, AuthState>) -> Result<bool, String> {
@@ -277,7 +280,7 @@ fn graph_operation_request(state:&AuthState,method:reqwest::Method,path:&str,bod
 fn group_permission_granted(state:&AuthState)->Result<bool,String>{
     get_access_token(state)?;
     let guard=state.0.lock().map_err(|_|"Authentication state unavailable")?;
-    Ok(guard.as_ref().map(|token|token.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("ChatMember.ReadWrite"))).unwrap_or(false))
+    Ok(guard.token.as_ref().map(|token|token.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("ChatMember.ReadWrite"))).unwrap_or(false))
 }
 #[tauri::command]
 async fn group_member_permission(state:State<'_,AuthState>)->Result<bool,String>{
@@ -305,7 +308,7 @@ async fn graph_remove_group_member(state:State<'_,AuthState>,chat_id:String,memb
 fn chat_write_permission_granted(state:&AuthState)->Result<bool,String>{
     get_access_token(state)?;
     let guard=state.0.lock().map_err(|_|"Authentication state unavailable")?;
-    Ok(guard.as_ref().map(|token|token.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("Chat.ReadWrite"))).unwrap_or(false))
+    Ok(guard.token.as_ref().map(|token|token.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("Chat.ReadWrite"))).unwrap_or(false))
 }
 #[tauri::command]
 async fn chat_write_permission(state:State<'_,AuthState>)->Result<bool,String>{
@@ -335,6 +338,11 @@ async fn graph_chat_visibility(state:State<'_,AuthState>,chat_id:String)->Result
     let state=AuthState(state.0.clone());
     tauri::async_runtime::spawn_blocking(move ||deletion::visibility_status(&chat_id,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
         .await.map_err(|_|"Chat visibility check stopped")?
+}
+#[tauri::command]
+async fn graph_mark_chat_read(state:State<'_,AuthState>,chat_id:String,message_id:String)->Result<bool,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||read_state::mark_read(chat_write_permission_granted(&state)?,&chat_id,&message_id,TENANT,&mut |m,p,b|graph_operation_request(&state,m,p,b))).await.map_err(|_|"Read-state update was not confirmed. Refresh before retrying.")?
 }
 // Side effect: creates or returns a 1:1 chat. Only explicit first-message Send may call this.
 #[tauri::command]
@@ -409,18 +417,22 @@ fn graph_hosted_image(state: State<'_, AuthState>, chat_id: String, message_id: 
     Ok(format!("data:{};base64,{}", mime, STANDARD.encode(bytes)))
 }
 #[tauri::command]
-fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>) -> Result<(), String> {
-    *state.0.lock().map_err(|_| "Authentication state unavailable")? = None;
-    uploads.0.lock().map_err(|_| "Attachment state unavailable")?.clear();
-    Ok(())
+async fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>) -> Result<(), String> {
+    let state=AuthState(state.0.clone());let uploads=uploads.0.clone();
+    tauri::async_runtime::spawn_blocking(move ||{
+        let result=state.0.lock().map_err(|_|"Authentication state unavailable")?.logout(&mut auth::Keychain);
+        uploads.lock().map_err(|_|"Attachment state unavailable")?.clear();
+        result
+    }).await.map_err(|_|"Sign-out stopped; saved credentials may remain")?
 }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![sign_in, sign_out, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
@@ -455,6 +467,15 @@ mod tests {
             store_token(&state,serde_json::json!({"access_token":"mock-token","scope":scope,"expires_in":3600})).unwrap();
             assert_eq!(group_permission_granted(&state).unwrap(),expected);
         }
+    }
+    #[test]
+    fn chat_list_requests_latest_previews_in_message_order_without_writing() {
+        let request=graph_read_builder(&Client::new(),"mock-token".into(),CHAT_LIST_PATH,true).build().unwrap();
+        assert_eq!(request.method(),reqwest::Method::GET);
+        let query:std::collections::HashMap<_,_>=request.url().query_pairs().collect();
+        assert_eq!(query.get("$expand").map(|s|s.as_ref()),Some("members,lastMessagePreview"));
+        assert_eq!(query.get("$orderby").map(|s|s.as_ref()),Some("lastMessagePreview/createdDateTime desc"));
+        assert_eq!(request.headers()["Prefer"],"include-unknown-enum-members");
     }
     #[test]
     fn empty_graph_action_posts_have_zero_content_length_without_json_body() {

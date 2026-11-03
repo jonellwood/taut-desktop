@@ -47,13 +47,38 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Mocked coverage for permissions, ownership, cancellation, success, failure, recovery, stale reads, and draft preservation.
 - [ ] Deferred: administrative deletion of shared threads for everyone. Requires separate `Chat.ManageDeletion.All` approval and supported admin role; user delegated the release choice and this release offers Hide for me only.
 
+## Incoming message visibility
+
+- [x] Request expanded latest-message previews and newest-message ordering from Graph; show message previews/times, per-conversation unread dots, and an unread-conversation badge on Chats.
+- [x] Preserve drafts and synchronize read state to Teams only after explicitly opening a conversation and viewing the latest messages in the focused window. Use existing Chat.ReadWrite; no new permissions or native notifications. Start with no conversation selected; server read positions remain authoritative, including external mark-unread changes.
+- [x] Cover incoming inactive/new chats, local reads and later messages, hidden chats, and server-marked unread own messages and suppression of system/reaction-only changes with mocked tests.
+- Chat list currently loads the newest 50 chats; existing active and local draft conversations remain retained during synchronization. Inactive chat-list updates use the existing 30-second polling interval while TAUT is visible.
+- [ ] Paginate the full chat list for larger histories.
+- [x] Manual Refresh updates the whole chat list as well as the selected conversation; keep manually marked-unread own/group messages visible.
+- [ ] Add explicit Mark unread controls using the supported Graph action, with no automatic re-reading until the user opens the conversation again.
+- [x] User confirmed that marking a conversation read in either app updates the other, with an acceptable propagation delay (2026-11-03).
+
+## Conversation organization — lower priority
+
+- [ ] Add Pin / Unpin controls for chats. The Pinned section currently renders favorites, but live chats have no pinning control.
+- [ ] Persist pins per signed-in account across restarts. Establish whether pins are TAUT-local or can synchronize with Teams after verifying supported APIs; do not imply Teams synchronization without it.
+
+## Teams and channels
+
+- [ ] Show the teams the signed-in user belongs to and their accessible channels in TAUT navigation.
+- [ ] Read channel conversations and threaded replies; follow with explicit posting/replying, attachments, and activity indicators.
+- [ ] Handle standard, private, and shared channel access correctly, with pagination and clear unavailable/access-denied states.
+- [ ] Research channel-specific Graph operations and least-privilege delegated permissions. Document and obtain approval for any additional scope before implementation; keep automated testing mocked.
+
 ## Remaining backlog
 
-- [ ] Persistent sign-in across rebuilds/restarts using macOS Keychain for refresh tokens, silent session restoration in Rust, and Keychain cleanup on explicit sign-out. Keep passwords and tokens out of Svelte, logs, URLs, and plaintext files; handle revoked/expired grants and tenant sign-in policy. Lower priority at user request.
+- [x] Implement persistent sign-in across rebuilds/restarts using macOS Keychain for refresh tokens, silent startup restoration in Rust, token rotation, and cleanup on explicit sign-out. Keep tokens out of Svelte, logs, URLs, and plaintext files; handle Keychain failures and revoked/expired grants. See [PERSISTENT_AUTH.md](PERSISTENT_AUTH.md).
+- [x] User manually verified persistent sign-in across a rebuild and explicit sign-out preventing restoration (2026-11-03).
 
 - [ ] Trusted-sender image auto-loading preference.
 - [ ] Participant photos and verified Graph presence.
-- [ ] Reactions and native notifications with reaction noise suppressed.
+- [ ] Display received message reactions (including likes), with grouped counts and who reacted. Keep reaction changes out of unread/new-message indicators and suppress reaction notifications.
+- [ ] Native message notifications with reaction noise suppressed.
 - [ ] Code-block formatting and syntax highlighting.
 - [ ] Typing indicators, subject to API support.
 - [ ] Shared Media panel with images, files, and links.

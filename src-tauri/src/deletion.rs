@@ -7,7 +7,7 @@ pub type Request<'a> = dyn FnMut(Method, &str, Option<Value>) -> Result<Reply, S
 fn enc(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
-fn valid_chat(id: &str) -> Result<(), String> {
+pub(crate) fn valid_chat(id: &str) -> Result<(), String> {
     if id.is_empty()
         || id.len() > 512
         || id.starts_with("pending:")
@@ -18,7 +18,7 @@ fn valid_chat(id: &str) -> Result<(), String> {
     }
     Ok(())
 }
-fn read(path: &str, request: &mut Request<'_>) -> Result<Value, String> {
+pub(crate) fn read(path: &str, request: &mut Request<'_>) -> Result<Value, String> {
     let reply = request(Method::GET, path, None)?;
     if reply.status != 200 {
         return Err(format!(
@@ -28,7 +28,7 @@ fn read(path: &str, request: &mut Request<'_>) -> Result<Value, String> {
     }
     Ok(reply.body)
 }
-fn own_id(request: &mut Request<'_>) -> Result<String, String> {
+pub(crate) fn own_id(request: &mut Request<'_>) -> Result<String, String> {
     let me = read("/me?$select=id", request)?;
     me["id"]
         .as_str()
