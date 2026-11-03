@@ -10,9 +10,9 @@ export function pendingConversation(recipient:string,name:string,ownId:string){
  return {id:`pending:${recipient.toLowerCase()}`,recipient,name,initials:name.slice(0,2).toUpperCase(),status:'offline' as const,preview:'Local draft · not sent',time:'',unread:0,messages:[]};
 }
 export type GraphInvoke = <T>(command:string,args:Record<string,unknown>)=>Promise<T>;
-export async function submitMessage(invoke:GraphInvoke,chatId:string,recipient:string|undefined,ownId:string,text:string,onCreated:(id:string)=>void){
+export async function submitMessage(invoke:GraphInvoke,chatId:string,recipient:string|undefined,ownId:string,text:string,onCreated:(id:string)=>void,prepare?:(chatId:string)=>Promise<string[]>){
  const content=text.trim();
- if(!content || [...content].length>4000)throw Error('Message must contain 1–4000 characters.');
+ if((!content && (!prepare || recipient!==undefined)) || [...content].length>4000)throw Error('Message must contain 1–4000 characters.');
  if(chatId.startsWith('pending:') !== (recipient!==undefined))throw Error('Invalid pending conversation. Reopen the draft before sending.');
  if(recipient!==undefined){
   recipient=recipient.trim();
@@ -24,11 +24,13 @@ export async function submitMessage(invoke:GraphInvoke,chatId:string,recipient:s
   // Retain the server ID before attempting the non-atomic message operation.
   onCreated(chatId);
  }
+ const ids=prepare?await prepare(chatId):[];
+ if(prepare && !ids.length)throw Error('No attachments are ready. Your draft is saved.');
  try{
-  const message=await invoke<{id:string}>('graph_send_message',{chatId,text:content});
+  const message=ids.length?await invoke<{id:string}>('graph_send_attachments',{chatId,text:content,ids}):await invoke<{id:string}>('graph_send_message',{chatId,text:content});
   if(!message.id)throw Error('No message identifier returned.');
  }catch{
-  throw Error('Message delivery was not confirmed. The conversation may exist and the message may have arrived. Your draft is saved. Check Teams or refresh before explicitly retrying.');
+  throw Error(`Message delivery was not confirmed. The conversation may exist and the message may have arrived.${ids.length?' Files may already be uploaded and shared.':''} Your draft is saved. Check Teams or refresh before explicitly retrying.`);
  }
  return chatId;
 }

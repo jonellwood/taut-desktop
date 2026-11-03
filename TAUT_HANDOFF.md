@@ -39,6 +39,8 @@ TAUT is a native macOS alternative client for Microsoft Teams chats, deliberatel
 - Some archived chats have former employee members with missing display names (`Members returned: 2; identifiable others: 0`); preserve data, avoid guessing identity.
 
 ## Feature roadmap
+See [TODO.md](TODO.md) for current priorities and newly requested work. The numbered list below is historical context.
+
 1. **Immediate:** Fix silent new-chat creation / notifications; validate directory picker and message initiation UX.
 2. **High:** Send attachments: Microsoft 365 upload/share-reference flow, with least-privilege Graph permissions and clear user-triggered sending. Design secure file handling; support paperclip, drag/drop and clipboard images later.
 3. **Medium:** Trusted sender image auto-load preference keyed by Entra user ID; no automatic file download by default.
