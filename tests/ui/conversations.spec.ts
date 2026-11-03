@@ -10,7 +10,7 @@ test('choosing, canceling, opening, and revisiting a pending draft never writes'
   await expect(page.getByRole('status')).toContainText('Local draft.');
   await page.getByRole('button', { name: 'Refresh messages', exact: true }).click();
   await page.clock.runFor(31_000);
-  await expect.poll(() => graph.calls.filter(c => c.command === 'graph_chats').length).toBe(2);
+  await expect.poll(() => graph.calls.filter(c => c.command === 'graph_chats').length).toBe(3);
   await row(page, alex.displayName).click();
   await row(page, casey.displayName).click();
   await expect(page.getByRole('status')).toContainText('Local draft.');

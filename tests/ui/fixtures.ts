@@ -6,13 +6,14 @@ export const blair = { id: '33333333-3333-3333-3333-333333333333', displayName: 
 export const casey = { id: '44444444-4444-4444-4444-444444444444', displayName: 'Casey Example', mail: 'casey@example.com' };
 export const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
 export type TestMember={id:string;userId:string;displayName:string;email?:string;roles?:string[]};
-export type TestChat={id:string;chatType:string;topic?:string;members:TestMember[]};
+export type TestChat={id:string;chatType:string;topic?:string;lastUpdatedDateTime?:string;lastMessagePreview?:import('../../src/lib/chat-summary').ChatPreview;viewpoint?:{isHidden?:boolean;lastMessageReadDateTime?:string};members:TestMember[]};
 export function chat(id: string, person: typeof alex):TestChat {
   return { id, chatType: 'oneOnOne', members: [{id:'member-me', userId: me.id, displayName: me.displayName,roles:['owner'] }, {id:`member-${person.id}`, userId: person.id, displayName: person.displayName, email: person.mail,roles:['owner'] }] };
 }
 export type MockMessage = {
-  id: string; messageType: string; createdDateTime: string;
+  id: string; messageType: string; createdDateTime: string; deletedDateTime?:string|null;
   from?: { user: { id: string; displayName?:string } }; body: { content: string; contentType: string };
+  eventDetail?:import('../../src/lib/activity').EventDetail;
   attachments?: { id: string; name: string; contentType: string; contentUrl: string }[];
 };
 export function message(id: string, content: string, sender = alex.id): MockMessage {
@@ -27,10 +28,25 @@ export class MockGraph {
   messages: Record<string, MockMessage[]> = { 'chat-alex': [message('hello', 'Hello from Alex')] };
   // Write commands fail closed unless a test deliberately enables its fake writes.
   allowWrites = false;
+  restoredSession = false;
+  sessionSaved = true;
+  persistenceNotice: string|null = null;
+  restoreGate?: Promise<void>;
+  signOutError = '';
+  profileError = '';
+  profileId = me.id;
+  messagesError = '';
+  readError = '';
+  readConfirmed = true;
   createError = '';
   sendError = '';
   attachmentPermission = false;
   groupPermission = false;
+  chatWritePermission = false;
+  changeError = '';
+  visibilityError = '';
+  statusError = '';
+  originals = new Map<string, MockMessage>();
   groupCreateError = '';
   memberError = '';
   membershipIncomplete = false;
@@ -38,22 +54,60 @@ export class MockGraph {
   prepared = new Map<string, {id:string; name:string; chatId:string}>();
   uploadCount = 0;
   sendGate?: Promise<void>;
+  imageGate?: Promise<void>;
+  messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
-      case 'sign_in': case 'sign_out': return null;
-      case 'graph_profile': return me;
+      case 'restore_session': await this.restoreGate; return {restored:this.restoredSession,saved:this.restoredSession,notice:this.persistenceNotice};
+      case 'auth_persistence_status': return {restored:true,saved:this.sessionSaved,notice:this.persistenceNotice};
+      case 'sign_in': return null;
+      case 'sign_out': this.restoredSession=false;if(this.signOutError)throw Error(this.signOutError);return null;
+      case 'graph_profile': if(this.profileError)throw Error(this.profileError);return {...me,id:this.profileId};
       case 'attachment_permission': return this.attachmentPermission;
       case 'group_member_permission': return this.groupPermission;
+      case 'chat_write_permission': return this.chatWritePermission;
+      case 'graph_message_status':
+        if(this.statusError)throw Error(this.statusError);
+        return Boolean(this.messages[args.chatId]?.find(m=>m.id===args.messageId)?.deletedDateTime);
+      case 'graph_chat_visibility':
+        if(this.statusError)throw Error(this.statusError);
+        return Boolean(this.chats.find(c=>c.id===args.chatId)?.viewpoint?.isHidden);
+      case 'graph_change_message': {
+        if(!this.allowWrites)break;
+        if(this.changeError)throw Error(this.changeError);
+        const rows=this.messages[args.chatId];
+        const index=rows.findIndex(m=>m.id===args.messageId);
+        const key=JSON.stringify([args.chatId,args.messageId]);
+        if(args.restore){rows[index]={...(this.originals.get(key)??rows[index]),deletedDateTime:null};}
+        else{this.originals.set(key,structuredClone(rows[index]));rows[index]={...rows[index],deletedDateTime:'2026-01-01T12:01:00Z',body:{content:'',contentType:'html'}};}
+        return null;
+      }
+      case 'graph_set_chat_visibility':
+        if(!this.allowWrites)break;
+        if(this.visibilityError)throw Error(this.visibilityError);
+        this.chats.find(c=>c.id===args.chatId)!.viewpoint={isHidden:args.hidden};
+        return null;
+      case 'graph_mark_chat_read': {
+        if(!this.allowWrites)break;
+        if(this.readError)throw Error(this.readError);
+        const latest=[...(this.messages[args.chatId]??[])].sort((a,b)=>Date.parse(b.createdDateTime)-Date.parse(a.createdDateTime))[0];
+        if(!this.readConfirmed||latest?.id!==args.messageId)return false;
+        const target=this.chats.find(c=>c.id===args.chatId)!;
+        target.viewpoint={...target.viewpoint,lastMessageReadDateTime:latest.createdDateTime};return true;
+      }
       case 'graph_chat_members': return {value:this.chats.find(c=>c.id===args.chatId)?.members??[],...(this.membershipIncomplete?{'@odata.nextLink':'https://graph.microsoft.com/next'}:{})};
       case 'graph_chats': return { value: this.chats };
       case 'graph_search_users': return { value: [me, alex, blair, casey].filter(u => `${u.displayName} ${'mail' in u ? u.mail : ''}`.toLowerCase().includes(args.query.toLowerCase())) };
       case 'graph_messages':
+        await this.messagesGate;
+        if(this.messagesError)throw Error(this.messagesError);
         if (args.chatId.startsWith('pending:')) this.unexpected.push('Read of a local pending chat');
         return { value: this.messages[args.chatId] ?? [] };
-      case 'graph_hosted_image': return image;
+      case 'graph_event_names': return args.people.flatMap((p:{id:string;tenantId?:string})=>{const user=[me,alex,blair,casey].find(u=>u.id===p.id);return user?[{...p,displayName:user.displayName}]:[];});
+      case 'graph_hosted_image': await this.imageGate; return image;
       case 'plugin:opener|open_url': return null; // Record only; never launch a browser.
       case 'graph_create_group_chat':
         if (!this.allowWrites) break;
@@ -136,7 +190,8 @@ export { expect };
 export async function signIn(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeEnabled();
+  await row(page,alex.displayName).click();
   await expect(page.locator('.conversation-header')).toContainText(alex.displayName);
 }
 export async function choosePerson(page: Page, name: string) {

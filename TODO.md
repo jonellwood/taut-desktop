@@ -4,7 +4,7 @@
 
 - Pending-conversation workflow implemented; user reports draft creation works as expected in manual testing (2026-11-03).
 - Attachment/composer improvements, mocked UI regression tests, and CI committed and pushed as `504cadd` on `test/pending-conversation-ci`.
-- Group chat implementation is on `feat/group-chats`; the user approved `ChatMember.ReadWrite` on 2026-11-03; tenant consent and manual validation remain pending.
+- Group chat implementation is on `feat/group-chats`; the user approved `ChatMember.ReadWrite` on 2026-11-03; the user confirmed Entra delegated permission and admin consent on 2026-11-03; the user confirmed named group creation, first-message sending, member addition with history choices, and member removal on 2026-11-03.
 - User is manually testing against the actual Office 365 tenant with their boss's approval. Automated tests continue to use mocks; this does not authorize unspecified automated tenant mutations.
 
 ## Attachment sending — manually verified
@@ -29,23 +29,56 @@ See [GROUP_CHATS.md](GROUP_CHATS.md) for implemented behavior, permissions, and 
 - [x] Leave a group chat by removing myself, with clear confirmation and consequences.
 - [x] Verify documented Graph operations, least-privilege delegated permissions, and history choices; add mocked coverage for creation and member operations.
 - [x] User approved delegated `ChatMember.ReadWrite` on 2026-11-03; scope added to Rust.
-- [ ] Complete tenant consent, sign out/in, and manually validate group operations.
+- [x] User confirmed delegated `ChatMember.ReadWrite` and tenant admin consent (2026-11-03).
+- [x] User manually verified named group creation, first-message sending, adding a user with history options, and removing that user (2026-11-03).
+- [ ] Manually validate leaving a group (mocked coverage already passes).
+- [x] Add a chronological activity timeline for member changes and group-name changes using structured Graph system events; no extra permissions.
 - [ ] Follow up: guest/federated participant role handling, larger/paginated groups, existing-group renaming (requires separate scope review).
 
-## Message and conversation deletion
+## Message deletion and personal chat visibility
 
-- [ ] Delete individual messages where supported; establish ownership and permission restrictions and whether recovery is possible.
-- [ ] Delete entire message threads/conversations where supported. Research and clearly distinguish hiding/removing a chat for myself from deleting shared history for everyone.
-- [ ] Confirm the actual scope and consequences of each destructive action in the UI; do not silently delete or fall back to a different operation.
-- [ ] Cover deletion and membership changes with mocked requests, including failures and partial success.
+See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operations, and limits.
+
+- [x] Soft-delete and restore own normal messages, with Rust ownership verification and explicit confirmation; tenant policy may restrict either operation.
+- [x] Hide/unhide a conversation for myself, preserving shared history, membership, files, and session drafts; expose hidden chats in the sidebar.
+- [x] User approved delegated `Chat.ReadWrite` on 2026-11-03; added to Rust's requested scopes.
+- [x] User confirmed Entra delegated `Chat.ReadWrite` consent and manually verified message deletion/restoration and hide/unhide with the unsent draft preserved (2026-11-03).
+- [x] Document exact consequences; failed or uncertain actions do not silently change the UI or automatically retry. Read-only status checks precede explicit retries.
+- [x] Mocked coverage for permissions, ownership, cancellation, success, failure, recovery, stale reads, and draft preservation.
+- [ ] Deferred: administrative deletion of shared threads for everyone. Requires separate `Chat.ManageDeletion.All` approval and supported admin role; user delegated the release choice and this release offers Hide for me only.
+
+## Incoming message visibility
+
+- [x] Request expanded latest-message previews and newest-message ordering from Graph; show message previews/times, per-conversation unread dots, and an unread-conversation badge on Chats.
+- [x] Preserve drafts and synchronize read state to Teams only after explicitly opening a conversation and viewing the latest messages in the focused window. Use existing Chat.ReadWrite; no new permissions or native notifications. Start with no conversation selected; server read positions remain authoritative, including external mark-unread changes.
+- [x] Cover incoming inactive/new chats, local reads and later messages, hidden chats, and server-marked unread own messages and suppression of system/reaction-only changes with mocked tests.
+- Chat list currently loads the newest 50 chats; existing active and local draft conversations remain retained during synchronization. Inactive chat-list updates use the existing 30-second polling interval while TAUT is visible.
+- [ ] Paginate the full chat list for larger histories.
+- [x] Manual Refresh updates the whole chat list as well as the selected conversation; keep manually marked-unread own/group messages visible.
+- [ ] Add explicit Mark unread controls using the supported Graph action, with no automatic re-reading until the user opens the conversation again.
+- [x] User confirmed that marking a conversation read in either app updates the other, with an acceptable propagation delay (2026-11-03).
+
+## Conversation organization — lower priority
+
+- [ ] Add Pin / Unpin controls for chats. The Pinned section currently renders favorites, but live chats have no pinning control.
+- [ ] Persist pins per signed-in account across restarts. Establish whether pins are TAUT-local or can synchronize with Teams after verifying supported APIs; do not imply Teams synchronization without it.
+
+## Teams and channels
+
+- [ ] Show the teams the signed-in user belongs to and their accessible channels in TAUT navigation.
+- [ ] Read channel conversations and threaded replies; follow with explicit posting/replying, attachments, and activity indicators.
+- [ ] Handle standard, private, and shared channel access correctly, with pagination and clear unavailable/access-denied states.
+- [ ] Research channel-specific Graph operations and least-privilege delegated permissions. Document and obtain approval for any additional scope before implementation; keep automated testing mocked.
 
 ## Remaining backlog
 
-- [ ] Persistent sign-in across rebuilds/restarts using macOS Keychain for refresh tokens, silent session restoration in Rust, and Keychain cleanup on explicit sign-out. Keep passwords and tokens out of Svelte, logs, URLs, and plaintext files; handle revoked/expired grants and tenant sign-in policy. Lower priority at user request.
+- [x] Implement persistent sign-in across rebuilds/restarts using macOS Keychain for refresh tokens, silent startup restoration in Rust, token rotation, and cleanup on explicit sign-out. Keep tokens out of Svelte, logs, URLs, and plaintext files; handle Keychain failures and revoked/expired grants. See [PERSISTENT_AUTH.md](PERSISTENT_AUTH.md).
+- [x] User manually verified persistent sign-in across a rebuild and explicit sign-out preventing restoration (2026-11-03).
 
 - [ ] Trusted-sender image auto-loading preference.
 - [ ] Participant photos and verified Graph presence.
-- [ ] Reactions and native notifications with reaction noise suppressed.
+- [ ] Display received message reactions (including likes), with grouped counts and who reacted. Keep reaction changes out of unread/new-message indicators and suppress reaction notifications.
+- [ ] Native message notifications with reaction noise suppressed.
 - [ ] Code-block formatting and syntax highlighting.
 - [ ] Typing indicators, subject to API support.
 - [ ] Shared Media panel with images, files, and links.
