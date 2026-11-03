@@ -60,8 +60,8 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 
 ## Conversation organization — lower priority
 
-- [ ] Add Pin / Unpin controls for chats. The Pinned section currently renders favorites, but live chats have no pinning control.
-- [ ] Persist pins per signed-in account across restarts. Establish whether pins are TAUT-local or can synchronize with Teams after verifying supported APIs; do not imply Teams synchronization without it.
+- [x] Add Pin / Unpin actions in conversation-row options; pinning does not open or mark the chat read.
+- [x] Persist pins locally per signed-in account across restarts. Pins are TAUT-only on this device; no Teams synchronization or new Graph permissions. Only chat IDs are stored; drafts and messages are not persisted with pins.
 
 ## Teams and channels
 
