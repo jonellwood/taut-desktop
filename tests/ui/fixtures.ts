@@ -5,12 +5,14 @@ export const alex = { id: '22222222-2222-2222-2222-222222222222', displayName: '
 export const blair = { id: '33333333-3333-3333-3333-333333333333', displayName: 'Blair Example', mail: 'blair@example.com' };
 export const casey = { id: '44444444-4444-4444-4444-444444444444', displayName: 'Casey Example', mail: 'casey@example.com' };
 export const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
-export function chat(id: string, person: typeof alex) {
-  return { id, chatType: 'oneOnOne', members: [{ userId: me.id, displayName: me.displayName }, { userId: person.id, displayName: person.displayName, email: person.mail }] };
+export type TestMember={id:string;userId:string;displayName:string;email?:string;roles?:string[]};
+export type TestChat={id:string;chatType:string;topic?:string;members:TestMember[]};
+export function chat(id: string, person: typeof alex):TestChat {
+  return { id, chatType: 'oneOnOne', members: [{id:'member-me', userId: me.id, displayName: me.displayName,roles:['owner'] }, {id:`member-${person.id}`, userId: person.id, displayName: person.displayName, email: person.mail,roles:['owner'] }] };
 }
 export type MockMessage = {
   id: string; messageType: string; createdDateTime: string;
-  from?: { user: { id: string } }; body: { content: string; contentType: string };
+  from?: { user: { id: string; displayName?:string } }; body: { content: string; contentType: string };
   attachments?: { id: string; name: string; contentType: string; contentUrl: string }[];
 };
 export function message(id: string, content: string, sender = alex.id): MockMessage {
@@ -28,18 +30,24 @@ export class MockGraph {
   createError = '';
   sendError = '';
   attachmentPermission = false;
+  groupPermission = false;
+  groupCreateError = '';
+  memberError = '';
+  membershipIncomplete = false;
   prepareError = '';
   prepared = new Map<string, {id:string; name:string; chatId:string}>();
   uploadCount = 0;
   sendGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
       case 'sign_in': case 'sign_out': return null;
       case 'graph_profile': return me;
       case 'attachment_permission': return this.attachmentPermission;
+      case 'group_member_permission': return this.groupPermission;
+      case 'graph_chat_members': return {value:this.chats.find(c=>c.id===args.chatId)?.members??[],...(this.membershipIncomplete?{'@odata.nextLink':'https://graph.microsoft.com/next'}:{})};
       case 'graph_chats': return { value: this.chats };
       case 'graph_search_users': return { value: [me, alex, blair, casey].filter(u => `${u.displayName} ${'mail' in u ? u.mail : ''}`.toLowerCase().includes(args.query.toLowerCase())) };
       case 'graph_messages':
@@ -47,6 +55,24 @@ export class MockGraph {
         return { value: this.messages[args.chatId] ?? [] };
       case 'graph_hosted_image': return image;
       case 'plugin:opener|open_url': return null; // Record only; never launch a browser.
+      case 'graph_create_group_chat':
+        if (!this.allowWrites) break;
+        if (this.groupCreateError) throw Error(this.groupCreateError);
+        const people=[alex,blair,casey];
+        this.chats.push({id:'chat-group',chatType:'group',topic:args.topic,members:[{id:'member-me',userId:me.id,displayName:me.displayName,roles:['owner']},...args.recipients.map((id:string)=>({id:`member-${id}`,userId:id,displayName:people.find(p=>p.id===id)!.displayName,roles:['owner']}))]});
+        return {id:'chat-group'};
+      case 'graph_add_group_member':
+        if (!this.allowWrites) break;
+        if (this.memberError) throw Error(this.memberError);
+        const person=[alex,blair,casey].find(p=>p.id===args.recipient)!;
+        this.chats.find(c=>c.id===args.chatId)!.members.push({id:`member-${person.id}`,userId:person.id,displayName:person.displayName,roles:['owner']});
+        return null;
+      case 'graph_remove_group_member':
+        if (!this.allowWrites) break;
+        if (this.memberError) throw Error(this.memberError);
+        const group=this.chats.find(c=>c.id===args.chatId)!;
+        group.members=group.members.filter(m=>m.id!==args.membershipId);
+        return null;
       case 'graph_create_chat':
         if (!this.allowWrites) break;
         if (this.createError) throw Error(this.createError);
@@ -127,3 +153,4 @@ export async function openDraft(page: Page, name = casey.displayName) {
 export function row(page: Page, name: string) {
   return page.getByRole('button', { name: new RegExp(name) }).filter({ has: page.locator('.chat-copy') });
 }
+export type { Page } from '@playwright/test';

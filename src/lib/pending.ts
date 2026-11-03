@@ -9,11 +9,20 @@ export function pendingConversation(recipient:string,name:string,ownId:string){
  if(!ownId.trim() || !recipient || recipient.toLowerCase()===ownId.toLowerCase())throw Error('Choose someone other than yourself.');
  return {id:`pending:${recipient.toLowerCase()}`,recipient,name,initials:name.slice(0,2).toUpperCase(),status:'offline' as const,preview:'Local draft · not sent',time:'',unread:0,messages:[]};
 }
+export function pendingGroupConversation(users:{id:string;displayName?:string}[],topic:string,ownId:string){
+ const recipients=users.map(u=>u.id.trim().toLowerCase());
+ const title=topic.trim();
+ if(recipients.length<2 || recipients.length>19 || new Set(recipients).size!==recipients.length || recipients.some(id=>!id || id===ownId.toLowerCase()) || !ownId)throw Error('Choose 2–19 distinct coworkers other than yourself.');
+ if([...title].length>250 || /[:\x00-\x1f]/.test(title))throw Error('Use a group name up to 250 characters without colons.');
+ const name=title||users.map(u=>u.displayName||'Coworker').join(', ');
+ return {id:`pending:group:${[...recipients].sort().join(',')}:${encodeURIComponent(title)}`,name,chatType:'group',pendingGroup:{recipients,topic:title},initials:'GR',status:'offline' as const,preview:'Local group draft · not sent',time:'',unread:0,messages:[]};
+}
+export type GroupCreation={recipients:string[];topic:string;onUnconfirmed?:()=>void};
 export type GraphInvoke = <T>(command:string,args:Record<string,unknown>)=>Promise<T>;
-export async function submitMessage(invoke:GraphInvoke,chatId:string,recipient:string|undefined,ownId:string,text:string,onCreated:(id:string)=>void,prepare?:(chatId:string)=>Promise<string[]>){
+export async function submitMessage(invoke:GraphInvoke,chatId:string,recipient:string|undefined,ownId:string,text:string,onCreated:(id:string)=>void,prepare?:(chatId:string)=>Promise<string[]>,group?:GroupCreation){
  const content=text.trim();
- if((!content && (!prepare || recipient!==undefined)) || [...content].length>4000)throw Error('Message must contain 1–4000 characters.');
- if(chatId.startsWith('pending:') !== (recipient!==undefined))throw Error('Invalid pending conversation. Reopen the draft before sending.');
+ if((!content && (!prepare || recipient!==undefined || group!==undefined)) || [...content].length>4000)throw Error('Message must contain 1–4000 characters.');
+ if((recipient!==undefined && group!==undefined) || chatId.startsWith('pending:') !== (recipient!==undefined || group!==undefined))throw Error('Invalid pending conversation. Reopen the draft before sending.');
  if(recipient!==undefined){
   recipient=recipient.trim();
   if(!ownId.trim() || !recipient)throw Error('Choose a coworker before sending.');
@@ -23,6 +32,15 @@ export async function submitMessage(invoke:GraphInvoke,chatId:string,recipient:s
   chatId=chat.id;
   // Retain the server ID before attempting the non-atomic message operation.
   onCreated(chatId);
+ }
+ if(group){
+  pendingGroupConversation(group.recipients.map(id=>({id})),group.topic,ownId);
+  let chat:{id:string};
+  try{
+   chat=await invoke<{id:string}>('graph_create_group_chat',{recipients:group.recipients,topic:group.topic,ownId,firstMessage:content});
+   if(!chat?.id)throw Error('Group creation was not confirmed. Check Teams before trying again.');
+  }catch(e){group.onUnconfirmed?.();throw e;}
+  chatId=chat.id;onCreated(chatId);
  }
  const ids=prepare?await prepare(chatId):[];
  if(prepare && !ids.length)throw Error('No attachments are ready. Your draft is saved.');

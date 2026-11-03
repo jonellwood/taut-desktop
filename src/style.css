@@ -54,3 +54,9 @@
 .messages{min-height:100px}
 /* Errors stay in the layout instead of covering a growing draft or file cards. */
 .main>.send-error{position:static;margin:0 clamp(20px,3vw,45px) 8px;flex:none}
+
+.group-toggle{display:flex;align-items:center;gap:8px;margin:12px 0}.group-toggle input{accent-color:var(--accent)}
+.group-topic{display:block;width:100%;padding:10px;margin:8px 0;background:#10191f;color:#edf3f4;border:1px solid #4d5c66;border-radius:8px}
+.selected-group-users{display:flex;flex-wrap:wrap;gap:6px}.selected-group-users button{border:1px solid #64707a;border-radius:16px;padding:6px 9px;font-size:12px}
+.member-list{list-style:none;margin:8px 0;padding:0}.member-list li{display:flex;align-items:center;gap:8px;border-bottom:1px solid #35424b;padding:9px 0}.member-list li>span{flex:1;min-width:0}.member-list strong{display:block;overflow-wrap:anywhere;font-size:12px}.member-list small{font-size:10px;color:#95a6b1}.member-list button,.member-refresh,.member-confirm button{font-size:11px;padding:6px;border:1px solid #526570;border-radius:6px;color:var(--accent)}
+.group-members input,.group-members select{width:100%;margin:7px 0;padding:9px;background:#10191f;color:#edf3f4;border:1px solid #4d5c66;border-radius:7px}.member-search-label{font-size:12px}.member-confirm{padding:10px;border:1px solid var(--accent);border-radius:8px;margin:10px 0}.member-confirm button{margin:4px}.group-members .member-error{color:#ffb5a9}.pending-notice button{padding:6px;border:1px solid var(--accent);border-radius:6px;margin:5px}
