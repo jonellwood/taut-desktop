@@ -4,7 +4,7 @@ test('startup restores a saved session without launching interactive sign-in or 
  graph.restoredSession=true;
  await page.goto('/');
  await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeEnabled();
- await expect(page.locator('.conversation-header')).toContainText('Select a conversation');
+ await expect(page.getByRole('region',{name:'Welcome to TAUT'})).toBeVisible();
  expect(graph.calls.some(c=>c.command==='graph_messages')).toBe(false);
  await row(page,alex.displayName).click();
  await expect(page.locator('.messages')).toContainText('Hello from Alex');
@@ -97,5 +97,7 @@ test('reconnecting as a different account clears prior account drafts and media'
  graph.profileId=blair.id;graph.messagesError='';
  await page.getByRole('button',{name:'Reconnect',exact:true}).click();
  await expect(page.getByRole('button',{name:'Reconnect',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('region',{name:'Welcome to TAUT'})).toBeVisible();
+ await row(page,alex.displayName).click();
  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('');expect(graph.writes).toEqual([]);
 });

@@ -87,4 +87,6 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [ ] Typing indicators, subject to API support.
 - [ ] Shared Media panel with images, files, and links.
 
-- [ ] Welcome state: brief signal-settling-into-T/ animation, “Less noise. More signal.”, new-chat/search shortcuts, reduced-motion support; hide empty conversation chrome until selection.
+- [x] Welcome state: brief signal-settling-into-T/ animation, “Less noise. More signal.”, new-chat/search shortcuts, reduced-motion support; hide empty conversation chrome until selection.
+
+- [x] Persistent layout toolbar: toggle conversation/details panels, amber active states, and focus mode that restores the previous arrangement.

@@ -11,7 +11,7 @@ test('startup leaves all chats unselected and all server unread indicators intac
  unread(graph,0,alex.id);unread(graph,1,blair.id);
  await page.goto('/');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeEnabled();
- await expect(page.locator('.conversation-header')).toContainText('Select a conversation');
+ await expect(page.getByRole('region',{name:'Welcome to TAUT'})).toBeVisible();
  await expect(page.getByLabel('2 unread conversations',{exact:true})).toBeVisible();
  expect(graph.calls.some(c=>c.command==='graph_messages')).toBe(false);expect(graph.writes).toEqual([]);
  await page.getByRole('button',{name:'Refresh messages'}).click();

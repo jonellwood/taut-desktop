@@ -1,11 +1,12 @@
 <script lang="ts">
  import { tick, onMount } from 'svelte';
- import { MessageCircle, Bell, Users, Phone, Files, Settings, Search, Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Send, SquarePen, Paperclip, Smile, MoreHorizontal, Video, X, Check, UserPlus, UserMinus, PencilLine, LogIn, Trash2, Undo2, EyeOff, Eye, ChevronRight, Moon, Sun, LayoutPanelTop, LogOut } from 'lucide-svelte';
+ import { MessageCircle, Bell, Users, Phone, Files, Settings, Search, Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Send, SquarePen, Paperclip, Smile, MoreHorizontal, Video, X, Check, UserPlus, UserMinus, PencilLine, LogIn, Trash2, Undo2, EyeOff, Eye, ChevronRight, Moon, Sun, LayoutPanelTop, LogOut, PanelLeft, PanelRight, Scan } from 'lucide-svelte';
  import { existingChat, pendingConversation, pendingGroupConversation, submitMessage, isUserMessage } from './lib/pending';
  import { validateFiles, fileBase64, fileSize, type StagedFile } from './lib/attachments';
  import { conversationActivity, activityIdentities, identityKey, type EventDetail, type EventIdentity, type IdentityNames } from './lib/activity';
  import type { Message } from './lib/types';
  import DeletionDialog from './lib/DeletionDialog.svelte';
+ import Welcome from './lib/Welcome.svelte';
  import EmojiPicker from './lib/EmojiPicker.svelte';
  import {insertEmoji} from './lib/emoji';
  import MessageReactions from './lib/MessageReactions.svelte';
@@ -91,8 +92,23 @@
  let ownId=$state('');
  let selectedId=$state('hannah');
  let mode:WorkspaceMode=$state('chats');
- let sidebarOpen=$state(true);
- let detailsOpen=$state(true);
+ function savedLayout(){
+   const defaults={sidebar:true,details:true,restoreSidebar:true,restoreDetails:true};
+   try{const value=JSON.parse(localStorage.getItem('taut.layout.v1')??'null');
+     if(value&&Object.keys(defaults).every(key=>typeof value[key]==='boolean'))return value as typeof defaults;
+   }catch{/* A blocked or invalid preference must not prevent startup. */}
+   return defaults;
+ }
+ const initialLayout=savedLayout();
+ let sidebarOpen=$state(initialLayout.sidebar);
+ let detailsOpen=$state(initialLayout.details);
+ let focusRestore=$state({sidebar:initialLayout.restoreSidebar,details:initialLayout.restoreDetails});
+ let focusMode=$derived(!sidebarOpen&&!detailsOpen);
+ function toggleFocus(){
+   if(focusMode){sidebarOpen=focusRestore.sidebar;detailsOpen=focusRestore.details;if(!sidebarOpen&&!detailsOpen)sidebarOpen=true;}
+   else{focusRestore={sidebar:sidebarOpen,details:detailsOpen};sidebarOpen=false;detailsOpen=false;}
+ }
+ $effect(()=>{try{localStorage.setItem('taut.layout.v1',JSON.stringify({sidebar:sidebarOpen,details:detailsOpen,restoreSidebar:focusRestore.sidebar,restoreDetails:focusRestore.details}));}catch{/* Layout controls still work when storage is unavailable. */}});
  let paletteOpen=$state(false);
  let settingsOpen=$state(false);
  let search=$state('');
@@ -121,6 +137,7 @@
  let sidebarWidth=$state(306);
  let dragStart=$state(false);
  let listEnd = $state<HTMLElement | undefined>(undefined);
+ let conversationSearch=$state<HTMLInputElement>();
  let paletteInput = $state<HTMLInputElement | undefined>(undefined);
  const noSelection:Conversation={id:'empty',name:'Select a conversation',initials:'—',status:'offline',preview:'Choose a chat to read messages',time:'',unread:0,messages:[]};
  let selected=$derived(chats.find(c=>c.id===selectedId)??(isLive?noSelection:chats[0]));
@@ -141,10 +158,12 @@
  ];
  let matchingCommands=$derived(commands.filter(c=>c.label.toLowerCase().includes(commandSearch.toLowerCase())));
  function openPalette(){paletteOpen=true;commandSearch='';tick().then(()=>paletteInput?.focus());}
+ async function focusConversationSearch(){sidebarOpen=true;mode='chats';await tick();conversationSearch?.focus();}
  function execCommand(fn:()=>void){fn();paletteOpen=false;}
  function keys(e:KeyboardEvent){
   if(changeTarget||emojiTarget)return;
   if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette();}
+  if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.key.toLowerCase()==='k'){e.preventDefault();void focusConversationSearch();}
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='\\'){e.preventDefault();sidebarOpen=!sidebarOpen;}
   if(e.key==='Escape'){if(lightbox){lightbox=null;imageZoom=1;}else{paletteOpen=false;settingsOpen=false;newChatOpen=false;}}
  }
@@ -788,6 +807,13 @@
 {#if reauthRequired}<div class="auth-notice" role="status">Microsoft requires a fresh sign-in. Your drafts remain in this session.<button type="button" disabled={authBusy||sendBusy||stagingBusy||groupBusy||operationBusy} onclick={signIn}>Reconnect</button></div>{:else if persistenceNotice}<div class="auth-notice" role="status">{persistenceNotice}<button type="button" aria-label="Dismiss sign-in notice" onclick={()=>persistenceNotice=''}>×</button></div>{/if}
 {#if authError}<div class="auth-error" role="alert">{authError}<button onclick={()=>authError=""} aria-label="Dismiss error">×</button></div>{/if}
 <div class="app" class:dense style={`--accent:${accent==='amber'?'#efbb70':accent==='teal'?'#63d4c1':'#b3a0ff'};--sidebar-width:${sidebarWidth}px`}>
+ <div class="layout-bar"><span class="layout-caption">TAUT <span>/ YOUR WORKSPACE</span></span><div class="layout-controls" role="toolbar" aria-label="Workspace layout">
+  <button type="button" aria-label="Toggle conversation sidebar" aria-pressed={sidebarOpen} title="Conversation sidebar" onclick={()=>sidebarOpen=!sidebarOpen}><PanelLeft size={17}/></button>
+  <button type="button" aria-label="Toggle details panel" aria-pressed={detailsOpen} title={mode==='chats'&&selected.id!=='empty'?'Conversation details':'Conversation details · shown after selecting a chat'} onclick={()=>detailsOpen=!detailsOpen}><PanelRight size={17}/></button>
+  <span class="layout-divider"></span>
+  <button type="button" aria-label="Focus mode" aria-pressed={focusMode} title={focusMode?'Exit focus mode · restore panels':'Focus mode · hide both panels'} onclick={toggleFocus}><Scan size={17}/></button>
+ </div></div>
+ <div class="workspace">
  <aside class="rail" aria-label="TAUT navigation">
   <img class="brand" src="/icon.png" alt="TAUT"/>
   <div class="rail-buttons">
@@ -805,7 +831,7 @@
  <aside class="sidebar" aria-label="Conversations">
   <div class="sidebar-head"><div><div class="eyebrow">WORKSPACE</div><h1>{mode==='chats'?'Messages':nav.find(n=>n.id===mode)?.label}</h1></div><div class="sidebar-head-actions">{#if mode==='chats'}<button class="small-button" title="New conversation" aria-label="New conversation" onclick={openNewChat}><SquarePen size={18}/></button>{/if}<button class="small-button" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={()=>sidebarOpen=false}><PanelLeftClose size={18}/></button></div></div>
   {#if mode==='chats'}
-   <label class="search-field"><Search size={17}/><input bind:value={search} placeholder="Search conversations" aria-label="Search conversations"/><kbd>⌘ K</kbd></label>
+   <label class="search-field"><Search size={17}/><input bind:this={conversationSearch} bind:value={search} placeholder="Search conversations" aria-label="Search conversations"/><kbd>⌘ K</kbd></label>
    {#if isLive}<button class="hidden-chats-toggle" type="button" aria-pressed={showHidden} onclick={()=>showHidden=!showHidden}>{showHidden?'Back to visible chats':`Hidden chats (${chats.filter(c=>c.hidden).length})`}</button>{/if}
    <div class="list-scroll"><div class="list-label">PINNED <span>{filtered.filter(c=>c.favorite).length}</span></div>
    {#each filtered.filter(c=>c.favorite) as c}<button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i class:away={c.status==='away'} class:offline={c.status==='offline'}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{/each}
@@ -818,7 +844,11 @@
  {/if}
  <main class="main">
   {#if mode==='chats'}
-   <header class="conversation-header"><div class="header-person">{#if !sidebarOpen}<button class="small-button" title="Expand sidebar" aria-label="Expand sidebar" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={19}/></button>{/if}<span class="avatar header-avatar">{selected.initials}<i class:away={selected.status==='away'} class:offline={selected.status==='offline'}></i></span><div><strong>{selected.name}</strong><small class:presence-muted={isLive||selected.status==='offline'}>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status==='away'?'Away':'Offline'}</small></div></div><div class="header-actions">{#if isLive&&selected.id!=='empty'&&!selected.id.startsWith('pending:')}<button type="button" title={chatWritePermission?(selected.hidden?'Return this chat to your list':'Hide only for you; history stays'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} aria-label={selected.hidden?'Unhide conversation for me':'Hide conversation for me'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(selected.hidden?'unhide':'hide')}>{#if selected.hidden}<Eye size={18}/>{:else}<EyeOff size={18}/>{/if}</button>{/if}<button title="Calls require integration" aria-label="Call (not yet implemented)" disabled><Phone size={18}/></button><button title="Meetings require integration" aria-label="Video (not yet implemented)" disabled><Video size={18}/></button><div class="vert-divider"></div><button class:chosen={detailsOpen} title="Details panel" aria-label="Toggle details panel" onclick={()=>detailsOpen=!detailsOpen}>{#if detailsOpen}<PanelRightClose size={19}/>{:else}<PanelRightOpen size={19}/>{/if}</button>{#if isLive}<button title="Refresh messages" aria-label="Refresh messages" disabled={refreshBusy} onclick={refreshMessages}><span class="refresh-symbol" class:spinning={refreshBusy}>↻</span></button>{/if}<button title="Command Palette" aria-label="Commands" onclick={openPalette}><MoreHorizontal size={19}/></button></div></header>
+   {#if selected.id==='empty'}
+    <Welcome onNew={openNewChat} onSearch={focusConversationSearch} onRefresh={refreshMessages} onSidebar={()=>sidebarOpen=true} {sidebarOpen} busy={refreshBusy||authBusy||operationBusy}/>
+    {#if syncStatus==='offline'}<div class="sync-warning" role="status">Sync paused after an error. Automatic retry is enabled.</div>{/if}
+   {:else}
+   <header class="conversation-header"><div class="header-person">{#if !sidebarOpen}<button class="small-button" title="Expand sidebar" aria-label="Expand sidebar" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={19}/></button>{/if}<span class="avatar header-avatar">{selected.initials}<i class:away={selected.status==='away'} class:offline={selected.status==='offline'}></i></span><div><strong>{selected.name}</strong><small class:presence-muted={isLive||selected.status==='offline'}>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status==='away'?'Away':'Offline'}</small></div></div><div class="header-actions">{#if isLive&&selected.id!=='empty'&&!selected.id.startsWith('pending:')}<button type="button" title={chatWritePermission?(selected.hidden?'Return this chat to your list':'Hide only for you; history stays'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} aria-label={selected.hidden?'Unhide conversation for me':'Hide conversation for me'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(selected.hidden?'unhide':'hide')}>{#if selected.hidden}<Eye size={18}/>{:else}<EyeOff size={18}/>{/if}</button>{/if}<button title="Calls require integration" aria-label="Call (not yet implemented)" disabled><Phone size={18}/></button><button title="Meetings require integration" aria-label="Video (not yet implemented)" disabled><Video size={18}/></button><div class="vert-divider"></div>{#if isLive}<button title="Refresh messages" aria-label="Refresh messages" disabled={refreshBusy} onclick={refreshMessages}><span class="refresh-symbol" class:spinning={refreshBusy}>↻</span></button>{/if}<button title="Command Palette" aria-label="Commands" onclick={openPalette}><MoreHorizontal size={19}/></button></div></header>
    <section class="messages" bind:this={messageViewport} onscroll={trackScroll} aria-label="Chat messages">{#each selected.messages as m,i (m.id)}
     {#if i===0 || (m.createdDateTime && dateKey(m.createdDateTime)!==dateKey(selected.messages[i-1].createdDateTime??''))}
       <div class="day-marker"><span>{m.createdDateTime?dayLabel(m.createdDateTime):'History'}</span></div>
@@ -845,7 +875,6 @@
    {#if jumpVisible && mode==='chats'}<button class="jump-latest" onclick={jumpToLatest}>↓ Snap to Now</button>{/if}
    {#if isLive && syncStatus==='offline'}<div class="sync-warning" role="status">Sync paused after an error. Automatic retry is enabled.</div>{/if}
    {#if readError}<div class="pending-notice" role="status">{readError}</div>{/if}
-   {#if selected.id==='empty'}<div class="pending-notice">Choose a conversation from the sidebar. Opening TAUT does not mark any chat as read.</div>{/if}
    {#if fileOpenError}<div class="send-error" role="alert">{fileOpenError}<button type="button" onclick={()=>fileOpenError=''} aria-label="Dismiss file error">×</button></div>{/if}
    {#if selected.hidden}<div class="pending-notice" role="status">Hidden for you. History and drafts are preserved. Unhide this conversation to send again.</div>{/if}
    {#if sendError}<div class="send-error" role="alert">{sendError}<button type="button" onclick={()=>sendError=''} aria-label="Dismiss send error">×</button></div>{/if}
@@ -867,9 +896,11 @@
    </div>{/if}
    <input class="file-picker" type="file" multiple bind:this={fileInput} aria-label="Choose attachment files" onchange={selectFiles} disabled={!isLive||sendBusy||stagingBusy}/>
    <form class="composer" onsubmit={(e)=>{e.preventDefault();send()}}><button type="button" title="Attach files (up to 5 files, 10 MB each)" aria-label="Attach files" disabled={!isLive||sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.id==='empty'} onclick={()=>fileInput?.click()}><Paperclip size={19}/></button><textarea rows="1" bind:this={composerInput} use:autosizeComposer={draft} onkeydown={composerKeys} value={draft} oninput={(e)=>{draft=e.currentTarget.value;drafts[selectedId]=draft}} placeholder={isLive?`Message ${selected.name}…`:`Demo message ${selected.name}…`} disabled={sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || selected.hidden || selected.id==='empty'} aria-label="Message" title="Enter to send; Shift+Enter for a new line"></textarea><button type="button" title="Insert emoji into your draft" aria-label="Insert emoji" disabled={!isLive||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onclick={openComposerEmoji}><Smile size={19}/></button><button type="submit" class="send" disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.creationUncertain||(!draft.trim()&&(!selectedFiles.length||selected.id.startsWith('pending:')))||selected.id==='empty'} aria-label="Send message"><Send size={18}/></button></form>
+   {/if}
   {:else}<div class="section-placeholder">{#if !sidebarOpen}<button class="small-button left-restore" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={18}/></button>{/if}<LayoutPanelTop size={36}/><h2>{nav.find(n=>n.id===mode)?.label}</h2><p>TAUT owns this workspace. Connecting Microsoft 365 data is the next phase.</p><button class="outline-button" onclick={()=>mode='chats'}>Return to messages</button></div>{/if}
  </main>
- {#if detailsOpen&&mode==='chats'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
+ {#if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
+</div>
 </div>
 {#if lightbox}<div class="image-lightbox" role="presentation" onclick={(e)=>{if(e.target===e.currentTarget)lightbox=null}}><div class="image-lightbox-toolbar"><span>{lightbox.name}</span><button aria-label="Zoom out" title="Zoom out" onclick={()=>imageZoom=Math.max(0.5,imageZoom-0.25)}>−</button><button aria-label="Fit image" title="Fit to window" onclick={()=>imageZoom=1}>Fit</button><button aria-label="Zoom in" title="Zoom in" onclick={()=>imageZoom=Math.min(4,imageZoom+0.25)}>+</button><button aria-label="Close viewer" title="Close (Esc)" onclick={()=>lightbox=null}>×</button></div><div class="image-lightbox-body"><img src={lightbox.src} alt={lightbox.name} style={`transform:scale(${imageZoom})`}/></div></div>{/if}
 {#if paletteOpen}<div class="overlay" role="presentation" onclick={(e)=>{if(e.target===e.currentTarget)paletteOpen=false}}><div class="palette" role="dialog" aria-label="Command Palette" aria-modal="true"><div class="palette-search"><Command size={19}/><input bind:this={paletteInput} bind:value={commandSearch} placeholder="Type a command…" aria-label="Search commands" onkeydown={(e)=>{if(e.key==='Enter'&&matchingCommands[0])execCommand(matchingCommands[0].run)}}/><button onclick={()=>paletteOpen=false} aria-label="Close"><X size={17}/></button></div><div class="palette-list">{#each matchingCommands as command}<button onclick={()=>execCommand(command.run)}><span>{command.label}</span><small>{command.hint}</small></button>{/each}{#if matchingCommands.length===0}<div class="empty">No matching commands</div>{/if}</div><div class="palette-foot">ENTER to run first result <span>ESC to close</span></div></div></div>{/if}
