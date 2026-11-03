@@ -14,7 +14,8 @@ test('startup restores a saved session without launching interactive sign-in or 
 
 test('no saved credential leaves manual sign-in available without fetching private data',async({page,graph})=>{
  await page.goto('/');await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeEnabled();
- expect(graph.calls.map(c=>c.command)).toEqual(['restore_session']);expect(graph.writes).toEqual([]);
+ expect(graph.calls.filter(c=>c.command==='restore_session')).toHaveLength(1);
+ expect(graph.calls.some(c=>c.command.startsWith('graph_'))).toBe(false);expect(graph.writes).toEqual([]);
 });
 
 test('startup restore disables duplicate sign-in until it completes',async({page,graph})=>{

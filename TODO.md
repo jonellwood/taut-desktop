@@ -82,7 +82,9 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Add explicit Unicode reaction selection and removal of own standard reactions, with server verification and no automatic retries.
 - [x] Enable searchable categorized emoji insertion into the composer at the caret/selection, preserving local per-chat drafts and explicit Send.
 - [x] User confirmed reaction add/remove and composer emoji insertion all perform as expected (2026-11-03).
-- [ ] Native message notifications with reaction noise suppressed.
+- [x] Opt-in native message notifications with reaction noise suppressed. See [NOTIFICATIONS.md](NOTIFICATIONS.md); macOS banner delivery and click routing await manual validation.
 - [ ] Code-block formatting and syntax highlighting.
 - [ ] Typing indicators, subject to API support.
 - [ ] Shared Media panel with images, files, and links.
+
+- [ ] Welcome state: brief signal-settling-into-T/ animation, “Less noise. More signal.”, new-chat/search shortcuts, reduced-motion support; hide empty conversation chrome until selection.

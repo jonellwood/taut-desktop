@@ -1,4 +1,5 @@
 mod auth;
+mod notifications;
 mod read_state;
 mod reaction_ops;
 mod attachments;
@@ -10,7 +11,8 @@ use reqwest::blocking::Client;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{io::{Read, Write}, net::TcpListener, process::Command, sync::Mutex, thread, time::{Duration, Instant}};
-use tauri::State;
+use tauri::{State,Manager};
+use tauri_plugin_notification::NotificationExt;
 use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
@@ -64,7 +66,8 @@ async fn auth_persistence_status(state:State<'_,AuthState>)->Result<auth::Status
 }
 
 #[tauri::command]
-async fn sign_in(state: State<'_, AuthState>) -> Result<(), String> {
+async fn sign_in(state: State<'_, AuthState>, notifications:State<'_,notifications::State>) -> Result<(), String> {
+    notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.reset();
     let epoch=state.0.lock().map_err(|_|"Authentication state unavailable")?.begin_login();
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|_| "Could not open localhost sign-in listener")?;
     let port = listener.local_addr().map_err(|_| "Could not determine sign-in port")?.port();
@@ -169,10 +172,19 @@ async fn graph_event_names(state:State<'_,AuthState>,people:Vec<EventPerson>)->R
     })).await.map_err(|_|"Participant name lookup stopped")?
 }
 #[tauri::command]
-fn graph_profile(state: State<'_, AuthState>) -> Result<Value, String> { graph_request(&state, "/me?$select=id,displayName,userPrincipalName") }
+fn graph_profile(state: State<'_, AuthState>, notifications:State<'_,notifications::State>) -> Result<Value, String> {
+    let generation=notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.generation;
+    let value=graph_request(&state,"/me?$select=id,displayName,userPrincipalName")?;
+    if let Some(id)=value["id"].as_str(){let mut manager=notifications.0.lock().map_err(|_|"Notification state unavailable")?;if manager.tracker.generation==generation{manager.tracker.account(id);}}
+    Ok(value)
+}
 const CHAT_LIST_PATH:&str="/me/chats?$top=50&$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime%20desc";
 #[tauri::command]
-fn graph_chats(state: State<'_, AuthState>) -> Result<Value, String> { graph_get(&state, CHAT_LIST_PATH,true) }
+fn graph_chats(state: State<'_, AuthState>, notifications:State<'_,notifications::State>, app:tauri::AppHandle) -> Result<Value, String> {
+    let generation=notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.generation;
+    let value=graph_get(&state,CHAT_LIST_PATH,true)?;
+    notify_snapshot(&app,&notifications,&value,generation);Ok(value)
+}
 #[tauri::command]
 fn graph_chat_members(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
     let id: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
@@ -428,22 +440,85 @@ fn graph_hosted_image(state: State<'_, AuthState>, chat_id: String, message_id: 
     Ok(format!("data:{};base64,{}", mime, STANDARD.encode(bytes)))
 }
 #[tauri::command]
-async fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>) -> Result<(), String> {
-    let state=AuthState(state.0.clone());let uploads=uploads.0.clone();
+async fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>,notifications:State<'_,notifications::State>) -> Result<(), String> {
+    let state=AuthState(state.0.clone());let uploads=uploads.0.clone();let notifications=notifications.0.clone();
     tauri::async_runtime::spawn_blocking(move ||{
         let result=state.0.lock().map_err(|_|"Authentication state unavailable")?.logout(&mut auth::Keychain);
+        notifications.lock().map_err(|_|"Notification state unavailable")?.tracker.reset();
         uploads.lock().map_err(|_|"Attachment state unavailable")?.clear();
         result
     }).await.map_err(|_|"Sign-out stopped; saved credentials may remain")?
+}
+
+fn notify_snapshot(app:&tauri::AppHandle,state:&notifications::State,value:&Value,generation:u64){
+    let focused=app.get_webview_window("main").map(|w|w.is_focused().unwrap_or(false)&&w.is_visible().unwrap_or(false)).unwrap_or(false);
+    let (notices,session)=match state.0.lock(){Ok(mut manager)=>{if manager.tracker.generation!=generation{return;}let settings=manager.settings;let notices=manager.tracker.observe(value,settings,focused);(notices,manager.tracker.session.clone())},Err(_)=>return};
+    for notice in notices{
+        if !state.0.lock().map(|manager|manager.settings.enabled&&manager.tracker.session==session).unwrap_or(false){break;}
+        if app.notification().builder().id(notice.id).title("TAUT").body(&notice.body).extra("tautSession",&session).show().is_err(){
+            if let Ok(mut manager)=state.0.lock(){manager.error=Some("A notification could not be requested. Check macOS Notifications and Focus settings.".into());}
+        }
+    }
+}
+#[tauri::command]
+fn notification_settings(state:State<'_,notifications::State>)->Result<notifications::Status,String>{Ok(state.0.lock().map_err(|_|"Notification settings unavailable")?.status())}
+#[tauri::command]
+async fn notification_configure(app:tauri::AppHandle,state:State<'_,notifications::State>,enabled:bool,show_names:bool)->Result<notifications::Status,String>{
+    let state=state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move ||{
+        if enabled&&app.notification().request_permission().map_err(|_|"Notification permission could not be checked")?!=tauri::plugin::PermissionState::Granted{return Err("Notifications are not available. Check system settings.".into());}
+        state.0.lock().map_err(|_|"Notification settings unavailable")?.configure(notifications::Settings{enabled,show_names})
+    }).await.map_err(|_|"Notification preferences could not be updated")?
+}
+#[tauri::command]
+fn notification_view(state:State<'_,notifications::State>,chat_id:Option<String>,at_latest:bool)->Result<(),String>{
+    if chat_id.as_ref().map(|id|id.len()>512||id.chars().any(char::is_control)).unwrap_or(false){return Err("Invalid conversation view".into());}
+    let mut manager=state.0.lock().map_err(|_|"Notification state unavailable")?;manager.tracker.active_chat=chat_id;manager.tracker.at_latest=at_latest;Ok(())
+}
+#[tauri::command]
+fn notification_take_open(state:State<'_,notifications::State>)->Result<Option<String>,String>{Ok(state.0.lock().map_err(|_|"Notification state unavailable")?.tracker.pending_open.take())}
+#[tauri::command]
+fn notification_test(app:tauri::AppHandle,state:State<'_,notifications::State>)->Result<u64,String>{
+    if !state.0.lock().map_err(|_|"Notification settings unavailable")?.settings.enabled{return Err("Enable message notifications first".into());}
+    static TEST_SEQUENCE:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);
+    let sequence=TEST_SEQUENCE.fetch_add(1,std::sync::atomic::Ordering::Relaxed)+1;
+    app.notification().builder().title("TAUT").body(format!("Test notification #{sequence}. New message alerts are enabled in TAUT.")).show().map_err(|_|String::from("Test notification could not be requested"))?;
+    Ok(sequence)
+}
+fn setup_notifications(app:&mut tauri::App)->Result<(),Box<dyn std::error::Error>>{
+    let path=app.path().app_config_dir().ok().map(|p|p.join("notifications.json"));
+    let state=notifications::State(std::sync::Arc::new(Mutex::new(notifications::Manager::load(path))));app.manage(state.clone());
+    let handle=app.handle().clone();let click_state=state.clone();let click_handle=handle.clone();
+    app.notification().on_action(move |action|{
+        if action.action_id()!="tap"{return;}
+        let Some(note)=action.notification()else{return;};
+        let opened=click_state.0.lock().ok().and_then(|mut manager|{if note.extra().get("tautSession").and_then(Value::as_str)!=Some(manager.tracker.session.as_str()){return None;}manager.tracker.click(note.id())});
+        if opened.is_some(){if let Some(window)=click_handle.get_webview_window("main"){let _=window.unminimize();let _=window.show();let _=window.set_focus();}}
+    })?;
+    let auth=AuthState(app.state::<AuthState>().0.clone());
+    std::thread::spawn(move ||{
+        let mut next=Instant::now()+Duration::from_secs(30);
+        loop{
+            std::thread::sleep(Duration::from_secs(1));if Instant::now()<next{continue;}
+            let focused=handle.get_webview_window("main").map(|w|w.is_visible().unwrap_or(false)&&w.is_focused().unwrap_or(false)).unwrap_or(false);
+            let generation=state.0.lock().ok().and_then(|manager|(manager.settings.enabled&&manager.tracker.own.is_some()).then_some(manager.tracker.generation));
+            if focused||generation.is_none(){continue;}
+            next=Instant::now()+Duration::from_secs(30);
+            match graph_get(&auth,CHAT_LIST_PATH,true){Ok(value)=>notify_snapshot(&handle,&state,&value,generation.unwrap()),Err(error)=>{if error.contains("429"){next=Instant::now()+Duration::from_secs(60);}}}
+        }
+    });
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .setup(setup_notifications)
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

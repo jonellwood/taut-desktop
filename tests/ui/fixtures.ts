@@ -29,6 +29,11 @@ export class MockGraph {
   messages: Record<string, MockMessage[]> = { 'chat-alex': [message('hello', 'Hello from Alex')] };
   // Write commands fail closed unless a test deliberately enables its fake writes.
   allowWrites = false;
+  notificationSettings={enabled:false,showNames:false,error:null as string|null};
+  notificationConfigError='';
+  notificationTestError='';
+  notificationTests=0;
+  pendingNotificationChat:string|null=null;
   restoredSession = false;
   sessionSaved = true;
   persistenceNotice: string|null = null;
@@ -65,6 +70,15 @@ export class MockGraph {
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
+      case 'notification_settings': return this.notificationSettings;
+      case 'notification_view': return null;
+      case 'notification_configure':
+        if(this.notificationConfigError)throw Error(this.notificationConfigError);
+        this.notificationSettings={enabled:args.enabled,showNames:args.showNames,error:null};return this.notificationSettings;
+      case 'notification_test':
+        if(this.notificationTestError)throw Error(this.notificationTestError);
+        return ++this.notificationTests;
+      case 'notification_take_open': {const id=this.pendingNotificationChat;this.pendingNotificationChat=null;return id;}
       case 'restore_session': await this.restoreGate; return {restored:this.restoredSession,saved:this.restoredSession,notice:this.persistenceNotice};
       case 'auth_persistence_status': return {restored:true,saved:this.sessionSaved,notice:this.persistenceNotice};
       case 'sign_in': return null;
