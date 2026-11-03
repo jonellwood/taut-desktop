@@ -1,5 +1,6 @@
 mod attachments;
 mod groups;
+mod deletion;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand::{rngs::OsRng, RngCore};
 use reqwest::blocking::Client;
@@ -11,7 +12,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<Option<TokenState>>>);
@@ -98,8 +99,11 @@ async fn sign_in(state: State<'_, AuthState>) -> Result<(), String> {
                     let params: std::collections::HashMap<String, String> = parsed.query_pairs().into_owned().collect();
                     let valid = parsed.path() == "/" && params.get("state").map(String::as_str) == Some(expected_state.as_str());
                     let code = if valid { params.get("code").cloned() } else { None };
-                    let message = if code.is_some() { "Authorization received. Return to TAUT while the session finishes connecting." } else { "Authentication was not completed. Return to TAUT and try again." };
-                    let body = format!("<html><body style='font:16px system-ui;background:#151b21;color:#efbb70;padding:40px'><h2>TAUT</h2><p>{message}</p></body></html>");
+                    let body = if code.is_some() {
+                        include_str!("auth-complete.html")
+                    } else {
+                        "<html><body style='font:16px system-ui;background:#151b21;color:#efbb70;padding:40px'><h2>TAUT</h2><p>Authentication was not completed. Return to TAUT and try again.</p></body></html>"
+                    };
                     let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
                     let _ = socket.write_all(resp.as_bytes());
                     return code.ok_or("Sign-in was cancelled or callback validation failed".into());
@@ -116,12 +120,50 @@ async fn sign_in(state: State<'_, AuthState>) -> Result<(), String> {
     store_token(&state, result)
 }
 
+fn graph_read_builder(client:&Client,token:String,endpoint:&str,system_events:bool)->reqwest::blocking::RequestBuilder {
+    let request=client.get(format!("https://graph.microsoft.com/v1.0{endpoint}")).bearer_auth(token);
+    if system_events { request.header("Prefer","include-unknown-enum-members") } else { request }
+}
 fn graph_request(state: &AuthState, endpoint: &str) -> Result<Value, String> {
-    let token = get_access_token(state)?;
-    let response = http_client()?.get(format!("https://graph.microsoft.com/v1.0{endpoint}"))
-        .bearer_auth(token).send().map_err(|_| "Microsoft Graph network error")?;
-    if !response.status().is_success() { return Err(format!("Graph returned HTTP {}", response.status())); }
-    response.json().map_err(|_| "Invalid Graph response".into())
+    graph_get(state,endpoint,false)
+}
+fn graph_get(state:&AuthState,endpoint:&str,system_events:bool)->Result<Value,String>{
+    let response=graph_read_builder(&http_client()?,get_access_token(state)?,endpoint,system_events)
+        .send().map_err(|_|"Microsoft Graph network error")?;
+    if !response.status().is_success(){return Err(format!("Graph returned HTTP {}",response.status()));}
+    response.json().map_err(|_|"Invalid Graph response".into())
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all="camelCase")]
+struct EventPerson { id:String, tenant_id:Option<String> }
+fn event_names_with(people:&[EventPerson],mut lookup:impl FnMut(&str)->Result<Option<String>,String>)->Result<Value,String>{
+    if people.len()>30 || people.iter().any(|p|p.id.len()!=36 || !p.id.chars().enumerate().all(|(i,c)|if [8,13,18,23].contains(&i){c=='-'}else{c.is_ascii_hexdigit()})) {return Err("Invalid participant name lookup".into());}
+    let mut names=Vec::new();let mut visited=std::collections::HashSet::new();
+    for person in people {
+        // Never resolve a foreign tenant's object ID against this tenant's directory.
+        if person.tenant_id.as_ref().map(|id|!id.eq_ignore_ascii_case(TENANT)).unwrap_or(false){continue;}
+        let key=(person.id.to_lowercase(),person.tenant_id.clone().unwrap_or_default().to_lowercase());
+        if !visited.insert(key){continue;}
+        if let Some(name)=lookup(&person.id)? {
+            names.push(serde_json::json!({"id":person.id,"tenantId":person.tenant_id,"displayName":name}));
+        }
+    }
+    Ok(serde_json::json!(names))
+}
+#[tauri::command]
+async fn graph_event_names(state:State<'_,AuthState>,people:Vec<EventPerson>)->Result<Value,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||event_names_with(&people,|id|{
+        let client=Client::builder().timeout(Duration::from_secs(20)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Name lookup client unavailable")?;
+        let encoded:String=url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+        let response=client.get(format!("https://graph.microsoft.com/v1.0/users/{encoded}?$select=id,displayName")).bearer_auth(get_access_token(&state)?).send().map_err(|_|"Participant name lookup unavailable")?;
+        let status=response.status();
+        if matches!(status.as_u16(),403|404|410){return Ok(None);}
+        if !status.is_success(){return Err(format!("Participant name lookup returned HTTP {status}"));}
+        let value:Value=response.json().map_err(|_|"Invalid participant name response")?;
+        if !value["id"].as_str().map(|returned|returned.eq_ignore_ascii_case(id)).unwrap_or(false){return Ok(None);}
+        Ok(value["displayName"].as_str().filter(|s|!s.trim().is_empty()).map(str::to_owned))
+    })).await.map_err(|_|"Participant name lookup stopped")?
 }
 #[tauri::command]
 fn graph_profile(state: State<'_, AuthState>) -> Result<Value, String> { graph_request(&state, "/me?$select=id,displayName,userPrincipalName") }
@@ -154,7 +196,7 @@ fn graph_search_users(state: State<'_, AuthState>, query: String) -> Result<Valu
 fn graph_messages(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
     if chat_id.len() > 512 || chat_id.is_empty() { return Err("Invalid chat identifier".into()); }
     let encoded: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
-    graph_request(&state, &format!("/me/chats/{encoded}/messages?$top=50"))
+    graph_get(&state, &format!("/chats/{encoded}/messages?$top=50"),true)
 }
 #[tauri::command]
 fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String) -> Result<Value, String> {
@@ -212,15 +254,23 @@ async fn graph_send_attachments(state: State<'_, AuthState>, uploads: State<'_, 
         attachments::send(&store, &chat_id, &text, &ids, &mut |method,path,body,bytes| attachment_request(&state, method,path,body,bytes))
     }).await.map_err(|_| "Delivery was not confirmed. Check Teams before retrying")?
 }
-fn group_request(state:&AuthState,method:reqwest::Method,path:&str,body:Option<Value>)->Result<groups::Reply,String>{
-    let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Group HTTP client unavailable")?;
-    let request=client.request(method,format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(state)?);
-    let request=if let Some(body)=body {request.json(&body)}else{request};
-    let response=request.send().map_err(|_|"Group operation was not confirmed. Refresh and check Teams before retrying")?;
+// Graph action POSTs without payloads still need explicit HTTP message framing.
+fn graph_operation_payload(request:reqwest::blocking::RequestBuilder,method:&reqwest::Method,body:Option<Value>)->reqwest::blocking::RequestBuilder {
+    if let Some(body)=body {request.json(&body)}
+    else if *method==reqwest::Method::POST {request.header(reqwest::header::CONTENT_LENGTH,"0")}
+    else {request}
+}
+fn graph_operation_request(state:&AuthState,method:reqwest::Method,path:&str,body:Option<Value>)->Result<groups::Reply,String>{
+    let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Microsoft 365 HTTP client unavailable")?;
+    let message_read=method==reqwest::Method::GET && path.contains("/messages/");
+    let request=client.request(method.clone(),format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(state)?);
+    let request=if message_read {request.header("Prefer","include-unknown-enum-members")}else{request};
+    let request=graph_operation_payload(request,&method,body);
+    let response=request.send().map_err(|_|"Microsoft 365 operation was not confirmed. Refresh and check Teams before retrying")?;
     let status=response.status().as_u16();
     let body=if (200..300).contains(&status){
-        let bytes=response.bytes().map_err(|_|"Group response unreadable; check Teams before retrying")?;
-        if bytes.is_empty(){Value::Null}else{serde_json::from_slice(&bytes).map_err(|_|"Group response unreadable; check Teams before retrying")?}
+        let bytes=response.bytes().map_err(|_|"Microsoft 365 response unreadable; check Teams before retrying")?;
+        if bytes.is_empty(){Value::Null}else{serde_json::from_slice(&bytes).map_err(|_|"Microsoft 365 response unreadable; check Teams before retrying")?}
     }else{Value::Null};
     Ok(groups::Reply{status,body})
 }
@@ -237,20 +287,54 @@ async fn group_member_permission(state:State<'_,AuthState>)->Result<bool,String>
 #[tauri::command]
 async fn graph_create_group_chat(state:State<'_,AuthState>,recipients:Vec<String>,topic:String,first_message:String,own_id:String)->Result<Value,String>{
     let state=AuthState(state.0.clone());
-    tauri::async_runtime::spawn_blocking(move ||groups::create(&recipients,&topic,&first_message,&own_id,&mut |m,p,b|group_request(&state,m,p,b)))
+    tauri::async_runtime::spawn_blocking(move ||groups::create(&recipients,&topic,&first_message,&own_id,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
         .await.map_err(|_|"Group creation was not confirmed. Check Teams before retrying")?
 }
 #[tauri::command]
 async fn graph_add_group_member(state:State<'_,AuthState>,chat_id:String,recipient:String,history:String)->Result<(),String>{
     let state=AuthState(state.0.clone());
-    tauri::async_runtime::spawn_blocking(move ||groups::add(group_permission_granted(&state)?,&chat_id,&recipient,&history,&mut |m,p,b|group_request(&state,m,p,b)))
+    tauri::async_runtime::spawn_blocking(move ||groups::add(group_permission_granted(&state)?,&chat_id,&recipient,&history,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
         .await.map_err(|_|"Member addition was not confirmed. Refresh members before retrying")?
 }
 #[tauri::command]
 async fn graph_remove_group_member(state:State<'_,AuthState>,chat_id:String,membership_id:String)->Result<(),String>{
     let state=AuthState(state.0.clone());
-    tauri::async_runtime::spawn_blocking(move ||groups::remove(group_permission_granted(&state)?,&chat_id,&membership_id,&mut |m,p,b|group_request(&state,m,p,b)))
+    tauri::async_runtime::spawn_blocking(move ||groups::remove(group_permission_granted(&state)?,&chat_id,&membership_id,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
         .await.map_err(|_|"Member removal was not confirmed. Check Teams before retrying")?
+}
+fn chat_write_permission_granted(state:&AuthState)->Result<bool,String>{
+    get_access_token(state)?;
+    let guard=state.0.lock().map_err(|_|"Authentication state unavailable")?;
+    Ok(guard.as_ref().map(|token|token.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("Chat.ReadWrite"))).unwrap_or(false))
+}
+#[tauri::command]
+async fn chat_write_permission(state:State<'_,AuthState>)->Result<bool,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||chat_write_permission_granted(&state)).await.map_err(|_|"Chat permission check stopped")?
+}
+#[tauri::command]
+async fn graph_change_message(state:State<'_,AuthState>,chat_id:String,message_id:String,restore:bool)->Result<(),String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||deletion::change_message(chat_write_permission_granted(&state)?,&chat_id,&message_id,restore,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
+        .await.map_err(|_|"Message change was not confirmed. Check Teams before retrying")?
+}
+#[tauri::command]
+async fn graph_message_status(state:State<'_,AuthState>,chat_id:String,message_id:String)->Result<bool,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||deletion::message_status(&chat_id,&message_id,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
+        .await.map_err(|_|"Message status check stopped")?
+}
+#[tauri::command]
+async fn graph_set_chat_visibility(state:State<'_,AuthState>,chat_id:String,hidden:bool)->Result<(),String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||deletion::set_visibility(chat_write_permission_granted(&state)?,&chat_id,hidden,TENANT,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
+        .await.map_err(|_|"Visibility change was not confirmed. Check Teams before retrying")?
+}
+#[tauri::command]
+async fn graph_chat_visibility(state:State<'_,AuthState>,chat_id:String)->Result<bool,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||deletion::visibility_status(&chat_id,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
+        .await.map_err(|_|"Chat visibility check stopped")?
 }
 // Side effect: creates or returns a 1:1 chat. Only explicit first-message Send may call this.
 #[tauri::command]
@@ -336,7 +420,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![sign_in, sign_out, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member])
+        .invoke_handler(tauri::generate_handler![sign_in, sign_out, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
@@ -348,11 +432,58 @@ mod tests {
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
 
     #[test]
+    fn message_read_requests_include_system_event_preference_without_sending() {
+        let client=http_client().unwrap();
+        let request=graph_read_builder(&client,"mock-token".into(),"/chats/chat/messages?$top=50",true).build().unwrap();
+        assert_eq!(request.method(),reqwest::Method::GET);
+        assert_eq!(request.headers().get("Prefer").unwrap(),"include-unknown-enum-members");
+        let normal=graph_read_builder(&client,"mock-token".into(),"/me",false).build().unwrap();
+        assert!(normal.headers().get("Prefer").is_none());
+    }
+    #[test]
+    fn participant_name_lookup_is_bounded_and_skips_foreign_tenants() {
+        let people=vec![EventPerson{id:ME.into(),tenant_id:None},EventPerson{id:ME.into(),tenant_id:None},EventPerson{id:OTHER.into(),tenant_id:Some("foreign-tenant".into())}];
+        let mut calls=0;
+        let names=event_names_with(&people,|_|{calls+=1;Ok(Some("Test Person".into()))}).unwrap();
+        assert_eq!(calls,1);assert_eq!(names.as_array().unwrap().len(),1);
+        assert!(event_names_with(&[EventPerson{id:"invalid".into(),tenant_id:None}],|_|panic!()).is_err());
+    }
+    #[test]
     fn group_membership_permission_requires_the_exact_delegated_grant() {
         let state=AuthState::default();
         for (scope, expected) in [("Chat.Read",false),("ChatMember.Read",false),("ChatMember.ReadWrite.All",false),("Chat.Read ChatMember.ReadWrite",true)] {
             store_token(&state,serde_json::json!({"access_token":"mock-token","scope":scope,"expires_in":3600})).unwrap();
             assert_eq!(group_permission_granted(&state).unwrap(),expected);
+        }
+    }
+    #[test]
+    fn empty_graph_action_posts_have_zero_content_length_without_json_body() {
+        let client=Client::new();
+        for action in ["softDelete","undoSoftDelete"] {
+            let method=reqwest::Method::POST;
+            let request=graph_operation_payload(client.request(method.clone(),format!("https://graph.microsoft.com/v1.0/users/mock/chats/mock/messages/mock/{action}")),&method,None).build().unwrap();
+            assert_eq!(request.headers()[reqwest::header::CONTENT_LENGTH],"0");
+            assert!(request.body().is_none());
+            assert!(!request.headers().contains_key(reqwest::header::CONTENT_TYPE));
+        }
+        // GET and DELETE reads/removals retain their prior framing; JSON actions keep their payload.
+        for method in [reqwest::Method::GET,reqwest::Method::DELETE] {
+            let request=graph_operation_payload(client.request(method.clone(),"https://graph.microsoft.com/v1.0/mock"),&method,None).build().unwrap();
+            assert!(!request.headers().contains_key(reqwest::header::CONTENT_LENGTH));
+            assert!(request.body().is_none());
+        }
+        let method=reqwest::Method::POST;
+        let body=serde_json::json!({"user":{"id":"mock","tenantId":"mock"}});
+        let request=graph_operation_payload(client.request(method.clone(),"https://graph.microsoft.com/v1.0/mock"),&method,Some(body.clone())).build().unwrap();
+        assert_ne!(request.headers().get(reqwest::header::CONTENT_LENGTH).and_then(|v|v.to_str().ok()),Some("0"));
+        assert_eq!(serde_json::from_slice::<Value>(request.body().unwrap().as_bytes().unwrap()).unwrap(),body);
+    }
+    #[test]
+    fn message_and_visibility_permission_requires_exact_delegated_grant() {
+        let state=AuthState::default();
+        for (scope, expected) in [("Chat.Read",false),("Chat.ReadWrite.All",false),("Chat.ManageDeletion.All",false),("Chat.Read Chat.ReadWrite",true)] {
+            store_token(&state,serde_json::json!({"access_token":"mock-token","scope":scope,"expires_in":3600})).unwrap();
+            assert_eq!(chat_write_permission_granted(&state).unwrap(),expected);
         }
     }
     #[test]

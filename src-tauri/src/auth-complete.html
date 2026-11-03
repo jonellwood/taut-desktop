@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>TAUT · Authorization received</title>
+  <style>body{font:16px system-ui;background:#151b21;color:#efbb70;padding:40px}p{line-height:1.6}#close-status{color:#b4c3ce}</style>
+</head>
+<body>
+  <h2>TAUT</h2>
+  <p>Authorization received. Return to TAUT while the session finishes connecting.</p>
+  <p id="close-status" role="status">This tab will try to close in 3 seconds. You can also close it yourself.</p>
+  <script>
+    // Rust has already captured the callback. Keep its parameters out of browser history.
+    try { window.history.replaceState(null, '', window.location.pathname); } catch (_) {}
+    window.setTimeout(() => {
+      try { window.close(); } catch (_) {}
+      document.getElementById('close-status').textContent = 'You can close this tab and return to TAUT. Your browser may prevent automatic closing.';
+    }, 3000);
+  </script>
+</body>
+</html>

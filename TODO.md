@@ -4,7 +4,7 @@
 
 - Pending-conversation workflow implemented; user reports draft creation works as expected in manual testing (2026-11-03).
 - Attachment/composer improvements, mocked UI regression tests, and CI committed and pushed as `504cadd` on `test/pending-conversation-ci`.
-- Group chat implementation is on `feat/group-chats`; the user approved `ChatMember.ReadWrite` on 2026-11-03; tenant consent and manual validation remain pending.
+- Group chat implementation is on `feat/group-chats`; the user approved `ChatMember.ReadWrite` on 2026-11-03; the user confirmed Entra delegated permission and admin consent on 2026-11-03; the user confirmed named group creation, first-message sending, member addition with history choices, and member removal on 2026-11-03.
 - User is manually testing against the actual Office 365 tenant with their boss's approval. Automated tests continue to use mocks; this does not authorize unspecified automated tenant mutations.
 
 ## Attachment sending — manually verified
@@ -29,15 +29,23 @@ See [GROUP_CHATS.md](GROUP_CHATS.md) for implemented behavior, permissions, and 
 - [x] Leave a group chat by removing myself, with clear confirmation and consequences.
 - [x] Verify documented Graph operations, least-privilege delegated permissions, and history choices; add mocked coverage for creation and member operations.
 - [x] User approved delegated `ChatMember.ReadWrite` on 2026-11-03; scope added to Rust.
-- [ ] Complete tenant consent, sign out/in, and manually validate group operations.
+- [x] User confirmed delegated `ChatMember.ReadWrite` and tenant admin consent (2026-11-03).
+- [x] User manually verified named group creation, first-message sending, adding a user with history options, and removing that user (2026-11-03).
+- [ ] Manually validate leaving a group (mocked coverage already passes).
+- [x] Add a chronological activity timeline for member changes and group-name changes using structured Graph system events; no extra permissions.
 - [ ] Follow up: guest/federated participant role handling, larger/paginated groups, existing-group renaming (requires separate scope review).
 
-## Message and conversation deletion
+## Message deletion and personal chat visibility
 
-- [ ] Delete individual messages where supported; establish ownership and permission restrictions and whether recovery is possible.
-- [ ] Delete entire message threads/conversations where supported. Research and clearly distinguish hiding/removing a chat for myself from deleting shared history for everyone.
-- [ ] Confirm the actual scope and consequences of each destructive action in the UI; do not silently delete or fall back to a different operation.
-- [ ] Cover deletion and membership changes with mocked requests, including failures and partial success.
+See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operations, and limits.
+
+- [x] Soft-delete and restore own normal messages, with Rust ownership verification and explicit confirmation; tenant policy may restrict either operation.
+- [x] Hide/unhide a conversation for myself, preserving shared history, membership, files, and session drafts; expose hidden chats in the sidebar.
+- [x] User approved delegated `Chat.ReadWrite` on 2026-11-03; added to Rust's requested scopes.
+- [x] User confirmed Entra delegated `Chat.ReadWrite` consent and manually verified message deletion/restoration and hide/unhide with the unsent draft preserved (2026-11-03).
+- [x] Document exact consequences; failed or uncertain actions do not silently change the UI or automatically retry. Read-only status checks precede explicit retries.
+- [x] Mocked coverage for permissions, ownership, cancellation, success, failure, recovery, stale reads, and draft preservation.
+- [ ] Deferred: administrative deletion of shared threads for everyone. Requires separate `Chat.ManageDeletion.All` approval and supported admin role; user delegated the release choice and this release offers Hide for me only.
 
 ## Remaining backlog
 

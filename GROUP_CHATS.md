@@ -9,7 +9,9 @@ adding/removing people and leaving a group. It remains subject to service and
 organization policy. It is the only additional permission proposed for this step.
 
 The user explicitly approved this delegated scope on 2026-11-03, and Rust now
-requests it. After tenant consent is complete, sign out/in to obtain a fresh grant. Membership changes stay disabled without the grant; group creation
+requests it. The user confirmed the delegated permission and tenant admin consent
+on 2026-11-03. Sign out/in to obtain a fresh grant. Membership changes stay disabled
+without the grant; group creation
 and read-only member lists can use the existing permissions.
 
 | Capability | Delegated permission |
@@ -77,6 +79,33 @@ for a new Send always verifies the current recipient list; prepared uploads with
 changed member set are blocked rather than silently reused for different recipients.
 Group message bubbles display the actual sender where Graph supplies a name.
 
+## Activity in message history
+
+Confirmed Graph system events appear as quiet icon/text rows in chronological
+order alongside user messages, with their original timestamps and date separators.
+Supported notices are members added/removed, members joined/left, and group-name
+changes. A single-person removal initiated by that same person is shown as leaving.
+Where Graph supplies visibleHistoryStartDateTime, additions include the reported
+history boundary or an all-previous-messages note; missing values do not imply a
+history policy.
+
+Message reads opt into `Prefer: include-unknown-enum-members` to receive the
+`systemEventMessage` enum. Unknown events and missing event details remain hidden
+rather than becoming unsupported-content bubbles. The UI uses eventDetail, never
+scrapes raw event HTML or invents an event after a local button click. The same
+notices can therefore reflect changes made through official Teams.
+
+Historical identities use event-provided names, cached known participants, and
+bounded read-only `/users/{id}?$select=id,displayName` lookups under the existing
+`User.ReadBasic.All` permission. Foreign-tenant IDs are not resolved in the local
+directory. Missing/inaccessible identities use neutral labels. Names are cached
+only for this sign-in and loaded in the background; no tokens reach Svelte.
+
+Activity is not counted as newly received user messages and does not replace the
+latest actual-message sidebar preview. Rendering does not change drafts or media
+behavior. The history window remains the same newest 50 messages returned by the
+existing reader. This adds no requested permissions or Graph writes.
+
 ## Testing
 
 All Graph writes are mocked in Rust and browser tests; no live group creation,
@@ -84,7 +113,9 @@ messages, membership changes, or uploads are performed by automation. Coverage
 includes pure selection, empty-send guards, create/send sequencing, unconfirmed
 creation, retained IDs after failed sends, empty 201 member-add responses, opaque
 membership IDs, self-leave, permissions, history defaults, incomplete lists, and
-preserving text/file drafts. Real tenant behavior still needs manual validation.
+preserving text/file drafts. The user manually verified named group creation,
+first-message sending, member addition with history choices, and member removal
+on 2026-11-03. Self-leave and the activity timeline still need manual validation.
 
 ## Microsoft references
 
@@ -93,3 +124,6 @@ preserving text/file drafts. Real tenant behavior still needs manual validation.
 - [Add member and history options](https://learn.microsoft.com/en-us/graph/api/chat-post-members?view=graph-rest-1.0)
 - [Remove member](https://learn.microsoft.com/en-us/graph/api/chat-delete-members?view=graph-rest-1.0)
 - [Update group name](https://learn.microsoft.com/en-us/graph/api/chat-patch?view=graph-rest-1.0)
+
+- [Structured system messages](https://learn.microsoft.com/en-us/graph/system-messages)
+- [Message enum preference header](https://learn.microsoft.com/en-us/graph/api/resources/chatmessage?view=graph-rest-1.0)

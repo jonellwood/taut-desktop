@@ -6,13 +6,14 @@ export const blair = { id: '33333333-3333-3333-3333-333333333333', displayName: 
 export const casey = { id: '44444444-4444-4444-4444-444444444444', displayName: 'Casey Example', mail: 'casey@example.com' };
 export const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
 export type TestMember={id:string;userId:string;displayName:string;email?:string;roles?:string[]};
-export type TestChat={id:string;chatType:string;topic?:string;members:TestMember[]};
+export type TestChat={id:string;chatType:string;topic?:string;viewpoint?:{isHidden:boolean};members:TestMember[]};
 export function chat(id: string, person: typeof alex):TestChat {
   return { id, chatType: 'oneOnOne', members: [{id:'member-me', userId: me.id, displayName: me.displayName,roles:['owner'] }, {id:`member-${person.id}`, userId: person.id, displayName: person.displayName, email: person.mail,roles:['owner'] }] };
 }
 export type MockMessage = {
-  id: string; messageType: string; createdDateTime: string;
+  id: string; messageType: string; createdDateTime: string; deletedDateTime?:string|null;
   from?: { user: { id: string; displayName?:string } }; body: { content: string; contentType: string };
+  eventDetail?:import('../../src/lib/activity').EventDetail;
   attachments?: { id: string; name: string; contentType: string; contentUrl: string }[];
 };
 export function message(id: string, content: string, sender = alex.id): MockMessage {
@@ -31,6 +32,11 @@ export class MockGraph {
   sendError = '';
   attachmentPermission = false;
   groupPermission = false;
+  chatWritePermission = false;
+  changeError = '';
+  visibilityError = '';
+  statusError = '';
+  originals = new Map<string, MockMessage>();
   groupCreateError = '';
   memberError = '';
   membershipIncomplete = false;
@@ -38,8 +44,9 @@ export class MockGraph {
   prepared = new Map<string, {id:string; name:string; chatId:string}>();
   uploadCount = 0;
   sendGate?: Promise<void>;
+  imageGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
@@ -47,13 +54,36 @@ export class MockGraph {
       case 'graph_profile': return me;
       case 'attachment_permission': return this.attachmentPermission;
       case 'group_member_permission': return this.groupPermission;
+      case 'chat_write_permission': return this.chatWritePermission;
+      case 'graph_message_status':
+        if(this.statusError)throw Error(this.statusError);
+        return Boolean(this.messages[args.chatId]?.find(m=>m.id===args.messageId)?.deletedDateTime);
+      case 'graph_chat_visibility':
+        if(this.statusError)throw Error(this.statusError);
+        return Boolean(this.chats.find(c=>c.id===args.chatId)?.viewpoint?.isHidden);
+      case 'graph_change_message': {
+        if(!this.allowWrites)break;
+        if(this.changeError)throw Error(this.changeError);
+        const rows=this.messages[args.chatId];
+        const index=rows.findIndex(m=>m.id===args.messageId);
+        const key=JSON.stringify([args.chatId,args.messageId]);
+        if(args.restore){rows[index]={...(this.originals.get(key)??rows[index]),deletedDateTime:null};}
+        else{this.originals.set(key,structuredClone(rows[index]));rows[index]={...rows[index],deletedDateTime:'2026-01-01T12:01:00Z',body:{content:'',contentType:'html'}};}
+        return null;
+      }
+      case 'graph_set_chat_visibility':
+        if(!this.allowWrites)break;
+        if(this.visibilityError)throw Error(this.visibilityError);
+        this.chats.find(c=>c.id===args.chatId)!.viewpoint={isHidden:args.hidden};
+        return null;
       case 'graph_chat_members': return {value:this.chats.find(c=>c.id===args.chatId)?.members??[],...(this.membershipIncomplete?{'@odata.nextLink':'https://graph.microsoft.com/next'}:{})};
       case 'graph_chats': return { value: this.chats };
       case 'graph_search_users': return { value: [me, alex, blair, casey].filter(u => `${u.displayName} ${'mail' in u ? u.mail : ''}`.toLowerCase().includes(args.query.toLowerCase())) };
       case 'graph_messages':
         if (args.chatId.startsWith('pending:')) this.unexpected.push('Read of a local pending chat');
         return { value: this.messages[args.chatId] ?? [] };
-      case 'graph_hosted_image': return image;
+      case 'graph_event_names': return args.people.flatMap((p:{id:string;tenantId?:string})=>{const user=[me,alex,blair,casey].find(u=>u.id===p.id);return user?[{...p,displayName:user.displayName}]:[];});
+      case 'graph_hosted_image': await this.imageGate; return image;
       case 'plugin:opener|open_url': return null; // Record only; never launch a browser.
       case 'graph_create_group_chat':
         if (!this.allowWrites) break;
