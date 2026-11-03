@@ -1,4 +1,5 @@
 mod attachments;
+mod groups;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand::{rngs::OsRng, RngCore};
 use reqwest::blocking::Client;
@@ -10,7 +11,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<Option<TokenState>>>);
@@ -211,6 +212,46 @@ async fn graph_send_attachments(state: State<'_, AuthState>, uploads: State<'_, 
         attachments::send(&store, &chat_id, &text, &ids, &mut |method,path,body,bytes| attachment_request(&state, method,path,body,bytes))
     }).await.map_err(|_| "Delivery was not confirmed. Check Teams before retrying")?
 }
+fn group_request(state:&AuthState,method:reqwest::Method,path:&str,body:Option<Value>)->Result<groups::Reply,String>{
+    let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Group HTTP client unavailable")?;
+    let request=client.request(method,format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(state)?);
+    let request=if let Some(body)=body {request.json(&body)}else{request};
+    let response=request.send().map_err(|_|"Group operation was not confirmed. Refresh and check Teams before retrying")?;
+    let status=response.status().as_u16();
+    let body=if (200..300).contains(&status){
+        let bytes=response.bytes().map_err(|_|"Group response unreadable; check Teams before retrying")?;
+        if bytes.is_empty(){Value::Null}else{serde_json::from_slice(&bytes).map_err(|_|"Group response unreadable; check Teams before retrying")?}
+    }else{Value::Null};
+    Ok(groups::Reply{status,body})
+}
+fn group_permission_granted(state:&AuthState)->Result<bool,String>{
+    get_access_token(state)?;
+    let guard=state.0.lock().map_err(|_|"Authentication state unavailable")?;
+    Ok(guard.as_ref().map(|token|token.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("ChatMember.ReadWrite"))).unwrap_or(false))
+}
+#[tauri::command]
+async fn group_member_permission(state:State<'_,AuthState>)->Result<bool,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||group_permission_granted(&state)).await.map_err(|_|"Group permission check stopped")?
+}
+#[tauri::command]
+async fn graph_create_group_chat(state:State<'_,AuthState>,recipients:Vec<String>,topic:String,first_message:String,own_id:String)->Result<Value,String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||groups::create(&recipients,&topic,&first_message,&own_id,&mut |m,p,b|group_request(&state,m,p,b)))
+        .await.map_err(|_|"Group creation was not confirmed. Check Teams before retrying")?
+}
+#[tauri::command]
+async fn graph_add_group_member(state:State<'_,AuthState>,chat_id:String,recipient:String,history:String)->Result<(),String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||groups::add(group_permission_granted(&state)?,&chat_id,&recipient,&history,&mut |m,p,b|group_request(&state,m,p,b)))
+        .await.map_err(|_|"Member addition was not confirmed. Refresh members before retrying")?
+}
+#[tauri::command]
+async fn graph_remove_group_member(state:State<'_,AuthState>,chat_id:String,membership_id:String)->Result<(),String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||groups::remove(group_permission_granted(&state)?,&chat_id,&membership_id,&mut |m,p,b|group_request(&state,m,p,b)))
+        .await.map_err(|_|"Member removal was not confirmed. Check Teams before retrying")?
+}
 // Side effect: creates or returns a 1:1 chat. Only explicit first-message Send may call this.
 #[tauri::command]
 fn graph_create_chat(state: State<'_, AuthState>, recipient: String, own_id: String, first_message: String) -> Result<Value, String> {
@@ -295,7 +336,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![sign_in, sign_out, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments])
+        .invoke_handler(tauri::generate_handler![sign_in, sign_out, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
@@ -306,6 +347,14 @@ mod tests {
     const ME: &str = "11111111-1111-1111-1111-111111111111";
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
 
+    #[test]
+    fn group_membership_permission_requires_the_exact_delegated_grant() {
+        let state=AuthState::default();
+        for (scope, expected) in [("Chat.Read",false),("ChatMember.Read",false),("ChatMember.ReadWrite.All",false),("Chat.Read ChatMember.ReadWrite",true)] {
+            store_token(&state,serde_json::json!({"access_token":"mock-token","scope":scope,"expires_in":3600})).unwrap();
+            assert_eq!(group_permission_granted(&state).unwrap(),expected);
+        }
+    }
     #[test]
     fn file_permission_stays_in_rust_and_requires_exact_grant() {
         let state=AuthState::default();

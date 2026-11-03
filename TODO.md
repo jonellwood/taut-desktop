@@ -3,7 +3,8 @@
 ## Current status
 
 - Pending-conversation workflow implemented; user reports draft creation works as expected in manual testing (2026-11-03).
-- Mocked UI regression tests and CI configuration added locally; publishing remains pending.
+- Attachment/composer improvements, mocked UI regression tests, and CI committed and pushed as `504cadd` on `test/pending-conversation-ci`.
+- Group chat implementation is on `feat/group-chats`; the user approved `ChatMember.ReadWrite` on 2026-11-03; tenant consent and manual validation remain pending.
 - User is manually testing against the actual Office 365 tenant with their boss's approval. Automated tests continue to use mocks; this does not authorize unspecified automated tenant mutations.
 
 ## Attachment sending — manually verified
@@ -21,10 +22,15 @@ See [ATTACHMENTS.md](ATTACHMENTS.md) for behavior, limits, recovery, and the per
 
 ## Group conversations
 
-- [ ] Create group chats with multiple selected coworkers and an optional name; keep recipient selection local until explicit creation/send.
-- [ ] View and manage group members, including adding and removing members.
-- [ ] Leave a group chat by removing myself, with clear confirmation and consequences.
-- [ ] Verify Graph support, delegated permissions, tenant restrictions, and history visibility before implementing each operation.
+See [GROUP_CHATS.md](GROUP_CHATS.md) for implemented behavior, permissions, and limits.
+
+- [x] Create group chats with multiple selected coworkers and an optional name; keep recipient selection local until explicit creation/send.
+- [x] View and manage group members, including adding and removing members.
+- [x] Leave a group chat by removing myself, with clear confirmation and consequences.
+- [x] Verify documented Graph operations, least-privilege delegated permissions, and history choices; add mocked coverage for creation and member operations.
+- [x] User approved delegated `ChatMember.ReadWrite` on 2026-11-03; scope added to Rust.
+- [ ] Complete tenant consent, sign out/in, and manually validate group operations.
+- [ ] Follow up: guest/federated participant role handling, larger/paginated groups, existing-group renaming (requires separate scope review).
 
 ## Message and conversation deletion
 

@@ -26,3 +26,15 @@ this scope on 2026-11-03 and Rust now requests it. Add Microsoft Graph → Deleg
 your tenant, then sign out/in. No application permissions or client secrets are
 needed. Existing sessions without this grant can still stage files locally, but
 cannot upload or send them.
+
+## Group chat membership — approved 2026-11-03
+
+Add Microsoft Graph → **Delegated** → `ChatMember.ReadWrite`, then complete consent
+as required by your tenant. This is the only proposed addition for adding/removing
+members and leaving groups. Creation already uses `Chat.Create`; existing
+`Chat.Read` is sufficient for member lists. Existing-group renaming would require
+`Chat.ReadWrite` and is deferred. See [GROUP_CHATS.md](GROUP_CHATS.md).
+
+The user approved requesting this scope on 2026-11-03, and Rust now requests it.
+Sign out/in after consent to enable membership controls. Never add application
+permissions or broader `.All` scopes for this implementation.
