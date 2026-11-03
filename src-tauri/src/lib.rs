@@ -1,3 +1,4 @@
+mod attachments;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand::{rngs::OsRng, RngCore};
 use reqwest::blocking::Client;
@@ -9,11 +10,11 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite";
 
 #[derive(Default)]
-struct AuthState(Mutex<Option<TokenState>>);
-struct TokenState { access: String, refresh: Option<String>, expires_at: Instant }
+struct AuthState(std::sync::Arc<Mutex<Option<TokenState>>>);
+struct TokenState { access: String, refresh: Option<String>, expires_at: Instant, scopes: String }
 
 fn random_urlsafe() -> String {
     let mut bytes = [0u8; 32];
@@ -34,16 +35,16 @@ fn store_token(state: &AuthState, value: Value) -> Result<(), String> {
     let refresh = value["refresh_token"].as_str().map(str::to_owned);
     let ttl = value["expires_in"].as_u64().unwrap_or(3600);
     *state.0.lock().map_err(|_| "Authentication state unavailable")? = Some(TokenState {
-        access, refresh, expires_at: Instant::now() + Duration::from_secs(ttl.saturating_sub(90).max(1))
+        access, refresh, scopes: value["scope"].as_str().unwrap_or("").to_owned(), expires_at: Instant::now() + Duration::from_secs(ttl.saturating_sub(90).max(1))
     });
     Ok(())
 }
 fn get_access_token(state: &AuthState) -> Result<String, String> {
-    let (refresh, access) = {
+    let (refresh, access, scopes) = {
         let guard = state.0.lock().map_err(|_| "Authentication state unavailable")?;
         let saved = guard.as_ref().ok_or("Not signed in")?;
         if Instant::now() < saved.expires_at { return Ok(saved.access.clone()); }
-        (saved.refresh.clone(), saved.access.clone())
+        (saved.refresh.clone(), saved.access.clone(), saved.scopes.clone())
     };
     let refresh = refresh.ok_or("Session expired; sign in again")?;
     let token = exchange_token(&[("client_id", CLIENT_ID), ("grant_type", "refresh_token"), ("refresh_token", &refresh), ("scope", SCOPES)])?;
@@ -52,6 +53,8 @@ fn get_access_token(state: &AuthState) -> Result<String, String> {
         token["refresh_token"] = Value::String(refresh);
         token
     };
+    let mut token = token;
+    if token.get("scope").is_none() { token["scope"] = Value::String(scopes); }
     store_token(state, token)?;
     let guard = state.0.lock().map_err(|_| "Authentication state unavailable")?;
     Ok(guard.as_ref().map(|v|v.access.clone()).unwrap_or(access))
@@ -169,6 +172,45 @@ fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String
     }
     response.json().map_err(|_| "Graph accepted the message but its response was unreadable. Refresh the chat before retrying.".into())
 }
+fn attachment_permission_granted(state: &AuthState) -> Result<bool, String> {
+    get_access_token(state)?;
+    let guard=state.0.lock().map_err(|_| "Authentication state unavailable")?;
+    Ok(guard.as_ref().map(|t| t.scopes.split_whitespace().any(|s| s.eq_ignore_ascii_case("Files.ReadWrite"))).unwrap_or(false))
+}
+#[tauri::command]
+async fn attachment_permission(state: State<'_, AuthState>) -> Result<bool, String> {
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move || attachment_permission_granted(&state)).await.map_err(|_| "Attachment permission check stopped unexpectedly")?
+}
+fn attachment_request(state: &AuthState, method: reqwest::Method, endpoint: &str, body: Option<Value>, bytes: Option<Vec<u8>>) -> Result<attachments::Reply, String> {
+    // All destinations are generated in Rust. Never forward bearer tokens on redirects.
+    let client=Client::builder().timeout(Duration::from_secs(60)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_| "Attachment HTTP client unavailable")?;
+    let request=client.request(method, format!("https://graph.microsoft.com/v1.0{endpoint}")).bearer_auth(get_access_token(state)?);
+    let request=if let Some(body)=body { request.json(&body) } else { request };
+    let request=if let Some(bytes)=bytes { request.header(reqwest::header::CONTENT_TYPE,"application/octet-stream").body(bytes) } else { request };
+    let response=request.send().map_err(|_| "Attachment request was not confirmed. Files may already be uploaded or shared. Your draft is saved; check OneDrive and Teams before retrying.")?;
+    let status=response.status().as_u16();
+    let body=if (200..300).contains(&status) { response.json().map_err(|_| "Attachment response could not be read. Check OneDrive and Teams before retrying.")? } else { Value::Null };
+    Ok(attachments::Reply { status, body })
+}
+#[tauri::command]
+async fn graph_prepare_attachment(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>, chat_id: String, id: String, name: String, data: String) -> Result<(), String> {
+    let state=AuthState(state.0.clone());let uploads=uploads.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let permitted=attachment_permission_granted(&state)?;
+        let mut store=uploads.lock().map_err(|_| "Attachment state unavailable")?;
+        attachments::prepare(&mut store, permitted, &chat_id, &id, &name, &data, &mut |method,path,body,bytes| attachment_request(&state, method,path,body,bytes))
+    }).await.map_err(|_| "Attachment preparation stopped unexpectedly. Check OneDrive before retrying")?
+}
+#[tauri::command]
+async fn graph_send_attachments(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>, chat_id: String, text: String, ids: Vec<String>) -> Result<Value, String> {
+    let state=AuthState(state.0.clone());let uploads=uploads.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if !attachment_permission_granted(&state)? { return Err("Attachment permission is missing; sign in again after approval".into()); }
+        let store=uploads.lock().map_err(|_| "Attachment state unavailable")?;
+        attachments::send(&store, &chat_id, &text, &ids, &mut |method,path,body,bytes| attachment_request(&state, method,path,body,bytes))
+    }).await.map_err(|_| "Delivery was not confirmed. Check Teams before retrying")?
+}
 // Side effect: creates or returns a 1:1 chat. Only explicit first-message Send may call this.
 #[tauri::command]
 fn graph_create_chat(state: State<'_, AuthState>, recipient: String, own_id: String, first_message: String) -> Result<Value, String> {
@@ -242,8 +284,9 @@ fn graph_hosted_image(state: State<'_, AuthState>, chat_id: String, message_id: 
     Ok(format!("data:{};base64,{}", mime, STANDARD.encode(bytes)))
 }
 #[tauri::command]
-fn sign_out(state: State<'_, AuthState>) -> Result<(), String> {
+fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>) -> Result<(), String> {
     *state.0.lock().map_err(|_| "Authentication state unavailable")? = None;
+    uploads.0.lock().map_err(|_| "Attachment state unavailable")?.clear();
     Ok(())
 }
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -251,7 +294,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AuthState::default())
-        .invoke_handler(tauri::generate_handler![sign_in, sign_out, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image])
+        .manage(attachments::AttachmentState::default())
+        .invoke_handler(tauri::generate_handler![sign_in, sign_out, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
@@ -262,6 +306,14 @@ mod tests {
     const ME: &str = "11111111-1111-1111-1111-111111111111";
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
 
+    #[test]
+    fn file_permission_stays_in_rust_and_requires_exact_grant() {
+        let state=AuthState::default();
+        for (scope, expected) in [("User.Read",false),("Files.ReadWrite.All",false),("User.Read Files.ReadWrite",true)] {
+            store_token(&state,serde_json::json!({"access_token":"mock-token","scope":scope,"expires_in":3600})).unwrap();
+            assert_eq!(attachment_permission_granted(&state).unwrap(),expected);
+        }
+    }
     #[test]
     fn empty_first_message_never_requests_graph() {
         for text in ["".to_owned(), "   ".to_owned(), "x".repeat(4001)] {

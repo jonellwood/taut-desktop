@@ -44,3 +44,34 @@ Click **Sign in** at the bottom of the conversation panel or open Settings. Fini
 4. Pick a safe test chat, send a short message, and confirm it appears in official Teams.
 5. Click the refresh arrow in the chat header to load new messages.
 6. Sending currently requires the app to receive a valid Graph `201 Created` response; in ambiguous failures check Teams before retrying.
+
+## Automated regression checks
+
+```bash
+npm ci
+npm test
+npm run check:ui
+npm run build
+npx playwright install chromium webkit
+npm run test:ui
+cd src-tauri
+cargo check --locked
+cargo test --locked
+```
+
+The UI suite runs the real Svelte app in Chromium and WebKit with a mocked Tauri
+IPC boundary. It never starts the native app, signs into Microsoft 365, opens an
+external browser, or contacts Graph. External browser HTTP requests are blocked;
+unexpected IPC commands fail the suite. Fake chat creation and sending must be
+explicitly enabled by each relevant test. All identities and messages are fixtures.
+
+Coverage includes pending selection/cancellation, blank sends, duplicate submit
+protection, existing-chat reuse, creation and delivery failures, explicit retries,
+per-conversation drafts during sync and navigation, attachment link validation,
+and click-to-load images with the lightbox. Virtual time drives directory debounce
+and synchronization without waiting for real polling intervals.
+
+GitHub Actions runs unit tests, the frontend build, and both browser suites on
+Linux, plus locked Rust checks and mocked Graph tests on macOS, on pushes and pull
+requests. Failed UI runs retain reports and traces as workflow artifacts. These
+checks do not replace manual validation of native OAuth or macOS window behavior.

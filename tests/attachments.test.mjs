@@ -1,0 +1,34 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {validateFiles,MAX_FILE_BYTES,MAX_DRAFT_BYTES} from '../src/lib/attachments.ts';
+import {submitMessage} from '../src/lib/pending.ts';
+
+test('attachment limits reject unsafe filenames, empty/large files, excess count and total size',()=>{
+ for(const file of [{name:'empty.txt',size:0},{name:'big',size:MAX_FILE_BYTES+1},{name:'../secret',size:1},{name:'bad?.txt',size:1},{name:'bad.',size:1}])assert.throws(()=>validateFiles([],[file]));
+ assert.throws(()=>validateFiles(Array(5).fill({size:1}),[{name:'sixth',size:1}]));
+ assert.throws(()=>validateFiles([],[1,2,3].map(n=>({name:`${n}.txt`,size:MAX_DRAFT_BYTES/3+1}))));
+ assert.doesNotThrow(()=>validateFiles([],[{name:'Report #1 & notes.pdf',size:MAX_FILE_BYTES}]));
+});
+test('pending attachment-only send never creates or uploads',async()=>{
+ await assert.rejects(submitMessage(async()=>assert.fail(),'pending:other','other','me',' ',()=>assert.fail(),async()=>assert.fail()));
+});
+test('first attachment Send creates before preparing, then sends a reference message',async()=>{
+ const calls=[];
+ await submitMessage(async(cmd,args)=>{calls.push([cmd,args]);return {id:cmd==='graph_create_chat'?'created':'sent'};},'pending:other','other','me','Hello',id=>calls.push(['retained',id]),async id=>{calls.push(['prepare',id]);return ['file'];});
+ assert.deepEqual(calls.map(c=>c[0]),['graph_create_chat','retained','prepare','graph_send_attachments']);
+ assert.deepEqual(calls[3][1],{chatId:'created',text:'Hello',ids:['file']});
+});
+test('preparation failure keeps created ID and never sends text without its files',async()=>{
+ let retained;const calls=[];
+ await assert.rejects(submitMessage(async cmd=>{calls.push(cmd);return {id:'created'};},'pending:other','other','me','Hello',id=>retained=id,async()=>{throw Error('sharing failed');}),/sharing failed/);
+ assert.equal(retained,'created');assert.deepEqual(calls,['graph_create_chat']);
+});
+test('existing chats accept attachment-only messages',async()=>{
+ const calls=[];
+ await submitMessage(async(cmd,args)=>{calls.push([cmd,args]);return {id:'sent'};},'chat',undefined,'me','',()=>assert.fail(),async()=>['file']);
+ assert.equal(calls[0][0],'graph_send_attachments');assert.equal(calls[0][1].text,'');
+});
+
+test('empty preparation result never silently sends text without its attachments',async()=>{
+ await assert.rejects(submitMessage(async()=>assert.fail('No write expected'),'chat',undefined,'me','Hello',()=>assert.fail(),async()=>[]),/No attachments are ready/);
+});

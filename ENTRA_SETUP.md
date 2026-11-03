@@ -16,3 +16,13 @@ Microsoft documentation:
 - https://learn.microsoft.com/en-us/azure/active-directory/develop/scenario-desktop-app-registration
 - https://learn.microsoft.com/en-us/graph/api/chat-list-messages?view=graph-rest-1.0
 - https://learn.microsoft.com/en-us/graph/api/chat-post-messages?view=graph-rest-1.0
+
+## Attachment permission — approved 2026-11-03
+
+See [ATTACHMENTS.md](ATTACHMENTS.md) for the implemented flow and the proposed
+additional delegated `Files.ReadWrite` permission. The user explicitly approved
+this scope on 2026-11-03 and Rust now requests it. Add Microsoft Graph → Delegated
+→ `Files.ReadWrite` to the existing registration, complete consent as required by
+your tenant, then sign out/in. No application permissions or client secrets are
+needed. Existing sessions without this grant can still stage files locally, but
+cannot upload or send them.
