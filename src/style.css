@@ -102,3 +102,8 @@
 .quoted-reply-event svg{color:var(--accent)}
 .quoted-reply-event button{color:var(--accent);padding:2px 0}
 .quoted-reply-event button:hover{text-decoration:underline}
+
+.bubble{max-width:100%;min-width:0}.message-stack{min-width:0}.message-text{min-width:0;max-width:100%}
+
+.workspace-status{flex:none;min-height:28px;max-height:112px;overflow:auto;border-top:1px solid #34434e;background:#15212a;color:#91a9b8;padding:5px 14px;font-size:10px;line-height:1.6}
+.workspace-status>div{display:flex;align-items:center;gap:10px;min-height:17px}.workspace-status>div>span:not(.status-indicator){min-width:0;overflow-wrap:anywhere}.workspace-status.warning{color:var(--accent);background:#29271f;border-top-color:#665438}.workspace-status [role=alert]{color:#ffb5a9}.workspace-status button{margin-left:auto;flex:none;border:1px solid #6b5a40;border-radius:4px;padding:1px 7px;color:inherit}.status-indicator{height:5px;width:5px;border-radius:50%;flex:none;background:#7e939f}.workspace-status:not(.warning) .status-indicator{background:#7e939f}

@@ -129,6 +129,10 @@ async fn sign_in(state: State<'_, AuthState>, notifications:State<'_,notificatio
     tauri::async_runtime::spawn_blocking(move ||state.0.lock().map_err(|_|"Authentication state unavailable")?.accept_login(epoch,result,&mut auth::Keychain)).await.map_err(|_|"Sign-in session storage stopped")?
 }
 
+// Blocking Graph HTTP must never run on the macOS UI thread.
+async fn background_read<T:Send+'static>(work:impl FnOnce()->Result<T,String>+Send+'static)->Result<T,String>{
+    tauri::async_runtime::spawn_blocking(work).await.map_err(|_|"Background read stopped. Try Refresh.".to_string())?
+}
 fn graph_read_builder(client:&Client,token:String,endpoint:&str,system_events:bool)->reqwest::blocking::RequestBuilder {
     let request=client.get(format!("https://graph.microsoft.com/v1.0{endpoint}")).bearer_auth(token);
     if system_events { request.header("Prefer","include-unknown-enum-members") } else { request }
@@ -175,28 +179,41 @@ async fn graph_event_names(state:State<'_,AuthState>,people:Vec<EventPerson>)->R
     })).await.map_err(|_|"Participant name lookup stopped")?
 }
 #[tauri::command]
-fn graph_profile(state: State<'_, AuthState>, notifications:State<'_,notifications::State>) -> Result<Value, String> {
+async fn graph_profile(state: State<'_, AuthState>, notifications:State<'_,notifications::State>) -> Result<Value, String> {
+    let state=AuthState(state.0.clone());
+    let notifications=notifications::State(notifications.0.clone());
+    background_read(move||{
     let generation=notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.generation;
     let value=graph_request(&state,"/me?$select=id,displayName,userPrincipalName")?;
     if let Some(id)=value["id"].as_str(){let mut manager=notifications.0.lock().map_err(|_|"Notification state unavailable")?;if manager.tracker.generation==generation{manager.tracker.account(id);}}
     Ok(value)
+    }).await
 }
 const CHAT_LIST_PATH:&str="/me/chats?$top=50&$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime%20desc";
 #[tauri::command]
-fn graph_chats(state: State<'_, AuthState>, notifications:State<'_,notifications::State>, app:tauri::AppHandle) -> Result<Value, String> {
+async fn graph_chats(state: State<'_, AuthState>, notifications:State<'_,notifications::State>, app:tauri::AppHandle) -> Result<Value, String> {
+    let state=AuthState(state.0.clone());
+    let notifications=notifications::State(notifications.0.clone());
+    background_read(move||{
     let generation=notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.generation;
     let value=graph_get(&state,CHAT_LIST_PATH,true)?;
     notify_snapshot(&app,&notifications,&value,generation);Ok(value)
+    }).await
 }
 #[tauri::command]
-fn graph_chat_members(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
+async fn graph_chat_members(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
+    let state=AuthState(state.0.clone());
+    background_read(move||{
     let id: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
     graph_request(&state, &format!("/chats/{id}/members"))
+    }).await
 }
 
 // Directory lookup is tenant-scoped, delegated, and returns only basic profile fields.
 #[tauri::command]
-fn graph_search_users(state: State<'_, AuthState>, query: String) -> Result<Value, String> {
+async fn graph_search_users(state: State<'_, AuthState>, query: String) -> Result<Value, String> {
+    let state=AuthState(state.0.clone());
+    background_read(move||{
     let query = query.trim();
     if query.chars().count() < 2 || query.chars().count() > 80 || query.chars().any(|c| c.is_control()) {
         return Err("Enter at least two characters to search coworkers".into());
@@ -210,12 +227,16 @@ fn graph_search_users(state: State<'_, AuthState>, query: String) -> Result<Valu
         .map_err(|_| "Unable to search Microsoft 365 users".to_string())?;
     if !response.status().is_success() { return Err(format!("Coworker search returned HTTP {}", response.status())); }
     response.json().map_err(|_| "Invalid coworker search response".into())
+    }).await
 }
 #[tauri::command]
-fn graph_messages(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
+async fn graph_messages(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
+    let state=AuthState(state.0.clone());
+    background_read(move||{
     if chat_id.len() > 512 || chat_id.is_empty() { return Err("Invalid chat identifier".into()); }
     let encoded: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
     graph_get(&state, &format!("/chats/{encoded}/messages?$top=50&$orderby=createdDateTime%20desc"),true)
+    }).await
 }
 #[tauri::command]
 fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String) -> Result<Value, String> {
@@ -467,7 +488,9 @@ fn create_chat_with(
 }
 // Only a message-owned hosted content ID is accepted; never fetch an arbitrary URL.
 #[tauri::command]
-fn graph_hosted_image(state: State<'_, AuthState>, chat_id: String, message_id: String, content_id: String) -> Result<String, String> {
+async fn graph_hosted_image(state: State<'_, AuthState>, chat_id: String, message_id: String, content_id: String) -> Result<String, String> {
+    let state=AuthState(state.0.clone());
+    background_read(move||{
     if chat_id.is_empty() || message_id.is_empty() || content_id.is_empty() || chat_id.len()>512 || message_id.len()>512 || content_id.len()>1024 {
         return Err("Invalid image identifier".into());
     }
@@ -483,6 +506,7 @@ fn graph_hosted_image(state: State<'_, AuthState>, chat_id: String, message_id: 
     if bytes.len() > 8*1024*1024 { return Err("Image too large (8 MB limit)".into()); }
     use base64::engine::general_purpose::STANDARD;
     Ok(format!("data:{};base64,{}", mime, STANDARD.encode(bytes)))
+    }).await
 }
 #[tauri::command]
 async fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>,notifications:State<'_,notifications::State>) -> Result<(), String> {
@@ -574,6 +598,14 @@ mod tests {
     const ME: &str = "11111111-1111-1111-1111-111111111111";
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
 
+    #[test]
+    fn blocking_reads_run_off_the_calling_thread(){
+        let caller=std::thread::current().id();
+        let worker=tauri::async_runtime::block_on(background_read(||Ok(std::thread::current().id()))).unwrap();
+        assert_ne!(caller,worker);
+        let error=tauri::async_runtime::block_on(background_read(||Err::<(),String>("mock failure".into()))).unwrap_err();
+        assert_eq!(error,"mock failure");
+    }
     #[test]
     fn message_read_requests_include_system_event_preference_without_sending() {
         let client=http_client().unwrap();

@@ -54,6 +54,7 @@ export class MockGraph {
   profileError = '';
   profileId = me.id;
   messagesError = '';
+  chatsError = '';
   parentError='';
   parentGate?:Promise<void>;
   parentMessages:Record<string,MockMessage>={};
@@ -174,7 +175,7 @@ export class MockGraph {
         return null;
       }
       case 'graph_chat_members': return {value:this.chats.find(c=>c.id===args.chatId)?.members??[],...(this.membershipIncomplete?{'@odata.nextLink':'https://graph.microsoft.com/next'}:{})};
-      case 'graph_chats': return { value: this.chats };
+      case 'graph_chats': if(this.chatsError)throw Error(this.chatsError);return { value: this.chats };
       case 'graph_search_users': return { value: [me, alex, blair, casey].filter(u => `${u.displayName} ${'mail' in u ? u.mail : ''}`.toLowerCase().includes(args.query.toLowerCase())) };
       case 'graph_messages':
         await this.messagesGate;

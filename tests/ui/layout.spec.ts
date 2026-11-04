@@ -43,3 +43,26 @@ test('invalid saved layout falls back safely and selected chat details can be to
  await toolbar(page).getByRole('button',{name:'Toggle details panel'}).click();await expect(page.locator('.details')).toHaveCount(0);
  await toolbar(page).getByRole('button',{name:'Toggle details panel'}).click();await expect(page.locator('.details')).toBeVisible();expect(graph.writes).toEqual([]);
 });
+
+test('chat and channel navigation reveals the collapsed sidebar without opening a chat or losing drafts',async({page,graph})=>{
+ graph.restoredSession=true;await page.goto('/');await row(page,alex.displayName).click();
+ const draft=page.getByRole('textbox',{name:'Message',exact:true});await draft.fill('Keep chat draft');
+ const bar=toolbar(page);await bar.getByRole('button',{name:'Toggle conversation sidebar'}).click();
+ await expect(page.locator('.sidebar')).toHaveCount(0);
+ await page.getByRole('button',{name:'Chats',exact:true}).click();await expect(page.locator('.sidebar')).toBeVisible();
+ await expect(draft).toHaveValue('Keep chat draft');
+ await bar.getByRole('button',{name:'Focus mode',exact:true}).click();
+ await page.getByRole('button',{name:'Teams and Channels',exact:true}).click();
+ await expect(page.getByRole('complementary',{name:'Teams and channels browser',exact:true})).toBeVisible();
+ await expect(bar.getByRole('button',{name:'Focus mode',exact:true})).toHaveAttribute('aria-pressed','false');
+ await expect(bar.getByRole('button',{name:'Toggle details panel'})).toHaveAttribute('aria-pressed','false');
+ await page.getByRole('button',{name:'Browse team IT Development'}).click();await page.getByRole('button',{name:'Open channel General',exact:true}).click();
+ await page.getByRole('textbox',{name:'New channel post',exact:true}).fill('Keep channel draft');
+ await bar.getByRole('button',{name:'Toggle conversation sidebar'}).click();
+ await page.getByRole('button',{name:'Teams and Channels',exact:true}).click();
+ await expect(page.getByRole('complementary',{name:'Teams and channels browser',exact:true})).toBeVisible();
+ await expect(page.getByRole('textbox',{name:'New channel post',exact:true})).toHaveValue('Keep channel draft');
+ await bar.getByRole('button',{name:'Toggle conversation sidebar'}).click();
+ await page.getByRole('button',{name:'Chats',exact:true}).click();await expect(row(page,alex.displayName)).toBeVisible();await expect(draft).toHaveValue('Keep chat draft');
+ expect(graph.writes).toEqual([]);
+});
