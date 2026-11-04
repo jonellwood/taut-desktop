@@ -1,10 +1,13 @@
 <script lang="ts">
  import {X,Files,Image,MessagesSquare} from 'lucide-svelte';
+ import FormattingToolbar from './FormattingToolbar.svelte';
+ import {continueList} from './continue-list';
  import MessageBody from './MessageBody.svelte';
  import MessageReactions from './MessageReactions.svelte';
  import type {Message} from './types';
- let {replyText,sendError,uncertain,disabled,onText,onSend,onAcknowledge,onRefresh,root,replies,loading,error,chatName,group=false,onClose,onRetry,onOpenFile,onViewImage}:
- {replyText:string;sendError:string;uncertain:boolean;disabled:boolean;onText:(text:string)=>void;onSend:()=>void;onAcknowledge:()=>void;onRefresh:()=>void;root?:Message|null;replies:Message[];loading:boolean;error:string;chatName:string;group?:boolean;onClose:()=>void;onRetry:()=>void;onOpenFile:(url:string)=>void;onViewImage:(messageId:string,contentId:string)=>void}=$props();
+ let {formatted=false,onFormat,replyText,sendError,uncertain,disabled,onText,onSend,onAcknowledge,onRefresh,root,replies,loading,error,chatName,group=false,onClose,onRetry,onOpenFile,onViewImage}:
+ {formatted?:boolean;onFormat:(value:boolean)=>void;replyText:string;sendError:string;uncertain:boolean;disabled:boolean;onText:(text:string)=>void;onSend:()=>void;onAcknowledge:()=>void;onRefresh:()=>void;root?:Message|null;replies:Message[];loading:boolean;error:string;chatName:string;group?:boolean;onClose:()=>void;onRetry:()=>void;onOpenFile:(url:string)=>void;onViewImage:(messageId:string,contentId:string)=>void}=$props();
+ let replyInput=$state<HTMLTextAreaElement>();
  function author(message:Message){return message.sender==='me'?'You':message.senderName||(group?'Participant unavailable':chatName);}
  function time(message:Message){const value=new Date(message.createdDateTime??'');return Number.isNaN(value.getTime())?message.time:value.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
 </script>
@@ -40,7 +43,8 @@
  <footer>
   <form onsubmit={(event)=>{event.preventDefault();onSend();}}>
    <label for="quoted-reply">Reply with quote</label>
-   <textarea id="quoted-reply" aria-label="Quoted reply" rows="4" maxlength="4000" value={replyText} disabled={disabled} oninput={(event)=>onText(event.currentTarget.value)} placeholder="Write a reply…"></textarea>
+   <FormattingToolbar text={replyText} {formatted} input={replyInput} {disabled} {onText} {onFormat}/>
+   <textarea use:continueList={{formatted,onText}} bind:this={replyInput} id="quoted-reply" aria-label="Quoted reply" rows="4" maxlength="4000" value={replyText} disabled={disabled} oninput={(event)=>onText(event.currentTarget.value)} placeholder="Write a reply…"></textarea>
    {#if sendError}<p role="alert">{sendError}</p>{/if}
    {#if uncertain}<button type="button" disabled={disabled} onclick={onRefresh}>Refresh chat messages</button><button type="button" disabled={disabled} onclick={onAcknowledge}>I checked Teams — enable retry</button>{/if}
    <button type="submit" disabled={disabled||uncertain||!replyText.trim()}>Send quoted reply</button>

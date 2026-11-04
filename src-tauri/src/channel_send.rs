@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase")]
-pub struct Target {pub team_id:String,pub channel_id:String,pub message_id:Option<String>,pub own_id:String,pub text:String}
+pub struct Target {pub team_id:String,pub channel_id:String,pub message_id:Option<String>,pub own_id:String,pub text:String,#[serde(default)] pub formatted:bool}
 fn segment(value:&str)->Result<String,String>{
  if value.is_empty()||value.len()>512||value=="."||value==".."||value.starts_with("pending:")||value.chars().any(|c|c.is_control()||"/\\?#".contains(c)){return Err("Invalid channel destination.".into());}
  Ok(percent_encoding::utf8_percent_encode(value,percent_encoding::NON_ALPHANUMERIC).to_string())
@@ -20,6 +20,7 @@ pub fn send(permitted:bool,target:Target,request:&mut Request<'_>)->Result<Value
  let team=segment(&target.team_id)?;let channel=segment(&target.channel_id)?;
  let parent=target.message_id.as_deref().map(segment).transpose()?;
  if target.text.trim().is_empty()||target.text.chars().count()>4000{return Err("Enter a message of up to 4000 characters.".into());}
+ let body=crate::compose_format::body(&target.text,target.formatted,false)?;
  if !own_id(request)?.eq_ignore_ascii_case(&target.own_id){return Err("Account changed. Reopen this channel.".into());}
  let team_path=format!("/teams/{team}");
  let metadata=read(&team_path,request)?;
@@ -32,7 +33,7 @@ pub fn send(permitted:bool,target:Target,request:&mut Request<'_>)->Result<Value
    if original["id"].as_str()!=target.message_id.as_deref()||!original["deletedDateTime"].is_null()||original["messageType"].as_str()!=Some("message"){return Err("The original post is unavailable for replies.".into());}
    format!("{base}/messages/{parent}/replies")
  }else{format!("{base}/messages")};
- let result=request(Method::POST,&path,Some(json!({"body":{"contentType":"text","content":target.text.trim()}})));
+ let result=request(Method::POST,&path,Some(json!({"body":body})));
  match result{
    Ok(reply) if reply.status==201 && reply.body["id"].as_str().map(|id|segment(id).is_ok()).unwrap_or(false)
      && reply.body["from"]["user"]["id"].as_str().map(|id|id.eq_ignore_ascii_case(&target.own_id)).unwrap_or(true)
@@ -48,12 +49,19 @@ mod tests{
  use super::*;
  use crate::groups::Reply;
  const OWN:&str="00000000-0000-0000-0000-000000000001";
- fn target(reply:bool)->Target{Target{team_id:"host-team".into(),channel_id:"19:channel@thread.tacv2".into(),message_id:reply.then(||"root".into()),own_id:OWN.into(),text:"  <code> & text  ".into()}}
+ fn target(reply:bool)->Target{Target{team_id:"host-team".into(),channel_id:"19:channel@thread.tacv2".into(),message_id:reply.then(||"root".into()),own_id:OWN.into(),formatted:false,text:"  <code> & text  ".into()}}
  fn preflight(path:&str)->Value{
    if path.starts_with("/me?"){json!({"id":OWN})}
    else if path.ends_with("/messages/root"){json!({"id":"root","messageType":"message"})}
    else if path.contains("/channels/"){json!({"id":"19:channel@thread.tacv2","isArchived":false})}
    else{json!({"id":"host-team","isArchived":false})}
+ }
+ #[test]
+ fn formatted_post_and_reply_are_safe_and_blank_code_has_no_requests(){
+   for reply in [false,true]{let mut t=target(reply);t.formatted=true;t.text="```php\n<x> & echo 1;\n```".into();let mut writes=0;
+    send(true,t,&mut |m,p,b|{if m==Method::GET{return Ok(Reply{status:200,body:preflight(p)});}writes+=1;let body=b.unwrap();assert_eq!(body["body"]["contentType"],"html");assert!(body["body"]["content"].as_str().unwrap().contains("&lt;x&gt; &amp; echo 1;"));Ok(Reply{status:201,body:json!({"id":"sent"})})}).unwrap();assert_eq!(writes,1);
+   }
+   let mut t=target(false);t.formatted=true;t.text="```php\n \n```".into();assert!(send(true,t,&mut |_,_,_|panic!("No requests")).is_err());
  }
  #[test]
  fn explicit_post_and_reply_use_host_and_plain_text(){

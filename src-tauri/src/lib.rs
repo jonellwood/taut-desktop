@@ -1,3 +1,4 @@
+mod compose_format;
 mod auth;
 mod teams;
 mod channel_send;
@@ -239,13 +240,13 @@ async fn graph_messages(state: State<'_, AuthState>, chat_id: String) -> Result<
     }).await
 }
 #[tauri::command]
-fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String) -> Result<Value, String> {
+fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String, formatted: Option<bool>) -> Result<Value, String> {
     if chat_id.is_empty() || chat_id.len() > 512 { return Err("Invalid chat identifier".into()); }
     let content = text.trim();
     if content.is_empty() || content.chars().count() > 4000 { return Err("Message must contain 1–4000 characters".into()); }
-    // The message is plain text: Graph is explicitly instructed not to interpret HTML.
+    let body = compose_format::body(content, formatted.unwrap_or(false), false)?;
     let encoded: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
-    let payload = serde_json::json!({"body": {"contentType": "text", "content": content}});
+    let payload = serde_json::json!({"body": body});
     let token = get_access_token(&state)?;
     let response = http_client()?.post(format!("https://graph.microsoft.com/v1.0/chats/{encoded}/messages"))
         .bearer_auth(token).json(&payload).send()
@@ -286,12 +287,12 @@ async fn graph_prepare_attachment(state: State<'_, AuthState>, uploads: State<'_
     }).await.map_err(|_| "Attachment preparation stopped unexpectedly. Check OneDrive before retrying")?
 }
 #[tauri::command]
-async fn graph_send_attachments(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>, chat_id: String, text: String, ids: Vec<String>) -> Result<Value, String> {
+async fn graph_send_attachments(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>, chat_id: String, text: String, ids: Vec<String>, formatted: Option<bool>) -> Result<Value, String> {
     let state=AuthState(state.0.clone());let uploads=uploads.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         if !attachment_permission_granted(&state)? { return Err("Attachment permission is missing; sign in again after approval".into()); }
         let store=uploads.lock().map_err(|_| "Attachment state unavailable")?;
-        attachments::send(&store, &chat_id, &text, &ids, &mut |method,path,body,bytes| attachment_request(&state, method,path,body,bytes))
+        attachments::send_formatted(&store, &chat_id, &text, &ids, formatted.unwrap_or(false), &mut |method,path,body,bytes| attachment_request(&state, method,path,body,bytes))
     }).await.map_err(|_| "Delivery was not confirmed. Check Teams before retrying")?
 }
 #[tauri::command]
@@ -299,12 +300,12 @@ async fn graph_chat_message(state:State<'_,AuthState>,chat_id:String,message_id:
     let state=AuthState(state.0.clone());tauri::async_runtime::spawn_blocking(move||chat_threads::quoted_parent(&chat_id,&message_id,&mut |method,path,body|graph_operation_request(&state,method,path,body))).await.map_err(|_|"Quoted message read stopped")?
 }
 #[tauri::command]
-async fn graph_reply_with_quote(state:State<'_,AuthState>,chat_id:String,message_id:String,own_id:String,text:String)->Result<Value,String>{
+async fn graph_reply_with_quote(state:State<'_,AuthState>,chat_id:String,message_id:String,own_id:String,text:String,formatted:Option<bool>)->Result<Value,String>{
  let state=AuthState(state.0.clone());
  tauri::async_runtime::spawn_blocking(move||{
    get_access_token(&state)?;
    let permitted=state.0.lock().map_err(|_|"Authentication unavailable")?.token.as_ref().map(|t|t.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("ChatMessage.Send"))).unwrap_or(false);
-   chat_threads::send_quote(permitted,&chat_id,&message_id,&own_id,&text,&mut |m,p,b|graph_operation_request(&state,m,p,b)).or_else(|error|Ok(serde_json::json!({"status":"rejected","error":error})))
+   chat_threads::send_formatted_quote(permitted,&chat_id,&message_id,&own_id,&text,formatted.unwrap_or(false),&mut |m,p,b|graph_operation_request(&state,m,p,b)).or_else(|error|Ok(serde_json::json!({"status":"rejected","error":error})))
  }).await.map_err(|_|"Reply delivery was not confirmed. Check Teams before retrying.")?
 }
 #[tauri::command]
@@ -367,7 +368,8 @@ async fn group_member_permission(state:State<'_,AuthState>)->Result<bool,String>
     tauri::async_runtime::spawn_blocking(move ||group_permission_granted(&state)).await.map_err(|_|"Group permission check stopped")?
 }
 #[tauri::command]
-async fn graph_create_group_chat(state:State<'_,AuthState>,recipients:Vec<String>,topic:String,first_message:String,own_id:String)->Result<Value,String>{
+async fn graph_create_group_chat(state:State<'_,AuthState>,recipients:Vec<String>,topic:String,first_message:String,own_id:String,formatted:Option<bool>)->Result<Value,String>{
+    compose_format::body(&first_message,formatted.unwrap_or(false),false)?;
     let state=AuthState(state.0.clone());
     tauri::async_runtime::spawn_blocking(move ||groups::create(&recipients,&topic,&first_message,&own_id,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
         .await.map_err(|_|"Group creation was not confirmed. Check Teams before retrying")?
@@ -435,7 +437,8 @@ async fn graph_reaction_state(state:State<'_,AuthState>,chat_id:String,message_i
 }
 // Side effect: creates or returns a 1:1 chat. Only explicit first-message Send may call this.
 #[tauri::command]
-fn graph_create_chat(state: State<'_, AuthState>, recipient: String, own_id: String, first_message: String) -> Result<Value, String> {
+fn graph_create_chat(state: State<'_, AuthState>, recipient: String, own_id: String, first_message: String, formatted: Option<bool>) -> Result<Value, String> {
+    compose_format::body(&first_message,formatted.unwrap_or(false),false)?;
     create_chat_with(&recipient, &own_id, &first_message, |method, endpoint, payload| {
         let token = get_access_token(&state)?;
         let request = http_client()?.request(method, format!("https://graph.microsoft.com/v1.0{endpoint}"))

@@ -10,6 +10,9 @@
  import MessageBody from './lib/MessageBody.svelte';
  import {receivedText} from './lib/message-body';
  import ChatThread from './lib/ChatThread.svelte';
+ import FormattingToolbar from './lib/FormattingToolbar.svelte';
+ import {continueList} from './lib/continue-list';
+ import {formatDraft} from './lib/compose-format';
  import {quotedMessageIds,chatReplies} from './lib/chat-threads';
  import TeamsWorkspace from './lib/TeamsWorkspace.svelte';
  import EmojiPicker from './lib/EmojiPicker.svelte';
@@ -155,6 +158,8 @@
  let threadMessages=$derived(activeThread?chatReplies(activeThread.rootId,selected.messages):[]);
 
  let channelDrafts=$state<import('./lib/teams').ChannelDrafts>({});
+ let formattedDrafts=$state<Record<string,boolean>>({});
+ let formattedReplies=$state<Record<string,boolean>>({});
  let replyDrafts=$state<Record<string,string>>({});
  let replyErrors=$state<Record<string,string>>({});
  let replyUncertain=$state<Record<string,boolean>>({});
@@ -163,9 +168,10 @@
    if(!activeThread||!threadRoot||threadRoot.deleted||sendBusy||stagingBusy||authBusy||operationBusy||groupBusy||reauthRequired||selected.hidden)return;
    const {chatId,rootId}=activeThread;const key=replyKey;const text=(replyDrafts[key]??'').trim();const session=nameSession;
    if(!text||text.length>4000||replyUncertain[key])return;
+   if(formattedReplies[key]&&!formatDraft(text).visible){replyErrors[key]='Write a nonempty reply before sending.';return;}
    sendBusy=true;replyErrors[key]='';
    try{
-     const result=await invoke<{status:string;message?:ApiMessage;error?:string}>('graph_reply_with_quote',{chatId,messageId:rootId,ownId,text});
+     const result=await invoke<{status:string;message?:ApiMessage;error?:string}>('graph_reply_with_quote',{chatId,messageId:rootId,ownId,text,...(formattedReplies[key]?{formatted:true}:{})});
      if(session!==nameSession)return;
      if(result.status==='sent'&&result.message?.id){
        const sent=convertChatMessage(result.message,chatId);sent.sender='me';sent.replyIds=[rootId];
@@ -477,7 +483,7 @@
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
      if(priorOwn&&!sameAccount){
        closeReplyThread();drafts={};attachmentDrafts={};attachmentProgress={};readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
-       imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;replyDrafts={};replyErrors={};replyUncertain={};channelDrafts={};activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
+       imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;replyDrafts={};formattedDrafts={};formattedReplies={};replyErrors={};replyUncertain={};channelDrafts={};activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
      }
      ownId=me.id;signedInName=me.displayName;loadPins();
      const result=await invoke<{value:ApiChat[]}>('graph_chats');
@@ -517,7 +523,7 @@
    pinnedIds=[];pinMenuId=null;pinError='';closeReplyThread();
    authBusy=true;authError='';persistenceNotice='';sessionSaved=false;reauthRequired=false;
    readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';chatWritePermission=false;showHidden=false;confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;imageVersions.clear();imageCache={};imageErrors={};imageLoading={};lightbox=null;hiddenOverrides={};changeTarget=null;chatListSerial++;
-   nameSession++;replyDrafts={};replyErrors={};replyUncertain={};channelDrafts={};leftGroupIds.clear();groupMemberPermission=false;activityNames={};attemptedNames.clear();nameRetryAfter=0;
+   nameSession++;replyDrafts={};formattedDrafts={};formattedReplies={};replyErrors={};replyUncertain={};channelDrafts={};leftGroupIds.clear();groupMemberPermission=false;activityNames={};attemptedNames.clear();nameRetryAfter=0;
    attachmentDrafts={};attachmentProgress={};attachmentPermission=false;
    knownChats=[];drafts={};isLive=false;openChatSerial++;
    try{await invoke('sign_out');}catch(e){authError=String(e);}finally{authBusy=false;}
@@ -724,7 +730,8 @@
    const pendingGroup=selected.pendingGroup;
    const recipient=originalId.startsWith('pending:')&&!pendingGroup?originalId.slice(8):undefined;
    const reusable=recipient?existingChat(knownChats,recipient,ownId):undefined;
-   let chatId=reusable?.id??originalId;const draftAtSubmit=draft;sendBusy=true;sendError='';
+   let chatId=reusable?.id??originalId;const formattedAtSubmit=formattedDrafts[originalId]??false;
+   const draftAtSubmit=draft;sendBusy=true;sendError='';
    try {
      const retainChat=(id:string)=>{
        chatId=id;
@@ -734,6 +741,7 @@
        if(pending && !chats.some(c=>c.id===id))chats=[{...pending,pendingGroup:undefined,creationUncertain:false,id,preview:'Conversation created · message not yet confirmed'},...chats];
        chats=chats.filter(c=>c.id!==originalId);
        drafts[id]=drafts[originalId]??draftAtSubmit;delete drafts[originalId];
+       formattedDrafts[id]=formattedDrafts[originalId]??false;delete formattedDrafts[originalId];
        attachmentDrafts[id]=[...(attachmentDrafts[id]??[]),...(attachmentDrafts[originalId]??[])];delete attachmentDrafts[originalId];
        if(selectedId===originalId){selectedId=id;openChatSerial++;}
      };
@@ -749,7 +757,7 @@
        }
        attachmentProgress[id]='Sending message…';
        return filesAtSubmit.map(f=>f.id);
-     }:undefined,pendingGroup?{...pendingGroup,onUnconfirmed:()=>{const pending=chats.find(c=>c.id===originalId);if(pending)pending.creationUncertain=true;}}:undefined);
+     }:undefined,pendingGroup?{...pendingGroup,onUnconfirmed:()=>{const pending=chats.find(c=>c.id===originalId);if(pending)pending.creationUncertain=true;}}:undefined,formattedAtSubmit);
      attachmentDrafts[chatId]=(attachmentDrafts[chatId]??[]).filter(f=>!filesAtSubmit.some(sent=>sent.id===f.id));
      // Clear only the submitted draft; never erase another conversation's input.
      if(drafts[chatId]===draftAtSubmit)drafts[chatId]='';
@@ -769,7 +777,7 @@
    return {update:()=>{void tick().then(resize);},destroy:()=>{active=false;observer.disconnect();cancelAnimationFrame(frame);}};
  }
  function composerKeys(event:KeyboardEvent){
-   if(event.key==='Enter' && !event.shiftKey && !event.isComposing){event.preventDefault();void send();}
+   if(event.key==='Enter' && !event.isComposing && (formattedDrafts[selectedId]?(event.metaKey||event.ctrlKey):!event.shiftKey)){event.preventDefault();void send();}
  }
  function openComposerEmoji(event:MouseEvent){
    emojiReturnFocus=event.currentTarget as HTMLElement;
@@ -979,11 +987,12 @@
     <button type="button" onclick={()=>{if(selected)selected.creationUncertain=false;sendError=''}}>I checked Teams — enable retry</button>
    </div>{/if}
    <input class="file-picker" type="file" multiple bind:this={fileInput} aria-label="Choose attachment files" onchange={selectFiles} disabled={!isLive||sendBusy||stagingBusy}/>
-   <form class="composer" onsubmit={(e)=>{e.preventDefault();send()}}><button type="button" title="Attach files (up to 5 files, 10 MB each)" aria-label="Attach files" disabled={!isLive||sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.id==='empty'} onclick={()=>fileInput?.click()}><Paperclip size={19}/></button><textarea rows="1" bind:this={composerInput} use:autosizeComposer={draft} onkeydown={composerKeys} value={draft} oninput={(e)=>{draft=e.currentTarget.value;drafts[selectedId]=draft}} placeholder={isLive?`Message ${selected.name}…`:`Demo message ${selected.name}…`} disabled={sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || selected.hidden || selected.id==='empty'} aria-label="Message" title="Enter to send; Shift+Enter for a new line"></textarea><button type="button" title="Insert emoji into your draft" aria-label="Insert emoji" disabled={!isLive||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onclick={openComposerEmoji}><Smile size={19}/></button><button type="submit" class="send" disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.creationUncertain||(!draft.trim()&&(!selectedFiles.length||selected.id.startsWith('pending:')))||selected.id==='empty'} aria-label="Send message"><Send size={18}/></button></form>
+   <div class="compose-format-area"><FormattingToolbar text={draft} formatted={formattedDrafts[selectedId]??false} input={composerInput} disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onText={text=>{draft=text;drafts[selectedId]=text}} onFormat={value=>formattedDrafts[selectedId]=value}/></div>
+   <form class="composer" onsubmit={(e)=>{e.preventDefault();send()}}><button type="button" title="Attach files (up to 5 files, 10 MB each)" aria-label="Attach files" disabled={!isLive||sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.id==='empty'} onclick={()=>fileInput?.click()}><Paperclip size={19}/></button><textarea rows="1" bind:this={composerInput} use:autosizeComposer={draft} use:continueList={{formatted:formattedDrafts[selectedId]??false,onText:text=>{draft=text;drafts[selectedId]=text}}} onkeydown={composerKeys} value={draft} oninput={(e)=>{draft=e.currentTarget.value;drafts[selectedId]=draft}} placeholder={isLive?`Message ${selected.name}…`:`Demo message ${selected.name}…`} disabled={sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || selected.hidden || selected.id==='empty'} aria-label="Message" title={formattedDrafts[selectedId]?"Enter for a new line; ⌘Enter to send":"Enter to send; Shift+Enter for a new line"}></textarea><button type="button" title="Insert emoji into your draft" aria-label="Insert emoji" disabled={!isLive||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onclick={openComposerEmoji}><Smile size={19}/></button><button type="submit" class="send" disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.creationUncertain||(!draft.trim()&&(!selectedFiles.length||selected.id.startsWith('pending:')))||selected.id==='empty'} aria-label="Send message"><Send size={18}/></button></form>
    {/if}
   {:else}<div class="section-placeholder">{#if !sidebarOpen}<button class="small-button left-restore" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={18}/></button>{/if}<LayoutPanelTop size={36}/><h2>{nav.find(n=>n.id===mode)?.label}</h2><p>TAUT owns this workspace. Connecting Microsoft 365 data is the next phase.</p><button class="outline-button" onclick={()=>mode='chats'}>Return to messages</button></div>{/if}
  </main>
- {#if detailsOpen&&mode==='chats'&&activeThread}<ChatThread replyText={replyDrafts[replyKey]??''} sendError={replyErrors[replyKey]??''} uncertain={replyUncertain[replyKey]??false} disabled={sendBusy||stagingBusy||authBusy||operationBusy||groupBusy||reauthRequired||!!selected.hidden||!threadRoot||!!threadRoot.deleted} onText={(text)=>replyDrafts[replyKey]=text} onSend={sendQuotedReply} onAcknowledge={()=>{replyUncertain[replyKey]=false;replyErrors[replyKey]='';}} onRefresh={()=>loadMessages(selected.id,'manual')} root={threadRoot} replies={threadMessages} loading={quotedLoading} error={quotedError} chatName={selected.name} group={selected.chatType==='group'} onClose={closeReplyThread} onRetry={()=>activeThread&&openReplyThread(activeThread.rootId)} onOpenFile={openAttachment} onViewImage={viewThreadImage}/>{:else if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
+ {#if detailsOpen&&mode==='chats'&&activeThread}<ChatThread formatted={formattedReplies[replyKey]??false} onFormat={value=>formattedReplies[replyKey]=value} replyText={replyDrafts[replyKey]??''} sendError={replyErrors[replyKey]??''} uncertain={replyUncertain[replyKey]??false} disabled={sendBusy||stagingBusy||authBusy||operationBusy||groupBusy||reauthRequired||!!selected.hidden||!threadRoot||!!threadRoot.deleted} onText={(text)=>replyDrafts[replyKey]=text} onSend={sendQuotedReply} onAcknowledge={()=>{replyUncertain[replyKey]=false;replyErrors[replyKey]='';}} onRefresh={()=>loadMessages(selected.id,'manual')} root={threadRoot} replies={threadMessages} loading={quotedLoading} error={quotedError} chatName={selected.name} group={selected.chatType==='group'} onClose={closeReplyThread} onRetry={()=>activeThread&&openReplyThread(activeThread.rootId)} onOpenFile={openAttachment} onViewImage={viewThreadImage}/>{:else if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
 </div>
 <footer class="workspace-status" aria-label="Workspace status" class:warning={reauthRequired||!!authError||!!readError||!!persistenceNotice||isLive&&syncStatus==='offline'}>
  {#if reauthRequired}<div role="status"><span>Microsoft requires a fresh sign-in. Your drafts remain in this session.</span><button type="button" disabled={authBusy||sendBusy||stagingBusy||groupBusy||operationBusy} onclick={signIn}>Reconnect</button></div>

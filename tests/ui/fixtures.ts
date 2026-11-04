@@ -1,3 +1,4 @@
+import {formatDraft} from '../../src/lib/compose-format';
 import { test as base, expect, type Page } from '@playwright/test';
 
 export const me = { id: '11111111-1111-1111-1111-111111111111', displayName: 'Test User' };
@@ -91,7 +92,7 @@ export class MockGraph {
         await this.channelSendGate;
         if(this.channelSendStatus!=='sent')return {status:this.channelSendStatus,error:'Channel send failed. Draft saved.'};
         const t=args.target;
-        const sent={id:'channel-sent-'+this.writes.length,replyToId:t.messageId,createdDateTime:'2026-11-04T15:00:00Z',from:{user:{id:me.id,displayName:'Test User'}},body:{contentType:'text',content:t.text}};
+        const sent={id:'channel-sent-'+this.writes.length,replyToId:t.messageId,createdDateTime:'2026-11-04T15:00:00Z',from:{user:{id:me.id,displayName:'Test User'}},body:{contentType:t.formatted?'html':'text',content:t.formatted?formatDraft(t.text).html:t.text}};
         const collection=t.messageId?'replies':'posts';this.teamData[collection]=[...this.teamData[collection],sent];
         return {status:'sent',message:sent};
       }
@@ -121,7 +122,7 @@ export class MockGraph {
         if(!this.allowWrites)break;
         await this.quoteGate;
         if(this.quoteStatus!=='sent')return {status:this.quoteStatus,error:'Reply delivery failed. Your draft is saved.'};
-        const sent={...message('quoted-'+this.writes.length,args.text,me.id),attachments:[{id:args.messageId,contentType:'messageReference',content:JSON.stringify({messageId:args.messageId})}]};
+        const sent={...message('quoted-'+this.writes.length,args.formatted?formatDraft(args.text).html:args.text,me.id),attachments:[{id:args.messageId,contentType:'messageReference',content:JSON.stringify({messageId:args.messageId})}]};
         this.messages[args.chatId]=[...(this.messages[args.chatId]??[]),sent];
         return {status:'sent',message:sent};
       }
@@ -217,7 +218,7 @@ export class MockGraph {
         if (!this.allowWrites) break;
         await this.sendGate;
         if (this.sendError) throw Error(this.sendError);
-        const attached = message(`attached-${this.writes.length}`, args.text, me.id);
+        const attached = message(`attached-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text, me.id);
         attached.attachments = args.ids.map((id:string) => ({ id, name:this.prepared.get(id)!.name, contentType:'reference', contentUrl:`https://example.sharepoint.com/${id}` }));
         this.messages[args.chatId] = [...(this.messages[args.chatId] ?? []), attached];
         return { id:attached.id };
@@ -225,7 +226,7 @@ export class MockGraph {
         if (!this.allowWrites) break;
         await this.sendGate;
         if (this.sendError) throw Error(this.sendError);
-        const sent = message(`sent-${this.writes.length}`, args.text, me.id);
+        const sent = message(`sent-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text, me.id);
         this.messages[args.chatId] = [...(this.messages[args.chatId] ?? []), sent];
         return { id: sent.id };
     }

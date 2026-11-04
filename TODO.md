@@ -93,10 +93,10 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Enable searchable categorized emoji insertion into the composer at the caret/selection, preserving local per-chat drafts and explicit Send.
 - [x] User confirmed reaction add/remove and composer emoji insertion all perform as expected (2026-11-03).
 - [x] Opt-in native message notifications with reaction noise suppressed. See [NOTIFICATIONS.md](NOTIFICATIONS.md); macOS banner delivery and click routing await manual validation.
-- [ ] Message formatting — received rendering implemented (see FORMATTING.md); rich-text composition remains next. Important daily workflow for sharing PowerShell. Apply consistently to chats, channel posts and reply panes.
+- [x] Message formatting — received rendering and opt-in source composition with preview implemented (see FORMATTING.md). Important daily workflow for sharing PowerShell. Apply consistently to chats, channel posts and reply panes.
 - [x] Render received code blocks and inline code with exact line breaks, indentation, tabs and blank lines; use a monospace code container, language label, horizontal scrolling and Copy code that preserves the original code. Add syntax highlighting, with PowerShell as a required language and plain-text fallback for unknown languages. The user's Teams/TAUT screenshots demonstrate code currently being flattened into a paragraph; use that scenario as a manual acceptance case.
 - [x] Preserve supported rich-text structure safely: paragraphs, line breaks, bold/italic, lists, links and blockquotes. Parse/sanitize untrusted Graph content without executing markup or auto-loading remote resources. Keep code contents literal, including angle brackets, ampersands, quotes and PowerShell variables.
-- [ ] Add composer formatting controls for code blocks/inline code, language selection (including PowerShell), and basic rich text; preserve per-conversation drafts, attachments and explicit Send. Verify formatting round-trips between Teams and TAUT with mocked Graph tests before manual tenant testing.
+- [x] Add composer formatting controls for code blocks/inline code, language selection (including PowerShell), and basic rich text; preserve per-conversation drafts, attachments and explicit Send. Verify formatting round-trips between Teams and TAUT with mocked Graph tests before manual tenant testing.
 - [ ] Typing indicators, subject to API support.
 - [ ] Shared Media panel with images, files, and links.
 
@@ -113,3 +113,5 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [ ] Manually recheck the reported macOS beachball after rebuilding; profile further if it recurs.
 - [x] User manually confirmed PowerShell display and Copy code work (2026-11-04).
 - [ ] Expand syntax highlighting beyond PowerShell, including PHP when language metadata is available; retain plain-code fallback rather than guessing missing language labels.
+
+- [ ] Manually verify newly composed formatted messages round-trip through Teams (PowerShell code, basic text, quoted replies, channel posts/replies).

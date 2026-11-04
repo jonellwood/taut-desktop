@@ -44,16 +44,19 @@ pub fn quoted_parent(
 }
 
 /// Preflight errors occur before POST; every ambiguous POST result keeps the draft.
-pub fn send_quote(permitted: bool, chat: &str, parent: &str, own: &str, text: &str, request: &mut Request<'_>) -> Result<Value,String> {
+#[cfg(test)]
+pub fn send_quote(permitted:bool,chat:&str,parent:&str,own:&str,text:&str,request:&mut Request<'_>)->Result<Value,String>{send_formatted_quote(permitted,chat,parent,own,text,false,request)}
+pub fn send_formatted_quote(permitted: bool, chat: &str, parent: &str, own: &str, text: &str, formatted:bool, request: &mut Request<'_>) -> Result<Value,String> {
     if !permitted { return Err("ChatMessage.Send permission is missing. Sign in again.".into()); }
     valid_chat(chat)?;
     if !valid_id(chat) || !valid_id(parent) || text.trim().is_empty() || text.chars().count()>4000 {return Err("Choose a message and enter a reply of up to 4000 characters.".into());}
+    let body=crate::compose_format::body(text,formatted,false)?;
     if !crate::deletion::own_id(request)?.eq_ignore_ascii_case(own) {return Err("Account changed. Reopen the conversation.".into());}
     let original=quoted_parent(chat,parent,request)?;
     if !original["deletedDateTime"].is_null() || original["messageType"].as_str().map(|t|t!="message").unwrap_or(false) {return Err("This message can no longer be quoted.".into());}
     let original_chat=chat;
     let chat=percent_encoding::utf8_percent_encode(chat,percent_encoding::NON_ALPHANUMERIC).to_string();
-    let result=request(Method::POST,&format!("/chats/{chat}/messages/replyWithQuote"),Some(serde_json::json!({"messageIds":[parent],"replyMessage":{"body":{"contentType":"text","content":text.trim()}}})));
+    let result=request(Method::POST,&format!("/chats/{chat}/messages/replyWithQuote"),Some(serde_json::json!({"messageIds":[parent],"replyMessage":{"body":body}})));
     let uncertain=||serde_json::json!({"status":"uncertain","error":"Delivery was not confirmed. Check Teams before enabling another attempt. Your draft is saved."});
     match result {
         Ok(reply) if reply.status==201 && reply.body["id"].as_str().map(valid_id).unwrap_or(false) && reply.body["chatId"].as_str().map(|id|id==original_chat).unwrap_or(true) && reply.body["from"]["user"]["id"].as_str().map(|id|id.eq_ignore_ascii_case(own)).unwrap_or(true) => Ok(serde_json::json!({"status":"sent","message":reply.body})),
@@ -68,6 +71,14 @@ mod tests {
     use serde_json::json;
 
     const OWN:&str="00000000-0000-0000-0000-000000000001";
+    #[test]
+    fn formatted_quote_is_safe_and_blank_code_never_requests(){
+      let mut writes=0;send_formatted_quote(true,"chat","m",OWN,"**Hello** <x>",true,&mut |method,path,body|{
+       if method==Method::GET{return Ok(Reply{status:200,body:if path.starts_with("/me?"){json!({"id":OWN})}else{json!({"id":"m","messageType":"message"})}});}
+       writes+=1;let payload=body.unwrap();assert_eq!(payload["replyMessage"]["body"]["contentType"],"html");assert_eq!(payload["replyMessage"]["body"]["content"],"<p><strong>Hello</strong> &lt;x&gt;</p>");Ok(Reply{status:201,body:json!({"id":"sent"})})
+      }).unwrap();assert_eq!(writes,1);
+      assert!(send_formatted_quote(true,"chat","m",OWN,"```\n \n```",true,&mut |_,_,_|panic!("No requests")).is_err());
+    }
     #[test]
     fn quote_preflight_never_writes_on_invalid_input_or_account() {
       for (permission,chat,parent,text) in [(false,"chat","m","reply"),(true,"pending:user","m","reply"),(true,"chat","m"," "), (true,"chat","bad/id","reply")] {

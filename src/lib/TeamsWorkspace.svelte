@@ -1,6 +1,7 @@
 <script lang="ts">
  import MessageBody from './MessageBody.svelte';
  import ChannelDetails from './ChannelDetails.svelte';
+ import {formatDraft} from './compose-format';
  import ChannelComposer from './ChannelComposer.svelte';
  import {channelDraftKey,type ChannelDrafts} from './teams';
  import {onDestroy} from 'svelte';
@@ -37,7 +38,8 @@
    if(reply&&(!root||root.deletedDateTime||isChannelActivity(root)))return;
    const key=reply?replyKey:postKey;const text=(drafts[key]?.text??'').trim();
    if(!text||text.length>4000||drafts[key]?.uncertain)return;
-   const target={teamId:channel.hostTeamId!,channelId:channel.id,messageId:root?.id??null,ownId,text};
+   if(drafts[key]?.formatted&&!formatDraft(text).visible){drafts[key]={...drafts[key],error:'Write a nonempty message before sending.'};return;}
+   const target={...(drafts[key]?.formatted?{formatted:true}:{}),teamId:channel.hostTeamId!,channelId:channel.id,messageId:root?.id??null,ownId,text};
    const capturedPosts=posts,capturedReplies=replies;
    onSendBusy(true);drafts[key]={...drafts[key],error:''};
    try{
@@ -136,7 +138,7 @@
     <section class="channel-posts" aria-label="Channel posts">
      {#if !permissions.send}<p class="team-note">Posting needs delegated ChannelMessage.Send consent and a fresh sign-in.</p>{/if}
      {#if selectedTeam?.isArchived||selectedChannel.isArchived}<p class="team-note">Archived channel · browsing only.</p>{/if}
-     <ChannelComposer label="New channel post" text={drafts[postKey]?.text??''} error={drafts[postKey]?.error??''} uncertain={drafts[postKey]?.uncertain??false} disabled={cannotSend} onText={text=>editDraft(postKey,text)} onSend={()=>sendMessage(false)} onRefresh={()=>selectedChannel&&openChannel(selectedChannel)} onAcknowledge={()=>acknowledge(postKey)}/>
+     <ChannelComposer formatted={drafts[postKey]?.formatted??false} onFormat={value=>drafts[postKey]={...(drafts[postKey]??{text:'',error:'',uncertain:false}),formatted:value}} label="New channel post" text={drafts[postKey]?.text??''} error={drafts[postKey]?.error??''} uncertain={drafts[postKey]?.uncertain??false} disabled={cannotSend} onText={text=>editDraft(postKey,text)} onSend={()=>sendMessage(false)} onRefresh={()=>selectedChannel&&openChannel(selectedChannel)} onAcknowledge={()=>acknowledge(postKey)}/>
      <p class="read-only-note">CHANNEL POSTS <span>Sorted by latest thread activity · replies stay with their post</span></p>
 
      {#if posts.error}<div class="team-error" role="alert">{posts.error}</div>{/if}
@@ -159,7 +161,7 @@
        {#if threadEvents.length}<details class="channel-activity"><summary>Thread activity · {threadEvents.length}</summary>{#each threadEvents as event (event.id)}<div class="channel-event"><span>{activityLabel(event)}</span><time datetime={event.createdDateTime}>{postTime(event)}</time></div>{/each}</details>{/if}
        {#each threadReplies as reply (reply.id)}<article class="channel-reply"><div class="post-meta"><strong>{postAuthor(reply)}</strong><time datetime={reply.createdDateTime}>{postTime(reply)}</time></div><div class="post-text"><MessageBody body={reply.body} fallback={channelText(reply)} deleted={!!reply.deletedDateTime}/></div>{#if !reply.deletedDateTime&&reply.attachments?.length}<p class="post-attachment-note">{reply.attachments.map(a=>a.name||'Attachment').join(' · ')} · previews coming later</p>{/if}</article>{/each}
        {#if replies.next}<button class="team-action load-more" disabled={replies.busy} onclick={moreReplies}>{replies.busy?'Loading…':'Load more replies'}</button>{/if}
-      </div><div class="thread-footer"><ChannelComposer label="Channel reply" text={drafts[replyKey]?.text??''} error={drafts[replyKey]?.error??''} uncertain={drafts[replyKey]?.uncertain??false} disabled={cannotSend||!!selectedPost.deletedDateTime||isChannelActivity(selectedPost)} onText={text=>editDraft(replyKey,text)} onSend={()=>sendMessage(true)} onRefresh={()=>selectedPost&&openThread(selectedPost)} onAcknowledge={()=>acknowledge(replyKey)}/></div>
+      </div><div class="thread-footer"><ChannelComposer formatted={drafts[replyKey]?.formatted??false} onFormat={value=>drafts[replyKey]={...(drafts[replyKey]??{text:'',error:'',uncertain:false}),formatted:value}} label="Channel reply" text={drafts[replyKey]?.text??''} error={drafts[replyKey]?.error??''} uncertain={drafts[replyKey]?.uncertain??false} disabled={cannotSend||!!selectedPost.deletedDateTime||isChannelActivity(selectedPost)} onText={text=>editDraft(replyKey,text)} onSend={()=>sendMessage(true)} onRefresh={()=>selectedPost&&openThread(selectedPost)} onAcknowledge={()=>acknowledge(replyKey)}/></div>
     </aside>{/if}
    </div>{/if}
   {:else}<div class="channel-empty"><Building2 size={42}/><span class="eyebrow">SHARED SPACE. CLEAR CONVERSATIONS.</span><h2>{selectedTeam?selectedTeam.displayName:'Where your teams come together.'}</h2><p>{selectedTeam?selectedTeam.description||'Choose a channel to read its conversations.':'Choose a team and channel to explore posts and replies.'}</p>{#if !sidebarOpen}<p>Use the layout toolbar to show the conversation sidebar.</p>{/if}{#if !isLive}<button class="team-action" disabled={authBusy} onclick={onSignIn}>Sign in to Microsoft 365</button>{/if}</div>{/if}

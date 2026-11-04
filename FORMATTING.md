@@ -1,6 +1,6 @@
 # Received message formatting
 
-Received formatting is shared across chat messages, quoted-chat originals/replies, channel posts and channel thread originals/replies. This release changes display only: composers still send plain text, and no OAuth scopes or Graph write operations are added.
+Received formatting is shared across chat messages, quoted-chat originals/replies, channel posts and channel thread originals/replies. Received display is complemented by explicit opt-in composer formatting. No OAuth scopes are added.
 
 ## Supported content
 
@@ -21,7 +21,7 @@ Links accept only absolute credential-free HTTP(S) URLs. Unsafe schemes and rela
 
 Deleted messages never parse/render their old body or code controls. Formatting-only changes participate in chat synchronization comparisons even when visible words are unchanged. Normal chat, reply and file drafts remain separate and untouched.
 
-Legacy code-snippet card attachments without an inline codeblock/pre body, adaptive cards, arbitrary embedded resources, rich-text composition and broader syntax-language coverage remain follow-ups. Do not treat an attachment URL as permission to fetch arbitrary code content with a Graph bearer token.
+Legacy code-snippet card attachments without an inline codeblock/pre body, adaptive cards, arbitrary embedded resources, full WYSIWYG composition and broader syntax-language coverage remain follow-ups. Do not treat an attachment URL as permission to fetch arbitrary code content with a Graph bearer token.
 
 ## Verification and manual review
 
@@ -36,3 +36,17 @@ Official references:
 Verification — 2026-11-04: final full Chromium/WebKit suite 308 passed; Node tests 55 passed; Rust tests 110 passed. UI TypeScript, Svelte/Vite build, cargo check and git diff --check passed. The same three pre-existing Svelte accessibility warnings remain. No real Microsoft 365 data or system clipboard was mutated during automated testing. Native macOS clipboard behavior and the user's original PowerShell message await manual validation after rebuilding.
 
 Manual follow-up — 2026-11-04: user confirms PowerShell renders well and Copy code appears correct. PHP displays formatted code without highlighting, as expected for the current language fallback. User also reported a brief beachball and intermittent auto-recovering sync warning; subsequent work is documented in STATUS_AND_RESPONSIVENESS.md.
+
+## Composer formatting — 2026-11-04
+
+Use **Format** above a composer to reveal Bold, Inline code, List, Link, a code language selector and Code block. These controls insert editable formatting markers around the current selection. Preview shows the rendered message without sending. The source editor supports `**bold**`, backtick inline code, `- ` bullet lists, numbered lists, HTTP(S) links and fenced code blocks. Raw HTML is always literal text. This is a lightweight source editor with preview, not a WYSIWYG editor.
+
+Chat formatted mode uses Enter for a newline and Command+Enter (Control+Enter) for explicit Send. Plain mode retains Enter to send / Shift+Enter for a newline. Reply and channel composers retain explicit send buttons. Formatting flags belong to their individual conversation or thread drafts and follow pending chats when their server ID is retained. Attachments and ambiguity/retry safeguards remain in place. Drafts are in memory, as before; authentication persistence does not persist drafts across quitting.
+
+Rust independently compiles source into the small escaped HTML vocabulary. The frontend never supplies trusted HTML. Empty formatted code cannot create a pending conversation, prepare files, or send a text-only message. Existing attachment-only messages remain permitted. Outgoing code uses Graph's documented codeblock element and a validated language class; Graph/Teams may normalize language highlighting. TAUT locally highlights PowerShell and labels other supported languages, including PHP, with the existing plain-code fallback.
+
+Manual acceptance after rebuilding: send a short PowerShell code block to the test chat, check Teams line breaks/indentation and copy the received code back into an editor. Try a bold/list/link message, then a quoted reply and a channel post/reply. Automated tests use mocked IPC/Graph requests exclusively; tenant rendering still requires this manual round-trip.
+
+Verification: 60 Node tests and 117 Rust tests passed; full Chromium/WebKit suite 326 passed. After the final documented-codeblock markup and toolbar alignment change, all 30 focused formatting/layout browser tests passed again. UI TypeScript, Svelte/Vite build, cargo check and git diff --check passed. Three pre-existing Svelte accessibility warnings remain. No automated requests touched the real tenant.
+
+List editing: in formatted composers, Enter at the end of a bullet inserts the next `- `; Enter on an empty bullet removes that marker and moves to column one of a new blank line. Shift+Enter inserts a plain newline. Code fences, selected text, IME composition and send shortcuts are excluded from bullet continuation.

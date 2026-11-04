@@ -32,7 +32,7 @@ export function activityLabel(post:ChannelPost):string{
  return Object.hasOwn(names,type)?names[type]:'Channel activity';
 }
 
-export type ChannelDraft={text:string;error:string;uncertain:boolean};
+export type ChannelDraft={formatted?:boolean;text:string;error:string;uncertain:boolean};
 export type ChannelDrafts=Record<string,ChannelDraft>;
 export function channelDraftKey(team:string,channel:string,root:string|null){return JSON.stringify([team,channel,root]);}
 

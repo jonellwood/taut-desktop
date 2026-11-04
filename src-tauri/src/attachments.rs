@@ -287,11 +287,14 @@ fn escape(text: &str) -> String {
         .replace('\'', "&#39;")
         .replace('\n', "<br>")
 }
-pub fn send(
+#[cfg(test)]
+pub fn send(store: &HashMap<String, Upload>,chat:&str,text:&str,ids:&[String],request:&mut Request<'_>)->Result<Value,String>{send_formatted(store,chat,text,ids,false,request)}
+pub fn send_formatted(
     store: &HashMap<String, Upload>,
     chat: &str,
     text: &str,
     ids: &[String],
+    formatted: bool,
     request: &mut Request<'_>,
 ) -> Result<Value, String> {
     valid_chat(chat)?;
@@ -300,7 +303,7 @@ pub fn send(
     }
     let mut unique = std::collections::HashSet::new();
     let mut attachments = Vec::new();
-    let mut content = escape(text.trim());
+    let mut content = if formatted {crate::compose_format::body(text,true,true)?["content"].as_str().unwrap().to_owned()} else {escape(text.trim())};
     let recipients = members(chat, request)?;
     let mut total = 0u64;
     for id in ids {
@@ -454,6 +457,12 @@ mod tests {
             "aGk=",
             &mut |m, p, b, d| graph.request(m, p, b, d),
         )
+    }
+    #[test]
+    fn formatted_send_preserves_file_references(){
+      let mut store=HashMap::new();let mut graph=Graph::default();prepare_file(&mut store,&mut graph).unwrap();
+      send_formatted(&store,"chat","**See file** <x>",&[ID.into()],true,&mut |m,p,b,d|graph.request(m,p,b,d)).unwrap();
+      let payload=graph.calls.last().unwrap().2.as_ref().unwrap();let content=payload["body"]["content"].as_str().unwrap();assert!(content.starts_with("<p><strong>See file</strong> &lt;x&gt;</p>"));assert!(content.contains("<attachment id="));assert_eq!(payload["attachments"].as_array().unwrap().len(),1);
     }
     #[test]
     fn invalid_input_and_missing_permission_make_no_requests() {
