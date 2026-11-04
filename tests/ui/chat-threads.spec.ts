@@ -50,3 +50,76 @@ test('focus mode hides and restores the reply pane and navigation keeps normal d
  await page.getByRole('button',{name:'Focus mode',exact:true}).click();await expect(page.getByRole('complementary',{name:'Chat reply thread'})).toHaveCount(0);await page.getByRole('button',{name:'Focus mode',exact:true}).click();await expect(page.getByRole('complementary',{name:'Chat reply thread'})).toBeVisible();
  await page.getByRole('button',{name:'Teams and Channels',exact:true}).click();await page.getByRole('button',{name:'Chats',exact:true}).click();await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('Keep this separate draft');expect(graph.writes).toEqual([]);
 });
+
+test('explicit quoted send preserves normal drafts and shows the linked reply',async({page,graph})=>{
+ graph.allowWrites=true;await signIn(page);
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('Normal draft stays');
+ await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();
+ const pane=page.getByRole('complementary',{name:'Chat reply thread'});
+ await expect(pane.getByRole('button',{name:'Send quoted reply',exact:true})).toBeDisabled();
+ await pane.getByRole('textbox',{name:'Quoted reply'}).fill('A deliberate quoted reply');
+ expect(graph.writes).toEqual([]);
+ await pane.getByRole('button',{name:'Send quoted reply',exact:true}).click();
+ await expect(pane.getByRole('textbox',{name:'Quoted reply'})).toHaveValue('');
+ await expect(pane).toContainText('A deliberate quoted reply');
+ await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('Normal draft stays');
+ expect(graph.writes).toHaveLength(1);
+ expect(graph.writes[0].args).toEqual({chatId:'chat-alex',messageId:'hello',ownId:me.id,text:'A deliberate quoted reply'});
+});
+
+test('reply drafts survive closing and uncertain delivery requires explicit retry acknowledgement',async({page,graph})=>{
+ graph.allowWrites=true;graph.quoteStatus='uncertain';await signIn(page);
+ await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();
+ let pane=page.getByRole('complementary',{name:'Chat reply thread'});
+ await pane.getByRole('textbox',{name:'Quoted reply'}).fill('Keep this reply');
+ await page.getByRole('button',{name:'Close reply thread'}).click();
+ await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();
+ await expect(pane.getByRole('textbox',{name:'Quoted reply'})).toHaveValue('Keep this reply');
+ await pane.getByRole('button',{name:'Send quoted reply',exact:true}).click();
+ await expect(pane.getByRole('alert')).toContainText('draft is saved');
+ await expect(pane.getByRole('button',{name:'Send quoted reply',exact:true})).toBeDisabled();
+ await page.getByRole('button',{name:'Close reply thread'}).click();
+ await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();
+ await expect(pane.getByRole('button',{name:'Send quoted reply',exact:true})).toBeDisabled();
+ await pane.getByRole('button',{name:'Refresh chat messages',exact:true}).click();
+ expect(graph.writes).toHaveLength(1);
+ await pane.getByRole('button',{name:'I checked Teams — enable retry'}).click();
+ expect(graph.writes).toHaveLength(1);
+ graph.quoteStatus='sent';
+ await pane.getByRole('button',{name:'Send quoted reply',exact:true}).click();
+ await expect(pane.getByRole('textbox',{name:'Quoted reply'})).toHaveValue('');
+ expect(graph.writes).toHaveLength(2);
+});
+
+test('in-flight quoted reply cannot be duplicated or clear a different chat draft',async({page,graph})=>{
+ graph.allowWrites=true;let release!:()=>void;graph.quoteGate=new Promise<void>(resolve=>release=resolve);
+ await signIn(page);await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();
+ const pane=page.getByRole('complementary',{name:'Chat reply thread'});
+ await pane.getByRole('textbox',{name:'Quoted reply'}).fill('Captured target');
+ await pane.getByRole('button',{name:'Send quoted reply',exact:true}).click();
+ await expect(pane.getByRole('button',{name:'Send quoted reply',exact:true})).toBeDisabled();
+ await row(page,blair.displayName).click();release();
+ await expect(page.locator('.messages')).not.toContainText('Captured target');
+ await row(page,alex.displayName).click();
+ await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();
+ await expect(pane.getByRole('textbox',{name:'Quoted reply'})).toHaveValue('');
+ expect(graph.writes).toHaveLength(1);
+});
+
+test('quoted timeline entries are compact and opening a thread reveals the original',async({page,graph})=>{
+ seed(graph);
+ graph.messages['chat-alex'].splice(1,0,...Array.from({length:25},(_,i)=>({...message('filler-'+i,'An ordinary message '+i),createdDateTime:new Date(Date.UTC(2026,0,1,12,0,i+1)).toISOString()})));
+ await signIn(page);
+ const timeline=page.getByRole('region',{name:'Chat messages'});
+ await expect(timeline.getByLabel('Quoted reply activity').first()).toContainText('replied to a message');
+ await expect(timeline.locator('.bubble')).not.toContainText(['First quoted reply']);
+ await timeline.getByRole('button',{name:'View quoted message 1'}).last().click();
+ // The last quote targets the preceding reply; explicitly open the original root next.
+ await page.getByRole('button',{name:'View chat replies',exact:true}).first().click();
+ const original=timeline.locator('[data-message-id="root"]');
+ const top=await timeline.evaluate(node=>node.getBoundingClientRect().top);
+ await expect.poll(async()=>{const box=await original.boundingBox();return box?box.y-top:-100;}).toBeGreaterThanOrEqual(0);
+ await expect(page.getByRole('complementary',{name:'Chat reply thread'})).toContainText('The original question');
+ const bubble=original.locator('.bubble');
+ await expect.poll(async()=>{const box=await bubble.boundingBox();return box?.height??1000;}).toBeLessThan(65);
+});

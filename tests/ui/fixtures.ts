@@ -29,6 +29,8 @@ export class MockGraph {
   messages: Record<string, MockMessage[]> = { 'chat-alex': [message('hello', 'Hello from Alex')] };
   // Write commands fail closed unless a test deliberately enables its fake writes.
   allowWrites = false;
+  quoteStatus='sent';
+  quoteGate?:Promise<void>;
   teamsPermissions={teams:true,channels:true,messages:true};
   teamError='';
   teamErrors:Record<string,string>={};
@@ -76,7 +78,7 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
@@ -101,6 +103,14 @@ export class MockGraph {
       case 'auth_persistence_status': return {restored:true,saved:this.sessionSaved,notice:this.persistenceNotice};
       case 'sign_in': return null;
       case 'sign_out': this.restoredSession=false;if(this.signOutError)throw Error(this.signOutError);return null;
+      case 'graph_reply_with_quote': {
+        if(!this.allowWrites)break;
+        await this.quoteGate;
+        if(this.quoteStatus!=='sent')return {status:this.quoteStatus,error:'Reply delivery failed. Your draft is saved.'};
+        const sent={...message('quoted-'+this.writes.length,args.text,me.id),attachments:[{id:args.messageId,contentType:'messageReference',content:JSON.stringify({messageId:args.messageId})}]};
+        this.messages[args.chatId]=[...(this.messages[args.chatId]??[]),sent];
+        return {status:'sent',message:sent};
+      }
       case 'graph_chat_message': await this.parentGate;if(this.parentError)throw Error(this.parentError);return this.parentMessages[args.messageId]??this.messages[args.chatId]?.find(m=>m.id===args.messageId)??Promise.reject(Error('Quoted message unavailable'));
       case 'graph_profile': if(this.profileError)throw Error(this.profileError);return {...me,id:this.profileId};
       case 'attachment_permission': return this.attachmentPermission;

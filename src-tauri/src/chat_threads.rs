@@ -1,4 +1,4 @@
-//! Fetches a quoted chat message without changing read state or creating messages.
+//! Reads quote context and sends explicit, preflight-checked quoted chat replies.
 use crate::deletion::{valid_chat, Request};
 use reqwest::Method;
 use serde_json::Value;
@@ -42,11 +42,68 @@ pub fn quoted_parent(
     }
     Ok(response.body)
 }
+
+/// Preflight errors occur before POST; every ambiguous POST result keeps the draft.
+pub fn send_quote(permitted: bool, chat: &str, parent: &str, own: &str, text: &str, request: &mut Request<'_>) -> Result<Value,String> {
+    if !permitted { return Err("ChatMessage.Send permission is missing. Sign in again.".into()); }
+    valid_chat(chat)?;
+    if !valid_id(chat) || !valid_id(parent) || text.trim().is_empty() || text.chars().count()>4000 {return Err("Choose a message and enter a reply of up to 4000 characters.".into());}
+    if !crate::deletion::own_id(request)?.eq_ignore_ascii_case(own) {return Err("Account changed. Reopen the conversation.".into());}
+    let original=quoted_parent(chat,parent,request)?;
+    if !original["deletedDateTime"].is_null() || original["messageType"].as_str().map(|t|t!="message").unwrap_or(false) {return Err("This message can no longer be quoted.".into());}
+    let original_chat=chat;
+    let chat=percent_encoding::utf8_percent_encode(chat,percent_encoding::NON_ALPHANUMERIC).to_string();
+    let result=request(Method::POST,&format!("/chats/{chat}/messages/replyWithQuote"),Some(serde_json::json!({"messageIds":[parent],"replyMessage":{"body":{"contentType":"text","content":text.trim()}}})));
+    let uncertain=||serde_json::json!({"status":"uncertain","error":"Delivery was not confirmed. Check Teams before enabling another attempt. Your draft is saved."});
+    match result {
+        Ok(reply) if reply.status==201 && reply.body["id"].as_str().map(valid_id).unwrap_or(false) && reply.body["chatId"].as_str().map(|id|id==original_chat).unwrap_or(true) && reply.body["from"]["user"]["id"].as_str().map(|id|id.eq_ignore_ascii_case(own)).unwrap_or(true) => Ok(serde_json::json!({"status":"sent","message":reply.body})),
+        Ok(reply) if (400..500).contains(&reply.status) && reply.status!=408 => Ok(serde_json::json!({"status":"rejected","error":format!("Reply was rejected (HTTP {}). Your draft is saved.",reply.status)})),
+        _=>Ok(uncertain()),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::groups::Reply;
     use serde_json::json;
+
+    const OWN:&str="00000000-0000-0000-0000-000000000001";
+    #[test]
+    fn quote_preflight_never_writes_on_invalid_input_or_account() {
+      for (permission,chat,parent,text) in [(false,"chat","m","reply"),(true,"pending:user","m","reply"),(true,"chat","m"," "), (true,"chat","bad/id","reply")] {
+        assert!(send_quote(permission,chat,parent,OWN,text,&mut |_,_,_|panic!("No request")).is_err());
+      }
+      assert!(send_quote(true,"chat","m","other","reply",&mut |method,_,_|{assert_eq!(method,Method::GET);Ok(Reply{status:200,body:json!({"id":OWN})})}).is_err());
+    }
+    #[test]
+    fn quote_send_is_one_post_with_plain_text_and_encoded_chat() {
+      let mut posts=0;
+      let result=send_quote(true,"19:chat@thread.v2","m",OWN,"  <code> & reply  ",&mut |method,path,body|{
+        if method==Method::GET {return Ok(Reply{status:200,body:if path.starts_with("/me?"){json!({"id":OWN})}else{json!({"id":"m","messageType":"message"})}});}
+        posts+=1;assert_eq!(path,"/chats/19%3Achat%40thread%2Ev2/messages/replyWithQuote");
+        assert_eq!(body.unwrap(),json!({"messageIds":["m"],"replyMessage":{"body":{"contentType":"text","content":"<code> & reply"}}}));
+        Ok(Reply{status:201,body:json!({"id":"sent"})})
+      }).unwrap();
+      assert_eq!(posts,1);assert_eq!(result["status"],"sent");
+    }
+    #[test]
+    fn deleted_parent_prevents_post() {
+      assert!(send_quote(true,"chat","m",OWN,"reply",&mut |method,path,_|{
+        assert_eq!(method,Method::GET);Ok(Reply{status:200,body:if path.starts_with("/me?"){json!({"id":OWN})}else{json!({"id":"m","deletedDateTime":"now"})}})
+      }).is_err());
+    }
+    #[test]
+    fn ambiguous_deliveries_never_retry() {
+      for status in [0,201,408,500,403] {
+        let mut posts=0;
+        let result=send_quote(true,"chat","m",OWN,"reply",&mut |method,path,_|{
+          if method==Method::GET{return Ok(Reply{status:200,body:if path.starts_with("/me?"){json!({"id":OWN})}else{json!({"id":"m"})}});}
+          posts+=1;if status==0 {return Err("Network error".into());}
+          Ok(Reply{status,body:Value::Null})
+        }).unwrap();
+        assert_eq!(posts,1);assert_eq!(result["status"],if status==403{"rejected"}else{"uncertain"});
+      }
+    }
     #[test]
     fn invalid_targets_never_make_requests() {
         for (chat, id) in [

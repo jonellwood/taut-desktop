@@ -102,4 +102,4 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Persistent layout toolbar: toggle conversation/details panels, amber active states, and focus mode that restores the previous arrangement.
 
 - [x] Show quoted chat reply context in a side pane using explicit messageReference metadata, with read-only fetching of older parents and preserved chat drafts/media/read state. See CHAT_THREADS.md.
-- [ ] Add explicit quoted-reply sending from the chat reply pane; evaluate Graph replyWithQuote under existing ChatMessage.Send and retain separate reply drafts/uncertain-send safeguards.
+- [x] Add explicit text quoted-reply sending from the chat reply pane via Graph replyWithQuote under existing ChatMessage.Send, with separate reply drafts and uncertain-send safeguards. Mocked validation complete; manual tenant validation pending.

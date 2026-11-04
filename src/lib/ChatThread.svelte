@@ -2,8 +2,8 @@
  import {X,Files,Image,MessagesSquare} from 'lucide-svelte';
  import MessageReactions from './MessageReactions.svelte';
  import type {Message} from './types';
- let {root,replies,loading,error,chatName,group=false,onClose,onRetry,onOpenFile,onViewImage}:
- {root?:Message|null;replies:Message[];loading:boolean;error:string;chatName:string;group?:boolean;onClose:()=>void;onRetry:()=>void;onOpenFile:(url:string)=>void;onViewImage:(messageId:string,contentId:string)=>void}=$props();
+ let {replyText,sendError,uncertain,disabled,onText,onSend,onAcknowledge,onRefresh,root,replies,loading,error,chatName,group=false,onClose,onRetry,onOpenFile,onViewImage}:
+ {replyText:string;sendError:string;uncertain:boolean;disabled:boolean;onText:(text:string)=>void;onSend:()=>void;onAcknowledge:()=>void;onRefresh:()=>void;root?:Message|null;replies:Message[];loading:boolean;error:string;chatName:string;group?:boolean;onClose:()=>void;onRetry:()=>void;onOpenFile:(url:string)=>void;onViewImage:(messageId:string,contentId:string)=>void}=$props();
  function author(message:Message){return message.sender==='me'?'You':message.senderName||(group?'Participant unavailable':chatName);}
  function time(message:Message){const value=new Date(message.createdDateTime??'');return Number.isNaN(value.getTime())?message.time:value.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
 </script>
@@ -36,9 +36,17 @@
   </article>{/each}
   {#if !replies.length&&!loading}<p class="chat-thread-status">No quoted replies in loaded history.</p>{/if}
  </div>
- <footer>Reply context stays linked to the original chat.</footer>
+ <footer>
+  <form onsubmit={(event)=>{event.preventDefault();onSend();}}>
+   <label for="quoted-reply">Reply with quote</label>
+   <textarea id="quoted-reply" aria-label="Quoted reply" rows="4" maxlength="4000" value={replyText} disabled={disabled} oninput={(event)=>onText(event.currentTarget.value)} placeholder="Write a reply…"></textarea>
+   {#if sendError}<p role="alert">{sendError}</p>{/if}
+   {#if uncertain}<button type="button" disabled={disabled} onclick={onRefresh}>Refresh chat messages</button><button type="button" disabled={disabled} onclick={onAcknowledge}>I checked Teams — enable retry</button>{/if}
+   <button type="submit" disabled={disabled||uncertain||!replyText.trim()}>Send quoted reply</button>
+  </form>
+ </footer>
 </aside>
 <style>
  .chat-thread-pane{width:360px;flex:none;display:flex;flex-direction:column;min-height:0;border-left:1px solid #394b56;background:#142029}.chat-thread-pane header{display:flex;justify-content:space-between;gap:12px;padding:22px;border-bottom:1px solid #2c3e4b;align-items:center}.chat-thread-pane h2{font-size:18px;margin:8px 0 0;overflow-wrap:anywhere}.chat-thread-pane header button{padding:7px;color:#9eb0bd;border-radius:6px}.chat-thread-pane header button:hover{background:#30414c;color:var(--accent)}.thread-explanation{font-size:11px;color:#8ea5b3;line-height:1.7;margin:0;padding:16px 22px;border-bottom:1px solid #2c3e4b}.chat-thread-scroll{overflow:auto;flex:1;padding:20px 22px;min-height:0}.chat-thread-root{padding:0 0 20px;border-bottom:1px solid #687780}.thread-message-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:#b8c8d2}.thread-message-meta time{font-size:10px;color:#839eaf}.chat-thread-pane p:not(.thread-explanation):not(.chat-thread-status){white-space:pre-wrap;font-size:13px;line-height:1.8;overflow-wrap:anywhere;color:#d4dfe6}.chat-thread-pane p.deleted{color:#8ea5b3;font-style:italic}.thread-file{display:flex;gap:8px;align-items:center;text-align:left;color:var(--accent);font-size:11px;padding:9px 0;overflow-wrap:anywhere}.thread-reply-heading{display:flex;gap:8px;align-items:center;margin:22px 0 4px;color:#9fb2bf;font-size:10px}.chat-thread-reply{padding:18px 0;border-bottom:1px solid #2d404b}.chat-thread-status{color:#8ea5b3;font-size:12px;line-height:1.8}.chat-thread-error{color:#ffb5a9;font-size:12px;line-height:1.7;padding-bottom:17px}.chat-thread-error button{display:block;margin-top:10px;border:1px solid #79635b;padding:7px 10px;border-radius:6px}footer{padding:16px;font-size:10px;color:#7f98a8;border-top:1px solid #2c3e4b}
- @media(max-width:1000px){.chat-thread-pane{width:min(420px,calc(100vw - 68px));position:absolute;right:0;top:36px;bottom:0;z-index:9;box-shadow:-20px 0 60px #0007}}
+ textarea{display:block;box-sizing:border-box;width:100%;resize:vertical;min-height:90px;background:#0e191f;color:#d4dfe6;border:1px solid #61727c;border-radius:7px;padding:10px;margin:10px 0;font:inherit;font-size:13px}footer button{border:1px solid #79694e;color:var(--accent);border-radius:6px;padding:8px;margin:4px 4px 0 0}footer button:disabled{opacity:.45}footer p{color:#ffb5a9!important} @media(max-width:1000px){.chat-thread-pane{width:min(420px,calc(100vw - 68px));position:absolute;right:0;top:36px;bottom:0;z-index:9;box-shadow:-20px 0 60px #0007}}
 </style>

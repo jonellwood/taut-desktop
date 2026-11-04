@@ -92,3 +92,13 @@
 .search-field:focus-within kbd{color:var(--accent)}
 
 .chat-quote-link{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;margin:0 0 10px;text-align:left;border-left:2px solid var(--accent);background:#0e171c55;color:#b6c8d4;border-radius:4px;font-size:11px}.chat-quote-link:hover{color:var(--accent);background:#0e171c88}.chat-quote-link span{margin-left:auto}
+
+/* Text preserves user line breaks without rendering template whitespace as blank rows. */
+.bubble{white-space:normal;padding:9px 13px}
+.message-text{white-space:pre-wrap}
+.messages{min-height:0;gap:16px}
+.messages>*,.chat-thread-scroll>*{flex-shrink:0}
+.quoted-reply-event{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 12px;border-left:2px solid var(--accent);background:#1b2931;border-radius:5px;color:#aebfc9;font-size:12px}
+.quoted-reply-event svg{color:var(--accent)}
+.quoted-reply-event button{color:var(--accent);padding:2px 0}
+.quoted-reply-event button:hover{text-decoration:underline}

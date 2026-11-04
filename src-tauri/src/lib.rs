@@ -276,6 +276,15 @@ async fn graph_send_attachments(state: State<'_, AuthState>, uploads: State<'_, 
 async fn graph_chat_message(state:State<'_,AuthState>,chat_id:String,message_id:String)->Result<Value,String>{
     let state=AuthState(state.0.clone());tauri::async_runtime::spawn_blocking(move||chat_threads::quoted_parent(&chat_id,&message_id,&mut |method,path,body|graph_operation_request(&state,method,path,body))).await.map_err(|_|"Quoted message read stopped")?
 }
+#[tauri::command]
+async fn graph_reply_with_quote(state:State<'_,AuthState>,chat_id:String,message_id:String,own_id:String,text:String)->Result<Value,String>{
+ let state=AuthState(state.0.clone());
+ tauri::async_runtime::spawn_blocking(move||{
+   get_access_token(&state)?;
+   let permitted=state.0.lock().map_err(|_|"Authentication unavailable")?.token.as_ref().map(|t|t.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("ChatMessage.Send"))).unwrap_or(false);
+   chat_threads::send_quote(permitted,&chat_id,&message_id,&own_id,&text,&mut |m,p,b|graph_operation_request(&state,m,p,b)).or_else(|error|Ok(serde_json::json!({"status":"rejected","error":error})))
+ }).await.map_err(|_|"Reply delivery was not confirmed. Check Teams before retrying.")?
+}
 fn teams_permissions_now(state:&AuthState)->Result<teams::Permissions,String>{
     get_access_token(state)?;
     let guard=state.0.lock().map_err(|_|"Authentication state unavailable")?;
@@ -545,7 +554,7 @@ pub fn run() {
         .setup(setup_notifications)
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
