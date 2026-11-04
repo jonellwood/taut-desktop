@@ -113,7 +113,7 @@ test('system activity is compact and normal roots keep their own replies and ful
  await page.goto('/');await openTeams(page);await page.getByRole('button',{name:'Browse team IT Development'}).click();await page.getByRole('button',{name:'Open channel General',exact:true}).click();
  const posts=page.getByRole('region',{name:'Channel posts'});await expect(posts.getByRole('article')).toHaveCount(1);await expect(posts.getByRole('button',{name:'View replies',exact:true})).toHaveCount(1);
  await expect(posts).not.toContainText('Participant unavailable');await expect(page.getByRole('navigation',{name:'Channel location'})).toHaveText('IT DevelopmentGeneral');
- await expect(posts.getByRole('article')).toContainText('2022');await posts.getByText('Channel activity · 2 events',{exact:true}).click();await expect(posts.getByText('Members added',{exact:true})).toBeVisible();
+ await expect(posts.getByRole('article')).toContainText('2022');await expect(posts.getByText('Channel activity · 2 events',{exact:true})).toHaveCount(0);await expect(page.getByRole('complementary',{name:'Channel details',exact:true}).getByText('Members added',{exact:true})).toBeVisible();
  await posts.getByRole('button',{name:'View replies',exact:true}).click();await expect(page.getByRole('complementary',{name:'Channel thread'})).toContainText('Works like a charm!');
  await expect(posts.getByRole('article')).not.toContainText('Works like a charm!');await page.screenshot({path:info.outputPath('channel-post-and-activity.png')});expect(graph.writes).toEqual([]);
 });

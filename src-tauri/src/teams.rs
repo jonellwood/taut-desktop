@@ -11,6 +11,7 @@ pub enum Collection {
     Shared,
     Posts,
     Replies,
+    Members,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +28,8 @@ pub struct Permissions {
     pub teams: bool,
     pub channels: bool,
     pub messages: bool,
+    pub send: bool,
+    pub members: bool,
 }
 impl Permissions {
     pub fn from_scopes(scopes: &str) -> Self {
@@ -39,6 +42,8 @@ impl Permissions {
             teams: has("Team.ReadBasic.All"),
             channels: has("Channel.ReadBasic.All"),
             messages: has("ChannelMessage.Read.All"),
+            send: has("ChannelMessage.Send"),
+            members: has("ChannelMember.Read.All"),
         }
     }
 }
@@ -108,6 +113,7 @@ fn route(query: &Query, permissions: &Permissions) -> Result<(String, String), S
         Joined | Associated => permissions.teams,
         Channels | Shared => permissions.channels,
         Posts | Replies => permissions.messages,
+        Members => permissions.members,
     };
     if !allowed {
         return Err("Teams access needs the approved delegated read permissions. Grant consent and sign in again.".into());
@@ -135,6 +141,9 @@ fn route(query: &Query, permissions: &Permissions) -> Result<(String, String), S
         ));
     }
     let channel = enc(id(query.channel_id.as_deref())?);
+    if matches!(query.collection, Members) {
+        return Ok((format!("/teams/{team}/channels/{channel}/allMembers"), String::new()));
+    }
     let root = format!("/teams/{team}/channels/{channel}/messages");
     if matches!(query.collection, Posts) {
         return Ok((root, "?$top=50".into()));
@@ -245,6 +254,40 @@ mod tests {
     use super::*;
     fn permissions() -> Permissions {
         Permissions::from_scopes("Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All")
+    }
+    #[test]
+    fn channel_send_requires_its_own_actual_scope(){
+        assert!(!permissions().send);
+        assert!(!Permissions::from_scopes("ChatMessage.Send Chat.ReadWrite").send);
+        assert!(Permissions::from_scopes("ChannelMessage.Send").send);
+    }
+    #[test]
+    fn member_roster_requires_its_own_scope(){
+        assert!(!permissions().members);
+        let q=query(Collection::Members);
+        assert!(page(&q,&permissions(),&mut |_|panic!("No HTTP without scope")).is_err());
+        assert!(Permissions::from_scopes("ChannelMember.Read.All").members);
+    }
+    #[test]
+    fn members_use_only_verified_host_collection_and_preserve_opaque_membership_ids(){
+        let q=query(Collection::Members);
+        let value=page(&q,&Permissions::from_scopes("ChannelMember.Read.All"),&mut |path|{
+            assert_eq!(path,"/teams/team/channels/19%3Achannel%40thread%2Etacv2/allMembers");
+            Ok((200,json!({"value":[{"id":"opaque==/membership","displayName":"Person","roles":["owner"],"@microsoft.graph.originalSourceMembershipUrl":"https://untrusted.invalid/do-not-fetch"}]})))
+        }).unwrap();
+        assert_eq!(value["value"][0]["id"],"opaque==/membership");
+    }
+    #[test]
+    fn member_pagination_cannot_cross_channels_or_follow_source_urls(){
+        for next in ["https://graph.microsoft.com/v1.0/teams/team/channels/other/allMembers?$skiptoken=x","https://untrusted.invalid/members","https://graph.microsoft.com/v1.0/teams/team/members"] {
+            let mut q=query(Collection::Members);q.next=Some(next.into());
+            assert!(page(&q,&Permissions::from_scopes("ChannelMember.Read.All"),&mut |_|panic!("No invalid continuation")).is_err());
+        }
+        let mut q=query(Collection::Members);
+        q.next=Some("https://graph.microsoft.com/v1.0/teams/team/channels/19%3Achannel%40thread%2Etacv2/allMembers?$skiptoken=next".into());
+        assert!(page(&q,&Permissions::from_scopes("ChannelMember.Read.All"),&mut |path|{
+            assert!(path.ends_with("?$skiptoken=next"));Ok((200,json!({"value":[]})))
+        }).is_ok());
     }
     fn query(collection: Collection) -> Query {
         Query {

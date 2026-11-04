@@ -67,7 +67,10 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 
 - [x] Show joined/associated teams and accessible standard/private/shared channels in a dedicated rail destination, with pagination and host identity for shared channels. Manual tenant validation pending.
 - [x] Read channel posts and threaded replies with independent pagination, safe text rendering and stale-response protection. See TEAMS_CHANNELS.md.
-- [ ] Add explicit channel posting/replying, attachments and activity indicators with separately approved write permissions.
+- [x] Add a channel details panel with read-only member roster and loaded activity history; thread view replaces details and closing restores it. Delegated ChannelMember.Read.All approved 2026-11-04; Entra consent/fresh sign-in and manual roster validation pending.
+- [x] Add explicit plain-text channel posting/replying with approved delegated ChannelMessage.Send, separate drafts and uncertain-delivery safeguards. Manual tenant validation pending.
+- [ ] Add channel attachments, formatting, mentions and activity indicators in later passes.
+- [ ] User reports ChannelMember.ReadWrite.All admin consent is granted (2026-11-04); membership-management UI and requested write scope are not implemented. Standard-channel membership needs team-level operations; private/shared management needs owner and direct/inherited access checks.
 - [ ] Later administration phase: create teams/channels and manage team/channel membership, including leaving where supported. Research role restrictions and standard/private/shared channel differences, document least-privilege permissions, and obtain scope approval before implementation. Keep mutations explicit and all automated tests mocked.
 - [x] Handle delegated channel access, pagination, missing host identity and access-denied states; real private/shared and cross-tenant coverage requires manual validation.
 - [x] Document and obtain approval for delegated Team.ReadBasic.All, Channel.ReadBasic.All and ChannelMessage.Read.All (2026-11-04); keep automated testing mocked. Entra consent/fresh sign-in required.

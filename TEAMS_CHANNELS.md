@@ -75,3 +75,82 @@ Passed: 92 Rust tests, 40 Node tests, the full 240-case Chromium/WebKit regressi
 ## Activity and comparison follow-up — 2026-11-04
 
 System activity is now collapsed into compact Channel activity/Thread activity sections without conversation cards or reply buttons. Unknown message enum values retain readable content unless event metadata identifies them as activity. Pages containing only activity keep Load more reachable and explain that older conversation posts may be on later pages. Team/channel breadcrumbs and timestamps including the year make comparisons with Teams clearer. Normal replies remain grouped under their root post in the thread pane. Passed 30 focused browser checks and 46 Node tests, plus UI types/build; existing three accessibility warnings remain. Automated Graph calls stayed mocked.
+
+## Channel posting and replies — proposed next release
+
+Status: user approved delegated ChannelMessage.Send on 2026-11-04. It is now requested by TAUT. Entra consent and a fresh sign-in are needed before manual testing. All automated sends remain mocked.
+
+### Permission requested
+
+Add Microsoft Graph **delegated ChannelMessage.Send**. It permits sending channel messages on the signed-in user's behalf, subject to the user's channel access, posting rights and tenant policies. Existing ChatMessage.Send covers chat sending; channel posts/replies require this separate permission. Microsoft documents ChannelMessage.Send as the least-privileged delegated permission for both operations. No Group.ReadWrite.All, application permission, team/channel creation or membership-management scope is proposed.
+
+After approval, configure ChannelMessage.Send under Microsoft Graph → Delegated permissions in the Entra registered app, grant tenant consent as appropriate, then sign out/in to acquire a token containing it. TAUT must inspect actual Rust-held token scopes rather than assuming Entra configuration equals token permission.
+
+AGENTS.md requires: “Do not broaden Graph permissions without a documented reason and user approval.”
+
+### Concrete implementation scope
+
+- Add an explicit New post composer in the selected channel and a Reply composer within its thread pane. First pass is plain text, up to 4000 characters, with a required nonempty body. Rich text, attachments, announcements and mentions remain separate follow-ups.
+- Keep drafts separate per signed-in account, verified host team, channel and root post; preserve them when changing channels/threads and navigating between Chats and Teams. Sign-out/account changes clear private drafts. Normal chat text/file drafts remain intact.
+- New post sends POST /teams/{host-team-id}/channels/{channel-id}/messages with an itemBody containing contentType text. A thread reply sends POST /teams/{host-team-id}/channels/{channel-id}/messages/{root-post-id}/replies. Never use chat creation or chat replyWithQuote for a channel thread.
+- Validate and percent-encode all resource identifiers in Rust. Verify current account and actual permission before sending. Use the resolved shared-channel host, never infer the host from a listing team. Disable sending for known archived resources, missing host identity and deleted/activity roots; Graph remains authority for posting rights and moderation restrictions.
+- Capture the destination and submitted draft before the request. Navigation must not redirect an in-flight send or clear a different draft. Prevent duplicate Send while pending.
+- Require a 201 response and valid returned message identity before clearing the submitted draft. Retain drafts on rejection; treat network failures, server failures and incomplete confirmations as uncertain. Never automatically retry a write. Provide read-only refresh and explicit checked-status acknowledgement before another attempt.
+- Render posted content through the existing inert text parser and refresh thread/root collections safely. Keep pagination and stale-response guards.
+
+### Verification and manual review
+
+Automated verification uses injected Graph requests and mocked Tauri IPC only. Cover exact new-post/reply paths and payloads, missing permission/account mismatch/invalid IDs/blank text with no POST, shared-host routing, archived/deleted safeguards, single-write behavior, rejection and uncertainty, draft isolation, navigation/unmount races and normal chat regressions. Do not exercise real channel writes in automation.
+
+After consent and rebuilding, the user can manually create a short post in a designated test channel, reply from its thread pane, confirm both in official Teams, and check that switching channels/threads preserves separate drafts.
+
+Official operation references:
+- https://learn.microsoft.com/en-us/graph/api/channel-post-messages?view=graph-rest-1.0
+- https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies?view=graph-rest-1.0
+
+### Implementation status — 2026-11-04
+
+Plain-text channel posts and replies are implemented. Drafts and delivery-warning state live in the account workspace above the Teams component, so they survive navigation to Chats and back. They are in-memory only and are cleared on sign-out/account changes, not persisted across app restarts. The global send guard also prevents concurrent chat/file/channel sends and sign-out while a channel request is pending. Switching destinations during a send never retargets it.
+
+Rust preflight reads /me, the host team, channel and (for replies) original post; identity mismatches, archives, deleted/activity roots and missing token scope block the POST. All IDs are encoded segments. Shared-channel metadata or posting access can still be denied by Graph/tenant policy. No broader permissions are requested to bypass that restriction.
+
+Confirmed posts/replies appear in the current matching collection, and the submitted draft clears only when unchanged. Late responses cannot insert content into a different selected channel/thread; unmounted requests still settle their captured draft and release the global guard. Uncertain state survives navigation; refreshing or acknowledging never sends. A fresh explicit Send is always required to retry.
+
+Attachments, formatting, mentions, announcements, channel reactions, unread tracking, and team/channel administration remain future work.
+
+Verification: 282 Chromium/WebKit browser checks, 107 Rust tests and 52 Node tests passed. UI TypeScript, Svelte/Vite build, cargo check and git diff --check passed. The same three existing Svelte accessibility warnings remain. Browser writes and native Graph requests were mocked; real channel posting and tenant-specific moderation/shared-channel behavior await user testing.
+
+## Channel details and member list proposal — 2026-11-04
+
+User requested a real right-hand details panel with membership and history, replaced temporarily by a reply thread. Implement channel/team identity, channel type and description, archive status, and loaded channel activity using current approved read scopes. Closing a thread returns to details; hiding details updates the layout toggle. History is loaded channel activity, not a complete audit log.
+
+To show who can access the selected channel, request **delegated ChannelMember.Read.All** after user approval. Microsoft Graph v1.0 GET /teams/{host-team-id}/channels/{channel-id}/allMembers supports standard, private and shared channels. For shared channels it includes direct and indirect memberships. Use the resolved host identity, existing strict pagination validation, and actual token-scope checks. Treat membership IDs as opaque; never fetch originalSourceMembershipUrl as an authenticated target. Display names/roles returned by Graph, neutral fallback for unavailable names, and inherited membership labels where supplied. List counts describe loaded membership records, not an unverified total number of people.
+
+This is read-only channel membership access on the signed-in user's behalf. No membership mutation, TeamMember.Read.All, directory-wide or application permission is proposed. Tenant/federation restrictions can still deny the list. Do not infer membership from message authors or substitute a parent team's roster for a private/shared channel.
+
+AGENTS.md requires “Do not broaden Graph permissions without a documented reason and user approval.” User approved delegated ChannelMember.Read.All on 2026-11-04; it is now appended to the requested OAuth scopes. After approval it requires Entra delegated configuration/consent and a fresh sign-in. If the actual token lacks this scope, the details panel explains the missing member-list permission and shows available metadata/history.
+
+Verification will use mocked GET/IPC calls for the roster and cover pagination, stale selection/account responses, permission failures, host routing, names/roles, details/thread transitions and draft preservation. No real Microsoft 365 writes are needed.
+
+Official reference: https://learn.microsoft.com/en-us/graph/api/channel-list-allmembers?view=graph-rest-1.0
+
+### Details implementation
+
+The layout control now corresponds to an actual channel/team details panel, even before a thread is selected. Details contain channel/team descriptions, channel type/archive state, paginated read-only channel membership and activity from loaded channel history. A selected thread replaces details; closing the thread restores them. Hiding/restoring the panel and focus mode keep drafts intact. Narrow layouts show details as an overlay.
+
+Member requests use the same validated Graph collection reader as channel history, resolved host identity and exact-collection continuation checks. ChannelMember.Read.All is checked independently from message/discovery/write scopes. Closing the details component or changing channel/account invalidates outstanding membership responses. Names render as text, source-membership URLs are never followed, unknown people retain neutral labels, and counts explicitly describe loaded records rather than a total roster. Loaded channel history can be paged further from the panel and remains distinct from a complete audit log.
+
+Details verification: 294 browser checks across Chromium/WebKit, 110 Rust tests and 52 Node tests passed. UI types, Svelte/Vite build, cargo check and git diff --check passed; the same three pre-existing accessibility warnings remain. A pagination fixture key error was corrected before the final passing run. User confirmed real channel posting succeeded after ChannelMessage.Send consent; real member-list validation awaits ChannelMember.Read.All consent/fresh sign-in.
+
+## History cleanup and membership administration status — 2026-11-04
+
+Channel activity history now appears only in the details panel; the duplicate central Channel activity section was removed. Thread-specific activity remains within its own reply pane. The central feed still provides Load more posts when an activity-only page is returned.
+
+User reports ChannelMember.ReadWrite.All is configured with admin consent in Entra. TAUT currently requests ChannelMember.Read.All for read-only rosters; it does not yet offer membership writes or request ChannelMember.ReadWrite.All. Entra configuration alone does not implement management UI or grant additional user ownership rights.
+
+Future administration must distinguish standard-channel membership inherited from its parent team from direct private/shared membership. Graph channel-member mutation endpoints support private/shared channels; standard membership changes require team membership operations with separate scope review. Inherited shared access must be changed at its membership source, never by guessing a channel membership ID or following originalSourceMembershipUrl as an authenticated arbitrary URL. Channel owners normally manage private/shared rosters; parent-team ownership alone does not make someone an owner of every private/shared channel. Graph and tenant policy remain authoritative. Protect last owners, confirm removals/leaving explicitly and test only with mocked writes.
+
+References:
+- https://learn.microsoft.com/en-us/graph/api/channel-post-members?view=graph-rest-1.0
+- https://learn.microsoft.com/en-us/microsoftteams/private-channels
+- https://learn.microsoft.com/en-us/microsoftteams/shared-channels

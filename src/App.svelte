@@ -150,6 +150,7 @@
  let threadRoot=$derived(activeThread?(selected.messages.find(m=>m.id===activeThread.rootId)??quotedParent):null);
  let threadMessages=$derived(activeThread?chatReplies(activeThread.rootId,selected.messages):[]);
 
+ let channelDrafts=$state<import('./lib/teams').ChannelDrafts>({});
  let replyDrafts=$state<Record<string,string>>({});
  let replyErrors=$state<Record<string,string>>({});
  let replyUncertain=$state<Record<string,boolean>>({});
@@ -470,7 +471,7 @@
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
      if(priorOwn&&!sameAccount){
        closeReplyThread();drafts={};attachmentDrafts={};attachmentProgress={};readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
-       imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;replyDrafts={};replyErrors={};replyUncertain={};activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
+       imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;replyDrafts={};replyErrors={};replyUncertain={};channelDrafts={};activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
      }
      ownId=me.id;signedInName=me.displayName;loadPins();
      const result=await invoke<{value:ApiChat[]}>('graph_chats');
@@ -510,7 +511,7 @@
    pinnedIds=[];pinMenuId=null;pinError='';closeReplyThread();
    authBusy=true;authError='';persistenceNotice='';sessionSaved=false;reauthRequired=false;
    readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';chatWritePermission=false;showHidden=false;confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;imageVersions.clear();imageCache={};imageErrors={};imageLoading={};lightbox=null;hiddenOverrides={};changeTarget=null;chatListSerial++;
-   nameSession++;replyDrafts={};replyErrors={};replyUncertain={};leftGroupIds.clear();groupMemberPermission=false;activityNames={};attemptedNames.clear();nameRetryAfter=0;
+   nameSession++;replyDrafts={};replyErrors={};replyUncertain={};channelDrafts={};leftGroupIds.clear();groupMemberPermission=false;activityNames={};attemptedNames.clear();nameRetryAfter=0;
    attachmentDrafts={};attachmentProgress={};attachmentPermission=false;
    knownChats=[];drafts={};isLive=false;openChatSerial++;
    try{await invoke('sign_out');}catch(e){authError=String(e);}finally{authBusy=false;}
@@ -884,7 +885,7 @@
 <div class="app" class:dense style={`--accent:${accent==='amber'?'#efbb70':accent==='teal'?'#63d4c1':'#b3a0ff'};--sidebar-width:${sidebarWidth}px`}>
  <div class="layout-bar"><span class="layout-caption">TAUT <span>/ YOUR WORKSPACE</span></span><div class="layout-controls" role="toolbar" aria-label="Workspace layout">
   <button type="button" aria-label="Toggle conversation sidebar" aria-pressed={sidebarOpen} title="Conversation sidebar" onclick={()=>sidebarOpen=!sidebarOpen}><PanelLeft size={17}/></button>
-  <button type="button" aria-label="Toggle details panel" aria-pressed={detailsOpen} title={mode==='chats'&&selected.id!=='empty'?'Conversation details':'Conversation details · shown after selecting a chat'} onclick={()=>detailsOpen=!detailsOpen}><PanelRight size={17}/></button>
+  <button type="button" aria-label="Toggle details panel" aria-pressed={detailsOpen&&(mode==='teams'||mode==='chats'&&selected.id!=='empty')} disabled={mode!=='teams'&&(mode!=='chats'||selected.id==='empty')} title={mode==='teams'?'Channel details or reply thread':mode==='chats'&&selected.id!=='empty'?'Conversation details':'Choose a conversation to show details'} onclick={()=>detailsOpen=!detailsOpen}><PanelRight size={17}/></button>
   <span class="layout-divider"></span>
   <button type="button" aria-label="Focus mode" aria-pressed={focusMode} title={focusMode?'Exit focus mode · restore panels':'Focus mode · hide both panels'} onclick={toggleFocus}><Scan size={17}/></button>
  </div></div>
@@ -918,7 +919,7 @@
  </aside><div class="resize-handle" role="separator" aria-label="Resize conversation panel" aria-orientation="vertical" tabindex="0" onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag} onkeydown={(e)=>{if(e.key==='ArrowRight')sidebarWidth=Math.min(490,sidebarWidth+20);if(e.key==='ArrowLeft')sidebarWidth=Math.max(220,sidebarWidth-20)}}></div>
  {/if}
  <main class="main">
-  {#if mode==='teams'}{#key ownId}<TeamsWorkspace {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
+  {#if mode==='teams'}{#key ownId}<TeamsWorkspace onCloseDetails={()=>detailsOpen=false} drafts={channelDrafts} sendBusy={sendBusy} onSendBusy={(busy)=>sendBusy=busy} {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
   {:else if mode==='chats'}
    {#if selected.id==='empty'}
     <Welcome onNew={openNewChat} onSearch={focusConversationSearch} onRefresh={refreshMessages} onSidebar={()=>sidebarOpen=true} {sidebarOpen} busy={refreshBusy||authBusy||operationBusy}/>

@@ -31,13 +31,16 @@ export class MockGraph {
   allowWrites = false;
   quoteStatus='sent';
   quoteGate?:Promise<void>;
-  teamsPermissions={teams:true,channels:true,messages:true};
+  teamsPermissions:{teams:boolean;channels:boolean;messages:boolean;send?:boolean;members?:boolean}={teams:true,channels:true,messages:true,send:true,members:true};
+  channelSendStatus="sent";
+  channelSendGate?:Promise<void>;
   teamError='';
   teamErrors:Record<string,string>={};
   teamGate?:Promise<void>;
   teamReplyGate?:Promise<void>;
+  teamMemberGate?:Promise<void>;
   teamPages:Record<string,{value:any[];next:string|null}>={};
-  teamData:Record<string,any[]>={joined:[{id:'team-dev',displayName:'IT Development',description:'A shared space for building better things.'}],associated:[{id:'team-dev',displayName:'IT Development'}],channels:[{id:'general',displayName:'General',membershipType:'standard',hostTeamId:'team-dev'}],shared:[],posts:[{id:'post-1',subject:'Welcome to the channel',createdDateTime:'2026-11-03T12:00:00Z',from:{user:{displayName:'Alex Example'}},body:{contentType:'html',content:'<p>Today’s project updates.</p><p>Keep the conversation focused.</p>'}}],replies:[{id:'reply-1',createdDateTime:'2026-11-03T12:01:00Z',from:{user:{displayName:'Blair Example'}},body:{contentType:'text',content:'Ready for the next step.'}}]};
+  teamData:Record<string,any[]>={members:[{id:'member-alex',userId:alex.id,displayName:alex.displayName,roles:['owner']},{id:'member-me',userId:me.id,displayName:me.displayName,roles:[]}],joined:[{id:'team-dev',displayName:'IT Development',description:'A shared space for building better things.'}],associated:[{id:'team-dev',displayName:'IT Development'}],channels:[{id:'general',displayName:'General',membershipType:'standard',hostTeamId:'team-dev'}],shared:[],posts:[{id:'post-1',subject:'Welcome to the channel',createdDateTime:'2026-11-03T12:00:00Z',from:{user:{displayName:'Alex Example'}},body:{contentType:'html',content:'<p>Today’s project updates.</p><p>Keep the conversation focused.</p>'}}],replies:[{id:'reply-1',createdDateTime:'2026-11-03T12:01:00Z',from:{user:{displayName:'Blair Example'}},body:{contentType:'text',content:'Ready for the next step.'}}]};
   notificationSettings={enabled:false,showNames:false,error:null as string|null};
   notificationConfigError='';
   notificationTestError='';
@@ -78,15 +81,25 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
+      case 'graph_send_channel': {
+        if(!this.allowWrites)break;
+        await this.channelSendGate;
+        if(this.channelSendStatus!=='sent')return {status:this.channelSendStatus,error:'Channel send failed. Draft saved.'};
+        const t=args.target;
+        const sent={id:'channel-sent-'+this.writes.length,replyToId:t.messageId,createdDateTime:'2026-11-04T15:00:00Z',from:{user:{id:me.id,displayName:'Test User'}},body:{contentType:'text',content:t.text}};
+        const collection=t.messageId?'replies':'posts';this.teamData[collection]=[...this.teamData[collection],sent];
+        return {status:'sent',message:sent};
+      }
       case 'teams_permissions': return this.teamsPermissions;
       case 'graph_teams_page': {
         if(this.teamError||this.teamErrors[args.query.collection])throw Error(this.teamError||this.teamErrors[args.query.collection]);
         if(args.query.collection==='posts')await this.teamGate;
         if(args.query.collection==='replies')await this.teamReplyGate;
+        if(args.query.collection==='members')await this.teamMemberGate;
         const q=args.query;
         return this.teamPages[q.next??`${q.collection}:${q.teamId??''}:${q.channelId??''}:${q.messageId??''}`]??{value:this.teamData[q.collection]??[],next:null};
       }

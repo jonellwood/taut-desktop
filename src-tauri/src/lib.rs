@@ -1,5 +1,6 @@
 mod auth;
 mod teams;
+mod channel_send;
 mod chat_threads;
 mod notifications;
 mod read_state;
@@ -19,7 +20,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
@@ -284,6 +285,14 @@ async fn graph_reply_with_quote(state:State<'_,AuthState>,chat_id:String,message
    let permitted=state.0.lock().map_err(|_|"Authentication unavailable")?.token.as_ref().map(|t|t.scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case("ChatMessage.Send"))).unwrap_or(false);
    chat_threads::send_quote(permitted,&chat_id,&message_id,&own_id,&text,&mut |m,p,b|graph_operation_request(&state,m,p,b)).or_else(|error|Ok(serde_json::json!({"status":"rejected","error":error})))
  }).await.map_err(|_|"Reply delivery was not confirmed. Check Teams before retrying.")?
+}
+#[tauri::command]
+async fn graph_send_channel(state:State<'_,AuthState>,target:channel_send::Target)->Result<Value,String>{
+ let state=AuthState(state.0.clone());
+ tauri::async_runtime::spawn_blocking(move||{
+   let permitted=teams_permissions_now(&state)?.send;
+   channel_send::send(permitted,target,&mut |m,p,b|graph_operation_request(&state,m,p,b)).or_else(|error|Ok(serde_json::json!({"status":"rejected","error":error})))
+ }).await.map_err(|_|"Channel delivery was not confirmed. Check Teams before retrying.")?
 }
 fn teams_permissions_now(state:&AuthState)->Result<teams::Permissions,String>{
     get_access_token(state)?;
@@ -554,7 +563,7 @@ pub fn run() {
         .setup(setup_notifications)
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

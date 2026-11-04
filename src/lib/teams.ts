@@ -1,7 +1,7 @@
 export type Team={id:string;displayName?:string;description?:string;isArchived?:boolean;tenantId?:string};
 export type Channel={id:string;displayName?:string;description?:string;membershipType?:string;isArchived?:boolean;hostTeamId?:string|null;tenantId?:string};
 export type ChannelPost={id:string;subject?:string;messageType?:string;eventDetail?:{'@odata.type'?:string}|null;createdDateTime?:string;lastModifiedDateTime?:string;deletedDateTime?:string|null;from?:{user?:{displayName?:string};application?:{displayName?:string}};body?:{contentType?:string;content?:string};attachments?:{id?:string;name?:string}[]};
-export type TeamQuery={collection:'joined'|'associated'|'channels'|'shared'|'posts'|'replies';teamId?:string;channelId?:string;messageId?:string;next?:string|null};
+export type TeamQuery={collection:'joined'|'associated'|'channels'|'shared'|'posts'|'replies'|'members';teamId?:string;channelId?:string;messageId?:string;next?:string|null};
 export type TeamPage<T>={value:T[];next:string|null};
 export function channelText(post:ChannelPost):string{
  if(post.deletedDateTime)return 'Message deleted';
@@ -31,3 +31,10 @@ export function activityLabel(post:ChannelPost):string{
  const names:Record<string,string>={membersAddedEventMessageDetail:'Members added',membersDeletedEventMessageDetail:'Members removed',membersJoinedEventMessageDetail:'Members joined',membersLeftEventMessageDetail:'Members left',channelAddedEventMessageDetail:'Channel created',channelRenamedEventMessageDetail:'Channel renamed',channelDeletedEventMessageDetail:'Channel removed',teamRenamedEventMessageDetail:'Team renamed'};
  return Object.hasOwn(names,type)?names[type]:'Channel activity';
 }
+
+export type ChannelDraft={text:string;error:string;uncertain:boolean};
+export type ChannelDrafts=Record<string,ChannelDraft>;
+export function channelDraftKey(team:string,channel:string,root:string|null){return JSON.stringify([team,channel,root]);}
+
+export type ChannelMember={id:string;displayName?:string;roles?:string[];userId?:string;tenantId?:string;'@microsoft.graph.originalSourceMembershipUrl'?:string};
+export function memberRoles(member:ChannelMember){const roles=(member.roles??[]).filter(role=>typeof role==='string').map(role=>role.toLowerCase());return roles.includes('owner')?'Owner':roles.includes('guest')?'Guest':'Member';}
