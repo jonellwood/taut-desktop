@@ -15,7 +15,7 @@ export type MockMessage = {
   from?: { user: { id: string; displayName?:string } }; body: { content: string; contentType: string };
   eventDetail?:import('../../src/lib/activity').EventDetail;
   reactions?:import('../../src/lib/reactions').ApiReaction[];
-  attachments?: { id: string; name: string; contentType: string; contentUrl: string }[];
+  attachments?: { id: string; name?: string; contentType: string; contentUrl?: string; content?:string }[];
 };
 export function message(id: string, content: string, sender = alex.id): MockMessage {
   return { id, messageType: 'message', createdDateTime: '2026-01-01T12:00:00Z', from: { user: { id: sender } }, body: { content, contentType: 'html' } };
@@ -29,6 +29,13 @@ export class MockGraph {
   messages: Record<string, MockMessage[]> = { 'chat-alex': [message('hello', 'Hello from Alex')] };
   // Write commands fail closed unless a test deliberately enables its fake writes.
   allowWrites = false;
+  teamsPermissions={teams:true,channels:true,messages:true};
+  teamError='';
+  teamErrors:Record<string,string>={};
+  teamGate?:Promise<void>;
+  teamReplyGate?:Promise<void>;
+  teamPages:Record<string,{value:any[];next:string|null}>={};
+  teamData:Record<string,any[]>={joined:[{id:'team-dev',displayName:'IT Development',description:'A shared space for building better things.'}],associated:[{id:'team-dev',displayName:'IT Development'}],channels:[{id:'general',displayName:'General',membershipType:'standard',hostTeamId:'team-dev'}],shared:[],posts:[{id:'post-1',subject:'Welcome to the channel',createdDateTime:'2026-11-03T12:00:00Z',from:{user:{displayName:'Alex Example'}},body:{contentType:'html',content:'<p>Today’s project updates.</p><p>Keep the conversation focused.</p>'}}],replies:[{id:'reply-1',createdDateTime:'2026-11-03T12:01:00Z',from:{user:{displayName:'Blair Example'}},body:{contentType:'text',content:'Ready for the next step.'}}]};
   notificationSettings={enabled:false,showNames:false,error:null as string|null};
   notificationConfigError='';
   notificationTestError='';
@@ -42,6 +49,9 @@ export class MockGraph {
   profileError = '';
   profileId = me.id;
   messagesError = '';
+  parentError='';
+  parentGate?:Promise<void>;
+  parentMessages:Record<string,MockMessage>={};
   readError = '';
   reactionError = '';
   reactionGate?: Promise<void>;
@@ -70,6 +80,14 @@ export class MockGraph {
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
+      case 'teams_permissions': return this.teamsPermissions;
+      case 'graph_teams_page': {
+        if(this.teamError||this.teamErrors[args.query.collection])throw Error(this.teamError||this.teamErrors[args.query.collection]);
+        if(args.query.collection==='posts')await this.teamGate;
+        if(args.query.collection==='replies')await this.teamReplyGate;
+        const q=args.query;
+        return this.teamPages[q.next??`${q.collection}:${q.teamId??''}:${q.channelId??''}:${q.messageId??''}`]??{value:this.teamData[q.collection]??[],next:null};
+      }
       case 'notification_settings': return this.notificationSettings;
       case 'notification_view': return null;
       case 'notification_configure':
@@ -83,6 +101,7 @@ export class MockGraph {
       case 'auth_persistence_status': return {restored:true,saved:this.sessionSaved,notice:this.persistenceNotice};
       case 'sign_in': return null;
       case 'sign_out': this.restoredSession=false;if(this.signOutError)throw Error(this.signOutError);return null;
+      case 'graph_chat_message': await this.parentGate;if(this.parentError)throw Error(this.parentError);return this.parentMessages[args.messageId]??this.messages[args.chatId]?.find(m=>m.id===args.messageId)??Promise.reject(Error('Quoted message unavailable'));
       case 'graph_profile': if(this.profileError)throw Error(this.profileError);return {...me,id:this.profileId};
       case 'attachment_permission': return this.attachmentPermission;
       case 'group_member_permission': return this.groupPermission;

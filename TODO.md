@@ -65,10 +65,17 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 
 ## Teams and channels
 
-- [ ] Show the teams the signed-in user belongs to and their accessible channels in TAUT navigation.
-- [ ] Read channel conversations and threaded replies; follow with explicit posting/replying, attachments, and activity indicators.
-- [ ] Handle standard, private, and shared channel access correctly, with pagination and clear unavailable/access-denied states.
-- [ ] Research channel-specific Graph operations and least-privilege delegated permissions. Document and obtain approval for any additional scope before implementation; keep automated testing mocked.
+- [x] Show joined/associated teams and accessible standard/private/shared channels in a dedicated rail destination, with pagination and host identity for shared channels. Manual tenant validation pending.
+- [x] Read channel posts and threaded replies with independent pagination, safe text rendering and stale-response protection. See TEAMS_CHANNELS.md.
+- [ ] Add explicit channel posting/replying, attachments and activity indicators with separately approved write permissions.
+- [ ] Later administration phase: create teams/channels and manage team/channel membership, including leaving where supported. Research role restrictions and standard/private/shared channel differences, document least-privilege permissions, and obtain scope approval before implementation. Keep mutations explicit and all automated tests mocked.
+- [x] Handle delegated channel access, pagination, missing host identity and access-denied states; real private/shared and cross-tenant coverage requires manual validation.
+- [x] Document and obtain approval for delegated Team.ReadBasic.All, Channel.ReadBasic.All and ChannelMessage.Read.All (2026-11-04); keep automated testing mocked. Entra consent/fresh sign-in required.
+
+## Navigation polish
+
+- [ ] Add TAUT-styled tab-name tooltips on left-rail hover and keyboard focus, with accessible descriptions and no clipped/obscured labels. Existing native title tooltips are the basic fallback.
+- [ ] Add a Preferences option to show text labels beside navigation icons, persist the preference locally, and account for narrow windows, focus mode and unread badges.
 
 ## Remaining backlog
 
@@ -83,10 +90,16 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Enable searchable categorized emoji insertion into the composer at the caret/selection, preserving local per-chat drafts and explicit Send.
 - [x] User confirmed reaction add/remove and composer emoji insertion all perform as expected (2026-11-03).
 - [x] Opt-in native message notifications with reaction noise suppressed. See [NOTIFICATIONS.md](NOTIFICATIONS.md); macOS banner delivery and click routing await manual validation.
-- [ ] Code-block formatting and syntax highlighting.
+- [ ] Message formatting — explicitly requested 2026-11-04; important daily workflow for sharing PowerShell. First preserve received formatting, then add formatting to composition. Apply consistently to chats, channel posts and reply panes.
+- [ ] Render received code blocks and inline code with exact line breaks, indentation, tabs and blank lines; use a monospace code container, language label, horizontal scrolling and Copy code that preserves the original code. Add syntax highlighting, with PowerShell as a required language and plain-text fallback for unknown languages. The user's Teams/TAUT screenshots demonstrate code currently being flattened into a paragraph; use that scenario as a manual acceptance case.
+- [ ] Preserve supported rich-text structure safely: paragraphs, line breaks, bold/italic, lists, links and blockquotes. Parse/sanitize untrusted Graph content without executing markup or auto-loading remote resources. Keep code contents literal, including angle brackets, ampersands, quotes and PowerShell variables.
+- [ ] Add composer formatting controls for code blocks/inline code, language selection (including PowerShell), and basic rich text; preserve per-conversation drafts, attachments and explicit Send. Verify formatting round-trips between Teams and TAUT with mocked Graph tests before manual tenant testing.
 - [ ] Typing indicators, subject to API support.
 - [ ] Shared Media panel with images, files, and links.
 
 - [x] Welcome state: brief signal-settling-into-T/ animation, “Less noise. More signal.”, new-chat/search shortcuts, reduced-motion support; hide empty conversation chrome until selection.
 
 - [x] Persistent layout toolbar: toggle conversation/details panels, amber active states, and focus mode that restores the previous arrangement.
+
+- [x] Show quoted chat reply context in a side pane using explicit messageReference metadata, with read-only fetching of older parents and preserved chat drafts/media/read state. See CHAT_THREADS.md.
+- [ ] Add explicit quoted-reply sending from the chat reply pane; evaluate Graph replyWithQuote under existing ChatMessage.Send and retain separate reply drafts/uncertain-send safeguards.

@@ -26,6 +26,7 @@ test('pins are isolated by account and return after signing back in',async({page
  await expect(page.locator('.chat-row-wrap.pinned')).toHaveCount(0);await pin(page,'Second account chat');
  await page.getByRole('button',{name:'Sign out',exact:true}).click();graph.profileId=me.id;graph.chats=firstAccountChats;
  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await expect(row(page,alex.displayName)).toBeVisible();
  await expect(page.locator('.chat-row-wrap.pinned .chat-row')).toHaveText(/Alex Example/);await expect(page.locator('.chat-row-wrap.pinned')).toHaveCount(1);expect(graph.writes).toEqual([]);
 });
 

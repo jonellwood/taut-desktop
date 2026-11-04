@@ -1,12 +1,15 @@
 <script lang="ts">
  import { tick, onMount } from 'svelte';
- import { MessageCircle, Bell, Users, Phone, Files, Settings, Search, Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Send, SquarePen, Paperclip, Smile, MoreHorizontal, Video, X, Check, UserPlus, UserMinus, PencilLine, LogIn, Trash2, Undo2, EyeOff, Eye, ChevronRight, Moon, Sun, LayoutPanelTop, LogOut, PanelLeft, PanelRight, Scan, Pin, PinOff } from 'lucide-svelte';
+ import { MessageCircle, Bell, Users, Phone, Files, Settings, Search, Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Send, SquarePen, Paperclip, Smile, MoreHorizontal, Video, X, Check, UserPlus, UserMinus, PencilLine, LogIn, Trash2, Undo2, EyeOff, Eye, ChevronRight, Moon, Sun, LayoutPanelTop, LogOut, PanelLeft, PanelRight, Scan, Pin, PinOff, Building2, MessagesSquare } from 'lucide-svelte';
  import { existingChat, pendingConversation, pendingGroupConversation, submitMessage, isUserMessage } from './lib/pending';
  import { validateFiles, fileBase64, fileSize, type StagedFile } from './lib/attachments';
  import { conversationActivity, activityIdentities, identityKey, type EventDetail, type EventIdentity, type IdentityNames } from './lib/activity';
  import type { Message } from './lib/types';
  import DeletionDialog from './lib/DeletionDialog.svelte';
  import Welcome from './lib/Welcome.svelte';
+ import ChatThread from './lib/ChatThread.svelte';
+ import {quotedMessageIds,chatReplies} from './lib/chat-threads';
+ import TeamsWorkspace from './lib/TeamsWorkspace.svelte';
  import EmojiPicker from './lib/EmojiPicker.svelte';
  import {insertEmoji} from './lib/emoji';
  import MessageReactions from './lib/MessageReactions.svelte';
@@ -141,6 +144,24 @@
  let paletteInput = $state<HTMLInputElement | undefined>(undefined);
  const noSelection:Conversation={id:'empty',name:'Select a conversation',initials:'—',status:'offline',preview:'Choose a chat to read messages',time:'',unread:0,messages:[]};
  let selected=$derived(chats.find(c=>c.id===selectedId)??(isLive?noSelection:chats[0]));
+ let replyThread=$state<{chatId:string;rootId:string}|null>(null);
+ let quotedParent=$state<Message|null>(null);let quotedLoading=$state(false);let quotedError=$state('');let quoteVersion=0;
+ let activeThread=$derived(replyThread?.chatId===selected.id?replyThread:null);
+ let threadRoot=$derived(activeThread?(selected.messages.find(m=>m.id===activeThread.rootId)??quotedParent):null);
+ let threadMessages=$derived(activeThread?chatReplies(activeThread.rootId,selected.messages):[]);
+ function closeReplyThread(){replyThread=null;quotedParent=null;quotedLoading=false;quotedError='';quoteVersion++;}
+ async function openReplyThread(rootId:string){
+   if(!isLive||selected.id==='empty'||selected.id.startsWith('pending:'))return;
+   const chatId=selected.id;const session=nameSession;const version=++quoteVersion;
+   replyThread={chatId,rootId};quotedParent=null;quotedError='';quotedLoading=false;detailsOpen=true;
+   if(selected.messages.some(m=>m.id===rootId))return;
+   quotedLoading=true;
+   try{const raw=await invoke<ApiMessage>('graph_chat_message',{chatId,messageId:rootId});if(version!==quoteVersion||session!==nameSession||!isLive||selected.id!==chatId)return;
+     quotedParent=convertChatMessage(raw,chatId);
+   }catch{if(version===quoteVersion&&session===nameSession)quotedError='The quoted message is unavailable or could not be loaded. Its saved preview is not displayed.';}
+   finally{if(version===quoteVersion&&session===nameSession)quotedLoading=false;}
+ }
+ async function viewThreadImage(messageId:string,contentId:string){const chatId=selected.id;const version=quoteVersion;const key=mediaKey(chatId,messageId,contentId);if(!imageCache[key])await loadImage(chatId,messageId,contentId);if(version===quoteVersion&&selected.id===chatId&&imageCache[key])openImageViewer(imageCache[key]);else if(imageErrors[key])fileOpenError='The shared image could not be loaded. Try again from the conversation.';}
  let unreadChats=$derived(chats.filter(c=>!c.hidden&&c.unread>0&&c.id!=='empty').length);
  let pinnedIds=$state<string[]>([]);
  let pinMenuId=$state<string|null>(null);
@@ -164,9 +185,10 @@
  }
  function closePinMenu(event:MouseEvent){if(event.target instanceof Element&&!event.target.closest('.conversation-options,.pin-menu'))pinMenuId=null;}
  let filtered=$derived(chats.filter(c=>Boolean(c.hidden)===showHidden&&c.name.toLowerCase().includes(search.toLowerCase())));
- const nav=[{id:'chats',icon:MessageCircle,label:'Chats'},{id:'activity',icon:Bell,label:'Activity'},{id:'people',icon:Users,label:'People'},{id:'calls',icon:Phone,label:'Calls'},{id:'files',icon:Files,label:'Files'}] as const;
+ const nav=[{id:'chats',icon:MessageCircle,label:'Chats'},{id:'teams',icon:Building2,label:'Teams and Channels'},{id:'activity',icon:Bell,label:'Activity'},{id:'people',icon:Users,label:'People'},{id:'calls',icon:Phone,label:'Calls'},{id:'files',icon:Files,label:'Files'}] as const;
  const commands=[
  {label:'Go to Chats',hint:'Workspace',run:()=>mode='chats'},
+ {label:'Go to Teams and Channels',hint:'Workspace',run:()=>mode='teams'},
  {label:'New conversation',hint:'Messaging',run:()=>openNewChat()},
  {label:'Go to Activity',hint:'Workspace',run:()=>mode='activity'},
  {label:'Toggle conversation sidebar',hint:'Layout',run:()=>sidebarOpen=!sidebarOpen},
@@ -187,9 +209,10 @@
   if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.key.toLowerCase()==='k'){e.preventDefault();void focusConversationSearch();}
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='\\'){e.preventDefault();sidebarOpen=!sidebarOpen;}
   if(e.key==='Escape'&&pinMenuId){const id=pinMenuId;pinMenuId=null;document.getElementById(`pin-options-${id}`)?.focus();return;}
+  if(e.key==='Escape'&&activeThread&&!lightbox&&!changeTarget&&!emojiTarget&&!settingsOpen&&!paletteOpen&&!newChatOpen){closeReplyThread();return;}
   if(e.key==='Escape'){if(lightbox){lightbox=null;imageZoom=1;}else{paletteOpen=false;settingsOpen=false;newChatOpen=false;}}
  }
- function plainText(html:string):string { const el=document.createElement('div');el.innerHTML=html; const text=(el.textContent??'').trim(); if(text)return text; return /<img\b|<attachment\b|<file\b/i.test(html)?'[Image or attachment — preview coming soon]':''; }
+ function plainText(html:string):string { const el=document.createElement('template');el.innerHTML=html;el.content.querySelectorAll('script,style,iframe,object,svg').forEach(node=>node.remove()); const text=(el.content.textContent??'').trim(); if(text)return text; return /<img\b|<attachment\b|<file\b/i.test(html)?'[Image or attachment — preview coming soon]':''; }
  function isUnread(raw:ApiChat):boolean {return previewUnread(raw.lastMessagePreview,ownId,raw.viewpoint?.lastMessageReadDateTime);}
  function summaryTime(value?:string){
    const date=new Date(value??'');if(Number.isNaN(date.getTime()))return '';
@@ -216,7 +239,7 @@
  type ChatMember={id?:string;tenantId?:string;userId?:string;displayName?:string;email?:string;userPrincipalName?:string;roles?:string[]};
  type ApiChat={id:string;topic?:string;chatType?:string;lastUpdatedDateTime?:string;lastMessagePreview?:ChatPreview;viewpoint?:{isHidden?:boolean;lastMessageReadDateTime?:string};members?:ChatMember[]};
  function memberLabel(m:ChatMember):string {return m.displayName?.trim()||m.email?.trim()||m.userPrincipalName?.trim()||'';}
- type ApiMessage={reactions?:ApiReaction[];deletedDateTime?:string|null;eventDetail?:EventDetail|null;messageType?:string;id:string;createdDateTime?:string;from?:{user?:{id?:string;displayName?:string}};body?:{content?:string;contentType?:string};attachments?:{id?:string;name?:string;contentType?:string;contentUrl?:string}[]};
+ type ApiMessage={reactions?:ApiReaction[];deletedDateTime?:string|null;eventDetail?:EventDetail|null;messageType?:string;id:string;createdDateTime?:string;from?:{user?:{id?:string;displayName?:string}};body?:{content?:string;contentType?:string};attachments?:{id?:string;name?:string;contentType?:string;contentUrl?:string;content?:string}[]};
  function allowedMicrosoftUrl(raw:string):boolean {
   try {
    const u=new URL(raw);
@@ -235,7 +258,7 @@
  function extractImages(m:ApiMessage):InlineImage[] {
    const content=m.body?.content??'';
    if(!content.includes('<'))return [];
-   const html=new DOMParser().parseFromString(content,'text/html');
+   const template=document.createElement('template');template.innerHTML=content;const html=template.content;
    const found=new Set<string>();
    for(const img of Array.from(html.querySelectorAll('img[src]'))){
      const src=img.getAttribute('src')??'';
@@ -418,7 +441,7 @@
      const me=await invoke<{id:string;displayName:string}>('graph_profile');
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
      if(priorOwn&&!sameAccount){
-       drafts={};attachmentDrafts={};attachmentProgress={};readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
+       closeReplyThread();drafts={};attachmentDrafts={};attachmentProgress={};readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
        imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
      }
      ownId=me.id;signedInName=me.displayName;loadPins();
@@ -456,7 +479,7 @@
  }
  async function signOut(){
    if(authBusy || sendBusy || stagingBusy || groupBusy || operationBusy)return;
-   pinnedIds=[];pinMenuId=null;pinError='';
+   pinnedIds=[];pinMenuId=null;pinError='';closeReplyThread();
    authBusy=true;authError='';persistenceNotice='';sessionSaved=false;reauthRequired=false;
    readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';chatWritePermission=false;showHidden=false;confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;imageVersions.clear();imageCache={};imageErrors={};imageLoading={};lightbox=null;hiddenOverrides={};changeTarget=null;chatListSerial++;
    nameSession++;leftGroupIds.clear();groupMemberPermission=false;activityNames={};attemptedNames.clear();nameRetryAfter=0;
@@ -539,6 +562,16 @@
    }catch{/* Names are optional; keep history readable and back off without hiding messages. */nameRetryAfter=Date.now()+60000;}
    finally{resolvingNames=false;}
  }
+ function convertChatMessage(m:ApiMessage,chatId:string):Message{
+       const activity=conversationActivity(m,activityNames,ownId);
+       const key=JSON.stringify([chatId,m.id]);
+       const serverDeleted=Boolean(m.deletedDateTime);
+       const deleted=serverDeleted||confirmedDeleted.has(key);
+       if(serverDeleted){confirmedDeleted.delete(key);clearMessageImages(chatId,m.id);}
+       const previous=chats.find(c=>c.id===chatId)?.messages.find(old=>old.id===m.id);
+       const sender=m.from?.user?.id?(m.from.user.id.toLowerCase()===ownId.toLowerCase()?'me':'them'):(deleted?previous?.sender??'them':'them');
+       return {id:m.id,replyIds:activity?[]:quotedMessageIds(m.attachments,chatId),deleted,activity,reactions:activity||deleted?[]:groupReactions(m.reactions,activityNames,ownId),reactionSource:activity||deleted?undefined:m.reactions,attachments:activity||deleted?[]:extractAttachments(m),images:activity||deleted?[]:extractImages(m),senderName:m.from?.user?.displayName,sender,text:deleted?'Message deleted':activity?.summary??plainText(m.body?.content??''),createdDateTime:m.createdDateTime??'',time:m.createdDateTime?new Date(m.createdDateTime).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):''};
+ }
  async function loadMessages(chatId:string,reason:'open'|'poll'|'manual'|'sent'='manual'){
    if(chatId.startsWith('pending:') || messageInFlight.has(chatId))return;
    messageInFlight.add(chatId);
@@ -560,19 +593,10 @@
        const ta=Date.parse(a.createdDateTime??'');const tb=Date.parse(b.createdDateTime??'');
        return (Number.isFinite(ta)?ta:0)-(Number.isFinite(tb)?tb:0) || a.id.localeCompare(b.id);
      });
-     const mapped:Message[]=ordered.map(m=>{
-       const activity=conversationActivity(m,activityNames,ownId);
-       const key=JSON.stringify([chatId,m.id]);
-       const serverDeleted=Boolean(m.deletedDateTime);
-       const deleted=serverDeleted||confirmedDeleted.has(key);
-       if(serverDeleted){confirmedDeleted.delete(key);clearMessageImages(chatId,m.id);}
-       const previous=chat.messages.find(old=>old.id===m.id);
-       const sender=m.from?.user?.id?(m.from.user.id.toLowerCase()===ownId.toLowerCase()?'me':'them'):(deleted?previous?.sender??'them':'them');
-       return {id:m.id,deleted,activity,reactions:activity||deleted?[]:groupReactions(m.reactions,activityNames,ownId),reactionSource:activity||deleted?undefined:m.reactions,attachments:activity||deleted?[]:extractAttachments(m),images:activity||deleted?[]:extractImages(m),senderName:m.from?.user?.displayName,sender,text:deleted?'Message deleted':activity?.summary??plainText(m.body?.content??''),createdDateTime:m.createdDateTime??'',time:m.createdDateTime?new Date(m.createdDateTime).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):''};
-     });
+     const mapped:Message[]=ordered.map(m=>convertChatMessage(m,chatId));
      // Resolve missing historical names in the background; never delay normal messages.
      void resolveActivityNames(identities);
-     const changed=mapped.length!==chat.messages.length || mapped.some((m,i)=>m.id!==chat.messages[i]?.id || m.text!==chat.messages[i]?.text || m.deleted!==chat.messages[i]?.deleted || JSON.stringify(m.reactions)!==JSON.stringify(chat.messages[i]?.reactions) || JSON.stringify(m.reactionSource)!==JSON.stringify(chat.messages[i]?.reactionSource) || JSON.stringify(m.activity)!==JSON.stringify(chat.messages[i]?.activity) || m.senderName!==chat.messages[i]?.senderName || JSON.stringify(m.attachments)!==JSON.stringify(chat.messages[i]?.attachments) || JSON.stringify(m.images)!==JSON.stringify(chat.messages[i]?.images));
+     const changed=mapped.length!==chat.messages.length || mapped.some((m,i)=>m.id!==chat.messages[i]?.id || m.text!==chat.messages[i]?.text || m.deleted!==chat.messages[i]?.deleted || JSON.stringify(m.reactions)!==JSON.stringify(chat.messages[i]?.reactions) || JSON.stringify(m.reactionSource)!==JSON.stringify(chat.messages[i]?.reactionSource) || JSON.stringify(m.activity)!==JSON.stringify(chat.messages[i]?.activity) || JSON.stringify(m.replyIds)!==JSON.stringify(chat.messages[i]?.replyIds) || m.senderName!==chat.messages[i]?.senderName || JSON.stringify(m.attachments)!==JSON.stringify(chat.messages[i]?.attachments) || JSON.stringify(m.images)!==JSON.stringify(chat.messages[i]?.images));
      if(!changed){markVisibleRead();return;}
      const newlyReceived=mapped.some(m=>!m.activity&&!m.deleted&&m.sender==='them'&&!previousIDs.has(m.id));
      chat.messages=mapped;
@@ -604,7 +628,7 @@
    }finally{messageInFlight.delete(chatId);}
  }
  function selectChat(id:string,read=false){
-   emojiTarget=null;
+   emojiTarget=null;closeReplyThread();
    selectedReadEligible=read;readSelection++;readError='';
    drafts[selectedId]=draft;
    draft=drafts[id]??'';
@@ -850,7 +874,7 @@
    <div class="my-avatar" title={signedInName||"Demo profile"}>{signedInName? signedInName[0]:"J"}</div>
   </div>
  </aside>
- {#if sidebarOpen}
+ {#if sidebarOpen&&mode!=='teams'}
  <aside class="sidebar" aria-label="Conversations">
   <div class="sidebar-head"><div><div class="eyebrow">WORKSPACE</div><h1>{mode==='chats'?'Messages':nav.find(n=>n.id===mode)?.label}</h1></div><div class="sidebar-head-actions">{#if mode==='chats'}<button class="small-button" title="New conversation" aria-label="New conversation" onclick={openNewChat}><SquarePen size={18}/></button>{/if}<button class="small-button" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={()=>sidebarOpen=false}><PanelLeftClose size={18}/></button></div></div>
   {#if mode==='chats'}
@@ -866,7 +890,8 @@
  </aside><div class="resize-handle" role="separator" aria-label="Resize conversation panel" aria-orientation="vertical" tabindex="0" onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag} onkeydown={(e)=>{if(e.key==='ArrowRight')sidebarWidth=Math.min(490,sidebarWidth+20);if(e.key==='ArrowLeft')sidebarWidth=Math.max(220,sidebarWidth-20)}}></div>
  {/if}
  <main class="main">
-  {#if mode==='chats'}
+  {#if mode==='teams'}{#key ownId}<TeamsWorkspace {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
+  {:else if mode==='chats'}
    {#if selected.id==='empty'}
     <Welcome onNew={openNewChat} onSearch={focusConversationSearch} onRefresh={refreshMessages} onSidebar={()=>sidebarOpen=true} {sidebarOpen} busy={refreshBusy||authBusy||operationBusy}/>
     {#if syncStatus==='offline'}<div class="sync-warning" role="status">Sync paused after an error. Automatic retry is enabled.</div>{/if}
@@ -880,6 +905,7 @@
       <div class="activity-copy"><span class="activity-label">{m.activity.kind==='renamed'?'GROUP NAME':m.activity.kind==='added'?'MEMBERS ADDED':m.activity.kind==='removed'?'MEMBERS REMOVED':m.activity.kind==='joined'?'JOINED':'LEFT'}</span><p>{m.activity.summary}</p>{#if m.activity.history}<small>{m.activity.history}</small>{/if}</div>
       {#if m.createdDateTime}<time datetime={m.createdDateTime} title={new Date(m.createdDateTime).toLocaleString()}>{m.time}</time>{/if}
     </div>{:else}<div class:mine={m.sender==='me'} class="message-line"><div class="message-stack">{#if m.sender==='them'}<span class="sender-name">{m.senderName||(selected.chatType==='group'?'Participant unavailable':selected.name)}</span>{/if}<div class="bubble" class:deleted-message={m.deleted}>
+      {#if !m.deleted}{#each m.replyIds??[] as parentId,i}<button class="chat-quote-link" type="button" aria-label={`View quoted message ${i+1}`} onclick={()=>openReplyThread(parentId)}><MessagesSquare size={13}/>{selected.messages.find(parent=>parent.id===parentId)?.deleted?'Quoted message deleted':'Reply to an earlier message'}<span aria-hidden="true">↗</span></button>{/each}{/if}
       {#if m.text && !(m.images?.length || m.attachments?.length) || (m.text && !m.text.startsWith('[Image or attachment'))}<div>{m.text}</div>{/if}
       {#each (m.images ?? []) as img (img.id)}
        {@const key=mediaKey(selected.id,m.id,img.id)}
@@ -894,7 +920,7 @@
       {/each}
       {#if !m.text && !(m.images?.length || m.attachments?.length)}<span>Unsupported message content</span>{/if}
       {#if m.text.startsWith('[Image or attachment') && !(m.images?.length || m.attachments?.length)}<span>{m.text}</span>{/if}
-     </div>{#if !m.deleted&&m.reactions?.length}<MessageReactions groups={m.reactions} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onRemove={isLive?(emoji,trigger)=>removeReaction(m,emoji,trigger):undefined}/>{/if}<div class="message-foot"><span>{m.time}</span>{#if isLive&&!m.deleted&&!selected.id.startsWith('pending:')}<button class="message-action" type="button" aria-label="Add reaction" title={chatWritePermission?'React to this message':'Requires delegated Chat.ReadWrite and a fresh sign-in'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={event=>openReaction(m,event.currentTarget)}><Smile size={13}/></button>{/if}{#if m.sender==='me'&&!m.deleted}<Check size={12}/>{/if}{#if isLive&&m.sender==='me'}<button type="button" class="message-action" aria-label={m.deleted?'Restore message':'Delete message'} title={chatWritePermission?(m.deleted?'Restore to the shared conversation':'Delete from the shared conversation'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(m.deleted?'restore':'delete',m)}>{#if m.deleted}<Undo2 size={12}/>{:else}<Trash2 size={12}/>{/if}{m.deleted?'Restore':'Delete'}</button>{/if}</div></div></div>{/if}{/each}<div bind:this={listEnd}></div></section>
+     </div>{#if !m.deleted&&m.reactions?.length}<MessageReactions groups={m.reactions} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onRemove={isLive?(emoji,trigger)=>removeReaction(m,emoji,trigger):undefined}/>{/if}<div class="message-foot"><span>{m.time}</span>{#if isLive&&chatReplies(m.id,selected.messages).length}<button class="message-action" type="button" title="Quoted replies in loaded chat history" aria-label="View chat replies" onclick={()=>openReplyThread(m.id)}><MessagesSquare size={13}/>{chatReplies(m.id,selected.messages).length} {chatReplies(m.id,selected.messages).length===1?'reply':'replies'}</button>{/if}{#if isLive&&!m.deleted&&!selected.id.startsWith('pending:')}<button class="message-action" type="button" aria-label="Add reaction" title={chatWritePermission?'React to this message':'Requires delegated Chat.ReadWrite and a fresh sign-in'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={event=>openReaction(m,event.currentTarget)}><Smile size={13}/></button>{/if}{#if m.sender==='me'&&!m.deleted}<Check size={12}/>{/if}{#if isLive&&m.sender==='me'}<button type="button" class="message-action" aria-label={m.deleted?'Restore message':'Delete message'} title={chatWritePermission?(m.deleted?'Restore to the shared conversation':'Delete from the shared conversation'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(m.deleted?'restore':'delete',m)}>{#if m.deleted}<Undo2 size={12}/>{:else}<Trash2 size={12}/>{/if}{m.deleted?'Restore':'Delete'}</button>{/if}</div></div></div>{/if}{/each}<div bind:this={listEnd}></div></section>
    {#if jumpVisible && mode==='chats'}<button class="jump-latest" onclick={jumpToLatest}>↓ Snap to Now</button>{/if}
    {#if isLive && syncStatus==='offline'}<div class="sync-warning" role="status">Sync paused after an error. Automatic retry is enabled.</div>{/if}
    {#if readError}<div class="pending-notice" role="status">{readError}</div>{/if}
@@ -922,7 +948,7 @@
    {/if}
   {:else}<div class="section-placeholder">{#if !sidebarOpen}<button class="small-button left-restore" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={18}/></button>{/if}<LayoutPanelTop size={36}/><h2>{nav.find(n=>n.id===mode)?.label}</h2><p>TAUT owns this workspace. Connecting Microsoft 365 data is the next phase.</p><button class="outline-button" onclick={()=>mode='chats'}>Return to messages</button></div>{/if}
  </main>
- {#if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
+ {#if detailsOpen&&mode==='chats'&&activeThread}<ChatThread root={threadRoot} replies={threadMessages} loading={quotedLoading} error={quotedError} chatName={selected.name} group={selected.chatType==='group'} onClose={closeReplyThread} onRetry={()=>activeThread&&openReplyThread(activeThread.rootId)} onOpenFile={openAttachment} onViewImage={viewThreadImage}/>{:else if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
 </div>
 </div>
 {#if lightbox}<div class="image-lightbox" role="presentation" onclick={(e)=>{if(e.target===e.currentTarget)lightbox=null}}><div class="image-lightbox-toolbar"><span>{lightbox.name}</span><button aria-label="Zoom out" title="Zoom out" onclick={()=>imageZoom=Math.max(0.5,imageZoom-0.25)}>−</button><button aria-label="Fit image" title="Fit to window" onclick={()=>imageZoom=1}>Fit</button><button aria-label="Zoom in" title="Zoom in" onclick={()=>imageZoom=Math.min(4,imageZoom+0.25)}>+</button><button aria-label="Close viewer" title="Close (Esc)" onclick={()=>lightbox=null}>×</button></div><div class="image-lightbox-body"><img src={lightbox.src} alt={lightbox.name} style={`transform:scale(${imageZoom})`}/></div></div>{/if}

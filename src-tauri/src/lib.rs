@@ -1,4 +1,6 @@
 mod auth;
+mod teams;
+mod chat_threads;
 mod notifications;
 mod read_state;
 mod reaction_ops;
@@ -17,7 +19,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
@@ -270,6 +272,31 @@ async fn graph_send_attachments(state: State<'_, AuthState>, uploads: State<'_, 
         attachments::send(&store, &chat_id, &text, &ids, &mut |method,path,body,bytes| attachment_request(&state, method,path,body,bytes))
     }).await.map_err(|_| "Delivery was not confirmed. Check Teams before retrying")?
 }
+#[tauri::command]
+async fn graph_chat_message(state:State<'_,AuthState>,chat_id:String,message_id:String)->Result<Value,String>{
+    let state=AuthState(state.0.clone());tauri::async_runtime::spawn_blocking(move||chat_threads::quoted_parent(&chat_id,&message_id,&mut |method,path,body|graph_operation_request(&state,method,path,body))).await.map_err(|_|"Quoted message read stopped")?
+}
+fn teams_permissions_now(state:&AuthState)->Result<teams::Permissions,String>{
+    get_access_token(state)?;
+    let guard=state.0.lock().map_err(|_|"Authentication state unavailable")?;
+    Ok(teams::Permissions::from_scopes(guard.token.as_ref().map(|t|t.scopes.as_str()).unwrap_or("")))
+}
+#[tauri::command]
+async fn teams_permissions(state:State<'_,AuthState>)->Result<teams::Permissions,String>{
+    let state=AuthState(state.0.clone());tauri::async_runtime::spawn_blocking(move||teams_permissions_now(&state)).await.map_err(|_|"Teams permission check stopped")?
+}
+#[tauri::command]
+async fn graph_teams_page(state:State<'_,AuthState>,query:teams::Query)->Result<Value,String>{
+    let state=AuthState(state.0.clone());tauri::async_runtime::spawn_blocking(move||{
+        let permissions=teams_permissions_now(&state)?;
+        teams::page(&query,&permissions,&mut |path|{
+            let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Teams HTTP client unavailable")?;
+            let response=client.get(format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(&state)?).header("Prefer","include-unknown-enum-members").send().map_err(|_|"Teams network error")?;
+            let status=response.status().as_u16();
+            let value=if status==200{response.json().map_err(|_|"Invalid Teams response")?}else{Value::Null};Ok((status,value))
+        })
+    }).await.map_err(|_|"Teams read stopped")?
+}
 // Graph action POSTs without payloads still need explicit HTTP message framing.
 fn graph_operation_payload(request:reqwest::blocking::RequestBuilder,method:&reqwest::Method,body:Option<Value>)->reqwest::blocking::RequestBuilder {
     if let Some(body)=body {request.json(&body)}
@@ -518,7 +545,7 @@ pub fn run() {
         .setup(setup_notifications)
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
