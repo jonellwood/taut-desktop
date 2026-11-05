@@ -2,6 +2,7 @@
  import { tick, onMount } from 'svelte';
  import { MessageCircle, Bell, Users, Phone, Files, Settings, Search, Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Send, SquarePen, Paperclip, Smile, MoreHorizontal, Video, X, Check, UserPlus, UserMinus, PencilLine, LogIn, Trash2, Undo2, EyeOff, Eye, ChevronRight, Moon, Sun, LayoutPanelTop, LogOut, PanelLeft, PanelRight, Scan, Pin, PinOff, Building2, MessagesSquare } from 'lucide-svelte';
  import { existingChat, pendingConversation, pendingGroupConversation, submitMessage, isUserMessage } from './lib/pending';
+ import {attachmentInput} from './lib/attachment-input';
  import { validateFiles, fileBase64, fileSize, type StagedFile } from './lib/attachments';
  import { conversationActivity, activityIdentities, identityKey, type EventDetail, type EventIdentity, type IdentityNames } from './lib/activity';
  import type { Message } from './lib/types';
@@ -21,7 +22,8 @@
  import {groupReactions,reactionIdentities,type ApiReaction} from './lib/reactions';
  import GroupMembers from './lib/GroupMembers.svelte';
  import { messagePreview, previewUnread, type ChatPreview } from './lib/chat-summary';
- import { conversations } from './lib/mock';
+ import SharedMedia from './lib/SharedMedia.svelte';
+ import {safeMessageLink} from './lib/message-body';
  import { invoke } from '@tauri-apps/api/core';
  import { openUrl } from '@tauri-apps/plugin-opener';
  import type { Conversation, WorkspaceMode, Attachment, InlineImage } from './lib/types';
@@ -70,7 +72,7 @@
  let directoryTimer:ReturnType<typeof setTimeout>|undefined;
  let newChatBusy=$state(false);
  let newChatError=$state('');
- let chats:Conversation[]= $state(structuredClone(conversations));
+ let chats:Conversation[]= $state([]);
  let knownChats:ApiChat[]=[];
  let isLive=$state(false);
  let authBusy=$state(false);
@@ -100,7 +102,7 @@
  let authError=$state('');
  let signedInName=$state('');
  let ownId=$state('');
- let selectedId=$state('hannah');
+ let selectedId=$state('');
  let mode:WorkspaceMode=$state('chats');
  function savedLayout(){
    const defaults={sidebar:true,details:true,restoreSidebar:true,restoreDetails:true};
@@ -129,6 +131,8 @@
  let attachmentDrafts=$state<Record<string,StagedFile[]>>({});
  let attachmentPermission=$state(false);
  let stagingBusy=$state(false);
+ let fileDragActive=$state(false);
+ let attachmentInputNotice=$state('');
  let fileInput=$state<HTMLInputElement>();
  let attachmentProgress=$state<Record<string,string>>({});
  let selectedFiles=$derived(attachmentDrafts[selectedId]??[]);
@@ -150,7 +154,8 @@
  let conversationSearch=$state<HTMLInputElement>();
  let paletteInput = $state<HTMLInputElement | undefined>(undefined);
  const noSelection:Conversation={id:'empty',name:'Select a conversation',initials:'—',status:'offline',preview:'Choose a chat to read messages',time:'',unread:0,messages:[]};
- let selected=$derived(chats.find(c=>c.id===selectedId)??(isLive?noSelection:chats[0]));
+ let selected=$derived(chats.find(c=>c.id===selectedId)??noSelection);
+ const canStageFiles=$derived(isLive&&mode==='chats'&&!!selected&&selected.id!=='empty'&&!selected.hidden&&!sendBusy&&!stagingBusy&&!groupBusy&&!operationBusy&&!authBusy&&!reauthRequired);
  let replyThread=$state<{chatId:string;rootId:string}|null>(null);
  let quotedParent=$state<Message|null>(null);let quotedLoading=$state(false);let quotedError=$state('');let quoteVersion=0;
  let activeThread=$derived(replyThread?.chatId===selected.id?replyThread:null);
@@ -284,7 +289,7 @@
   try {
    const u=new URL(raw);
    const h=u.hostname.toLowerCase();
-   return u.protocol==='https:' && (h.endsWith('.sharepoint.com') || h.endsWith('.sharepoint-df.com') || h==='onedrive.live.com' || h==='1drv.ms' || h==='teams.microsoft.com' || h==='teams.cloud.microsoft' || h==='microsoft365.com' || h==='www.microsoft365.com');
+   return u.protocol==='https:' && !u.username && !u.password && (h.endsWith('.sharepoint.com') || h.endsWith('.sharepoint-df.com') || h==='onedrive.live.com' || h==='1drv.ms' || h==='teams.microsoft.com' || h==='teams.cloud.microsoft' || h==='microsoft365.com' || h==='www.microsoft365.com');
   } catch { return false; }
  }
  async function openAttachment(url:string){
@@ -429,7 +434,7 @@
    messageViewport.scrollTo({top:messageViewport.scrollHeight,behavior:'smooth'});
    jumpVisible=false;
  }
- function openNewChat(){newGroupMode=false;newGroupUsers=[];newGroupTopic='';newChatEmail='';newChatRecipientId='';directoryResults=[];directoryError='';newChatError='';newChatOpen=true;}
+ function openNewChat(){if(!isLive||authBusy)return;newGroupMode=false;newGroupUsers=[];newGroupTopic='';newChatEmail='';newChatRecipientId='';directoryResults=[];directoryError='';newChatError='';newChatOpen=true;}
  function onRecipientQuery(value:string){
    newChatEmail=value;newChatRecipientId='';directoryResults=[];directoryError='';
    directoryRequest++;const serial=directoryRequest;
@@ -483,7 +488,7 @@
      const me=await invoke<{id:string;displayName:string}>('graph_profile');
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
      if(priorOwn&&!sameAccount){
-       closeReplyThread();drafts={};attachmentDrafts={};attachmentProgress={};readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
+       closeReplyThread();drafts={};attachmentDrafts={};attachmentProgress={};attachmentInputNotice='';fileDragActive=false;readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
        imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;replyDrafts={};formattedDrafts={};formattedReplies={};replyErrors={};replyUncertain={};channelDrafts={};activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
      }
      ownId=me.id;signedInName=me.displayName;loadPins();
@@ -525,11 +530,11 @@
    authBusy=true;authError='';persistenceNotice='';sessionSaved=false;reauthRequired=false;
    readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';chatWritePermission=false;showHidden=false;confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;imageVersions.clear();imageCache={};imageErrors={};imageLoading={};lightbox=null;hiddenOverrides={};changeTarget=null;chatListSerial++;
    nameSession++;replyDrafts={};formattedDrafts={};formattedReplies={};replyErrors={};replyUncertain={};channelDrafts={};leftGroupIds.clear();groupMemberPermission=false;activityNames={};attemptedNames.clear();nameRetryAfter=0;
-   attachmentDrafts={};attachmentProgress={};attachmentPermission=false;
-   knownChats=[];drafts={};isLive=false;openChatSerial++;
+   attachmentDrafts={};attachmentProgress={};attachmentInputNotice='';fileDragActive=false;attachmentPermission=false;
+   knownChats=[];drafts={};isLive=false;chats=[];selectedId='';draft='';openChatSerial++;
    try{await invoke('sign_out');}catch(e){authError=String(e);}finally{authBusy=false;}
-   sendError='';chats=structuredClone(conversations);
-   selectedId='hannah';draft=drafts.hannah??'';signedInName='';ownId='';syncIssues={messages:false,chats:false};syncStatus='idle';
+   sendError='';chats=[];
+   selectedId='';draft='';signedInName='';ownId='';syncIssues={messages:false,chats:false};syncStatus='idle';
  }
  async function resolveUnnamedChats(){
    if(!isLive)return;
@@ -689,12 +694,14 @@
    catch(e){markSyncError(e);authError=String(e);}
    finally{refreshBusy=false;}
  }
- async function selectFiles(event:Event){
+ function selectFiles(event:Event){
    const input=event.currentTarget as HTMLInputElement;
-   const files=Array.from(input.files??[]);input.value='';
-   if(!isLive || sendBusy || stagingBusy || operationBusy || authBusy || reauthRequired || selected?.hidden || !files.length)return;
-   const id=selectedId;const current=attachmentDrafts[id]??[];
-   stagingBusy=true;sendError='';
+   const files=Array.from(input.files??[]);input.value='';void stageFiles(files);
+ }
+ async function stageFiles(files:File[]){
+   if(!canStageFiles||!files.length)return;
+   const id=selectedId,current=attachmentDrafts[id]??[],session=nameSession;
+   stagingBusy=true;sendError='';attachmentInputNotice='';
    try{
      validateFiles(current,files);
      const staged:StagedFile[]=[];
@@ -702,8 +709,8 @@
        const preview=/^image\/(png|jpeg|gif|webp)$/.test(file.type) && file.size<=2*1024*1024?`data:${file.type};base64,${await fileBase64(file)}`:undefined;
        staged.push({id:crypto.randomUUID(),name:file.name,size:file.size,file,preview});
      }
-     attachmentDrafts[id]=[...current,...staged];
-   }catch(e){sendError=String(e);}
+     if(session===nameSession&&isLive)attachmentDrafts[id]=[...current,...staged];
+   }catch(e){if(session===nameSession){if(selectedId===id&&mode==='chats')sendError=String(e);else attachmentInputNotice=String(e);}}
    finally{stagingBusy=false;}
  }
  function removeFile(id:string){
@@ -723,10 +730,7 @@
      if(!attachmentPermission){sendError='Attachment sending needs Files.ReadWrite permission. No conversation was created and no file was uploaded. Sign in again after the permission is approved.';return;}
      try{validateFiles([],filesAtSubmit);}catch(e){sendError=String(e);return;}
    }
-   if(!isLive){
-     selected.messages.push({id:crypto.randomUUID(),sender:'me',text,time:new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})});
-     selected.preview=text;selected.time='Now';draft='';drafts[selected.id]='';await tick();await jumpToLatest();return;
-   }
+   if(!isLive)return;
    if(selected.creationUncertain){sendError='Check Teams and refresh before explicitly enabling another group creation attempt.';return;}
    const originalId=selected.id;
    const pendingGroup=selected.pendingGroup;
@@ -898,7 +902,7 @@
  function endDrag(){dragStart=false;}
 </script>
 <svelte:window onclick={closePinMenu} onkeydown={keys} onfocus={windowFocused}/>
-<div class="app" class:dense style={`--accent:${accent==='amber'?'#efbb70':accent==='teal'?'#63d4c1':'#b3a0ff'};--sidebar-width:${sidebarWidth}px`}>
+<div use:attachmentInput={{enabled:canStageFiles,onFiles:files=>{void stageFiles(files)},onError:message=>attachmentInputNotice=message,onDrag:active=>fileDragActive=active}} class="app" class:dense style={`--accent:${accent==='amber'?'#efbb70':accent==='teal'?'#63d4c1':'#b3a0ff'};--sidebar-width:${sidebarWidth}px`}>
  <div class="layout-bar"><span class="layout-caption">TAUT <span>/ YOUR WORKSPACE</span></span><div class="layout-controls" role="toolbar" aria-label="Workspace layout">
   <button type="button" aria-label="Toggle conversation sidebar" aria-pressed={sidebarOpen} title="Conversation sidebar" onclick={()=>sidebarOpen=!sidebarOpen}><PanelLeft size={17}/></button>
   <button type="button" aria-label="Toggle details panel" aria-pressed={detailsOpen&&(mode==='teams'||mode==='chats'&&selected.id!=='empty')} disabled={mode!=='teams'&&(mode!=='chats'||selected.id==='empty')} title={mode==='teams'?'Channel details or reply thread':mode==='chats'&&selected.id!=='empty'?'Conversation details':'Choose a conversation to show details'} onclick={()=>detailsOpen=!detailsOpen}><PanelRight size={17}/></button>
@@ -916,29 +920,29 @@
   <div class="rail-bottom">
    <button class="rail-button" title="Command Palette (⌘⇧K)" aria-label="Command Palette" onclick={openPalette}><Command size={20}/></button>
    <button class="rail-button" title="Settings" aria-label="Settings" onclick={()=>settingsOpen=true}><Settings size={20}/></button>
-   <div class="my-avatar" title={signedInName||"Demo profile"}>{signedInName? signedInName[0]:"J"}</div>
+   <div class="my-avatar" title={signedInName||"Not signed in"}>{signedInName? signedInName[0]:"—"}</div>
   </div>
  </aside>
  {#if sidebarOpen&&mode!=='teams'}
  <aside class="sidebar" aria-label="Conversations">
-  <div class="sidebar-head"><div><div class="eyebrow">WORKSPACE</div><h1>{mode==='chats'?'Messages':nav.find(n=>n.id===mode)?.label}</h1></div><div class="sidebar-head-actions">{#if mode==='chats'}<button class="small-button" title="New conversation" aria-label="New conversation" onclick={openNewChat}><SquarePen size={18}/></button>{/if}<button class="small-button" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={()=>sidebarOpen=false}><PanelLeftClose size={18}/></button></div></div>
+  <div class="sidebar-head"><div><div class="eyebrow">WORKSPACE</div><h1>{mode==='chats'?'Messages':nav.find(n=>n.id===mode)?.label}</h1></div><div class="sidebar-head-actions">{#if mode==='chats'}<button class="small-button" title="New conversation" aria-label="New conversation" disabled={!isLive||authBusy} onclick={openNewChat}><SquarePen size={18}/></button>{/if}<button class="small-button" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={()=>sidebarOpen=false}><PanelLeftClose size={18}/></button></div></div>
   {#if mode==='chats'}
-   <label class="search-field"><Search size={17}/><input bind:this={conversationSearch} bind:value={search} placeholder="Search conversations" aria-label="Search conversations"/><kbd>⌘ K</kbd></label>
+   <label class="search-field"><Search size={17}/><input bind:this={conversationSearch} bind:value={search} disabled={!isLive} placeholder="Search conversations" aria-label="Search conversations"/><kbd>⌘ K</kbd></label>
    {#if isLive}<button class="hidden-chats-toggle" type="button" aria-pressed={showHidden} onclick={()=>showHidden=!showHidden}>{showHidden?'Back to visible chats':`Hidden chats (${chats.filter(c=>c.hidden).length})`}</button>{/if}
    <div class="list-scroll">{#if pinError}<div class="pin-error" role="alert">{pinError}<button type="button" aria-label="Dismiss pin error" onclick={()=>pinError=''}>×</button></div>{/if}<div class="list-label">PINNED <span>{filtered.filter(c=>isPinned(c)).length}</span></div>
    {#each filtered.filter(c=>isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i class:away={c.status==='away'} class:offline={c.status==='offline'}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}><span>ON THIS DEVICE · TAUT ONLY</span><button type="button" role="menuitem" bind:this={pinMenuAction} onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
    <div class="list-label recent">RECENT <span>{filtered.filter(c=>!isPinned(c)).length}</span></div>
    {#each filtered.filter(c=>!isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i class:away={c.status==='away'} class:offline={c.status==='offline'}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}><span>ON THIS DEVICE · TAUT ONLY</span><button type="button" role="menuitem" bind:this={pinMenuAction} onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
-   {#if filtered.length===0}<div class="empty">No matching conversations</div>{/if}</div>
+   {#if filtered.length===0}<div class="empty">{isLive?'No matching conversations':'Sign in to see your conversations.'}</div>{/if}</div>
   {:else}<div class="sidebar-note"><span class="note-icon"><LayoutPanelTop size={19}/></span><strong>{nav.find(n=>n.id===mode)?.label}</strong><p>This section is a UI placeholder. Microsoft Graph integration comes next.</p><button class="text-action" onclick={()=>mode='chats'}>Back to Chats <ChevronRight size={14}/></button></div>{/if}
-  <div class="sidebar-foot"><span class="live-dot"></span>{isLive?'MICROSOFT 365 · CONNECTED':'MOCK DATA'} <span class="spacer"></span>{#if isLive}<button class="auth-action" disabled={authBusy} onclick={signOut}>Sign out</button>{:else}<button class="auth-action" disabled={authBusy} onclick={signIn}>{authBusy?authPhase:'Sign in'}</button>{/if}</div>
+  <div class="sidebar-foot"><span class="live-dot" class:presence-muted={!isLive}></span>{isLive?'MICROSOFT 365 · CONNECTED':'NOT CONNECTED'} <span class="spacer"></span>{#if isLive}<button class="auth-action" disabled={authBusy} onclick={signOut}>Sign out</button>{:else}<button class="auth-action" disabled={authBusy} onclick={signIn}>{authBusy?authPhase:'Sign in'}</button>{/if}</div>
  </aside><div class="resize-handle" role="separator" aria-label="Resize conversation panel" aria-orientation="vertical" tabindex="0" onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag} onkeydown={(e)=>{if(e.key==='ArrowRight')sidebarWidth=Math.min(490,sidebarWidth+20);if(e.key==='ArrowLeft')sidebarWidth=Math.max(220,sidebarWidth-20)}}></div>
  {/if}
  <main class="main">
   {#if mode==='teams'}{#key ownId}<TeamsWorkspace onCloseDetails={()=>detailsOpen=false} drafts={channelDrafts} sendBusy={sendBusy} onSendBusy={(busy)=>sendBusy=busy} {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
   {:else if mode==='chats'}
    {#if selected.id==='empty'}
-    <Welcome onNew={openNewChat} onSearch={focusConversationSearch} onRefresh={refreshMessages} onSidebar={()=>sidebarOpen=true} {sidebarOpen} busy={refreshBusy||authBusy||operationBusy}/>
+    <Welcome signedIn={isLive} onSignIn={signIn} onNew={openNewChat} onSearch={focusConversationSearch} onRefresh={refreshMessages} onSidebar={()=>sidebarOpen=true} {sidebarOpen} busy={refreshBusy||authBusy||operationBusy}/>
 
    {:else}
    <header class="conversation-header"><div class="header-person">{#if !sidebarOpen}<button class="small-button" title="Expand sidebar" aria-label="Expand sidebar" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={19}/></button>{/if}<span class="avatar header-avatar">{selected.initials}<i class:away={selected.status==='away'} class:offline={selected.status==='offline'}></i></span><div><strong>{selected.name}</strong><small class:presence-muted={isLive||selected.status==='offline'}>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status==='away'?'Away':'Offline'}</small></div></div><div class="header-actions">{#if isLive&&selected.id!=='empty'&&!selected.id.startsWith('pending:')}<button type="button" title={chatWritePermission?(selected.hidden?'Return this chat to your list':'Hide only for you; history stays'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} aria-label={selected.hidden?'Unhide conversation for me':'Hide conversation for me'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(selected.hidden?'unhide':'hide')}>{#if selected.hidden}<Eye size={18}/>{:else}<EyeOff size={18}/>{/if}</button>{/if}<button title="Calls require integration" aria-label="Call (not yet implemented)" disabled><Phone size={18}/></button><button title="Meetings require integration" aria-label="Video (not yet implemented)" disabled><Video size={18}/></button><div class="vert-divider"></div>{#if isLive}<button title="Refresh messages" aria-label="Refresh messages" disabled={refreshBusy} onclick={refreshMessages}><span class="refresh-symbol" class:spinning={refreshBusy}>↻</span></button>{/if}<button title="Command Palette" aria-label="Commands" onclick={openPalette}><MoreHorizontal size={19}/></button></div></header>
@@ -988,18 +992,19 @@
    {#if selected.creationUncertain}<div class="pending-notice" role="status">A group creation attempt failed or was not confirmed. Check Teams before trying to create it again.
     <button type="button" onclick={()=>{if(selected)selected.creationUncertain=false;sendError=''}}>I checked Teams — enable retry</button>
    </div>{/if}
-   <input class="file-picker" type="file" multiple bind:this={fileInput} aria-label="Choose attachment files" onchange={selectFiles} disabled={!isLive||sendBusy||stagingBusy}/>
+   <input class="file-picker" type="file" multiple bind:this={fileInput} aria-label="Choose attachment files" onchange={selectFiles} disabled={!canStageFiles}/>
    <div class="compose-format-area"><FormattingToolbar text={draft} formatted={formattedDrafts[selectedId]??false} input={composerInput} disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onText={text=>{draft=text;drafts[selectedId]=text}} onFormat={value=>formattedDrafts[selectedId]=value}/></div>
-   <form class="composer" onsubmit={(e)=>{e.preventDefault();send()}}><button type="button" title="Attach files (up to 5 files, 10 MB each)" aria-label="Attach files" disabled={!isLive||sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.id==='empty'} onclick={()=>fileInput?.click()}><Paperclip size={19}/></button><textarea rows="1" bind:this={composerInput} use:autosizeComposer={draft} use:continueList={{formatted:formattedDrafts[selectedId]??false,onText:text=>{draft=text;drafts[selectedId]=text}}} onkeydown={composerKeys} value={draft} oninput={(e)=>{draft=e.currentTarget.value;drafts[selectedId]=draft}} placeholder={isLive?`Message ${selected.name}…`:`Demo message ${selected.name}…`} disabled={sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || selected.hidden || selected.id==='empty'} aria-label="Message" title={formattedDrafts[selectedId]?"Enter for a new line; ⌘Enter to send":"Enter to send; Shift+Enter for a new line"}></textarea><button type="button" title="Insert emoji into your draft" aria-label="Insert emoji" disabled={!isLive||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onclick={openComposerEmoji}><Smile size={19}/></button><button type="submit" class="send" disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.creationUncertain||(!draft.trim()&&(!selectedFiles.length||selected.id.startsWith('pending:')))||selected.id==='empty'} aria-label="Send message"><Send size={18}/></button></form>
+   <form class="composer" class:file-drag-active={fileDragActive} onsubmit={(e)=>{e.preventDefault();send()}}>{#if fileDragActive}<div class="attachment-drop-cue" role="status">Drop to attach · stays local until Send</div>{/if}<button type="button" title="Attach files, drop files here, or paste an image (up to 5 files, 10 MB each)" aria-label="Attach files" disabled={!canStageFiles} onclick={()=>fileInput?.click()}><Paperclip size={19}/></button><textarea rows="1" bind:this={composerInput} use:autosizeComposer={draft} use:continueList={{formatted:formattedDrafts[selectedId]??false,onText:text=>{draft=text;drafts[selectedId]=text}}} onkeydown={composerKeys} value={draft} oninput={(e)=>{draft=e.currentTarget.value;drafts[selectedId]=draft}} placeholder={`Message ${selected.name}…`} disabled={sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || selected.hidden || selected.id==='empty'} aria-label="Message" title={formattedDrafts[selectedId]?"Enter for a new line; ⌘Enter to send":"Enter to send; Shift+Enter for a new line"}></textarea><button type="button" title="Insert emoji into your draft" aria-label="Insert emoji" disabled={!isLive||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||selected.hidden||selected.id==='empty'} onclick={openComposerEmoji}><Smile size={19}/></button><button type="submit" class="send" disabled={sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired||selected.hidden||selected.creationUncertain||(!draft.trim()&&(!selectedFiles.length||selected.id.startsWith('pending:')))||selected.id==='empty'} aria-label="Send message"><Send size={18}/></button></form>
    {/if}
   {:else}<div class="section-placeholder">{#if !sidebarOpen}<button class="small-button left-restore" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={18}/></button>{/if}<LayoutPanelTop size={36}/><h2>{nav.find(n=>n.id===mode)?.label}</h2><p>TAUT owns this workspace. Connecting Microsoft 365 data is the next phase.</p><button class="outline-button" onclick={()=>mode='chats'}>Return to messages</button></div>{/if}
  </main>
- {#if detailsOpen&&mode==='chats'&&activeThread}<ChatThread formatted={formattedReplies[replyKey]??false} onFormat={value=>formattedReplies[replyKey]=value} replyText={replyDrafts[replyKey]??''} sendError={replyErrors[replyKey]??''} uncertain={replyUncertain[replyKey]??false} disabled={sendBusy||stagingBusy||authBusy||operationBusy||groupBusy||reauthRequired||!!selected.hidden||!threadRoot||!!threadRoot.deleted} onText={(text)=>replyDrafts[replyKey]=text} onSend={sendQuotedReply} onAcknowledge={()=>{replyUncertain[replyKey]=false;replyErrors[replyKey]='';}} onRefresh={()=>loadMessages(selected.id,'manual')} root={threadRoot} replies={threadMessages} loading={quotedLoading} error={quotedError} chatName={selected.name} group={selected.chatType==='group'} onClose={closeReplyThread} onRetry={()=>activeThread&&openReplyThread(activeThread.rootId)} onOpenFile={openAttachment} onViewImage={viewThreadImage}/>{:else if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}<div class="detail-section"><div class="detail-heading">SHARED MEDIA <span>0</span></div><div class="tile-row"><div class="media-tile"></div><div class="media-tile"></div><div class="media-tile"></div></div><p>Files and images will appear here after Graph integration.</p></div><div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"PRIVATE PREVIEW · MOCK DATA"}</div></aside>{/if}
+ {#if detailsOpen&&mode==='chats'&&activeThread}<ChatThread formatted={formattedReplies[replyKey]??false} onFormat={value=>formattedReplies[replyKey]=value} replyText={replyDrafts[replyKey]??''} sendError={replyErrors[replyKey]??''} uncertain={replyUncertain[replyKey]??false} disabled={sendBusy||stagingBusy||authBusy||operationBusy||groupBusy||reauthRequired||!!selected.hidden||!threadRoot||!!threadRoot.deleted} onText={(text)=>replyDrafts[replyKey]=text} onSend={sendQuotedReply} onAcknowledge={()=>{replyUncertain[replyKey]=false;replyErrors[replyKey]='';}} onRefresh={()=>loadMessages(selected.id,'manual')} root={threadRoot} replies={threadMessages} loading={quotedLoading} error={quotedError} chatName={selected.name} group={selected.chatType==='group'} onClose={closeReplyThread} onRetry={()=>activeThread&&openReplyThread(activeThread.rootId)} onOpenFile={openAttachment} onViewImage={viewThreadImage}/>{:else if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={isLive||selected.status==='offline'} class:presence-away={!isLive&&selected.status==='away'}></span>{isLive?'Presence unavailable':selected.status==='online'?'Available':selected.status}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}{#key selected.id}<SharedMedia messages={selected.messages} onFile={openAttachment} onLink={url=>{if(safeMessageLink(url))void openUrl(url).catch(()=>fileOpenError='The link could not be opened.');}} onImage={async(messageId,imageId)=>{const chatId=selected.id;const session=nameSession;const key=mediaKey(chatId,messageId,imageId);if(!imageCache[key])await loadImage(chatId,messageId,imageId);if(session!==nameSession||selected.id!==chatId)return;if(!selected.messages.some(m=>m.id===messageId&&!m.deleted&&m.images?.some(i=>i.id===imageId)))return;if(!imageCache[key])throw new Error('Image unavailable');openImageViewer(imageCache[key]);}}/>{/key}<div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"NOT CONNECTED"}</div></aside>{/if}
 </div>
-<footer class="workspace-status" aria-label="Workspace status" class:warning={reauthRequired||!!authError||!!readError||!!persistenceNotice||isLive&&syncStatus==='offline'}>
+<footer class="workspace-status" aria-label="Workspace status" class:warning={!!attachmentInputNotice||reauthRequired||!!authError||!!readError||!!persistenceNotice||isLive&&syncStatus==='offline'}>
  {#if reauthRequired}<div role="status"><span>Microsoft requires a fresh sign-in. Your drafts remain in this session.</span><button type="button" disabled={authBusy||sendBusy||stagingBusy||groupBusy||operationBusy} onclick={signIn}>Reconnect</button></div>
  {:else if authError}<div role="alert"><span>{authError}</span><button type="button" onclick={()=>authError=''} aria-label="Dismiss error">×</button></div>
  {:else if readError}<div role="status"><span>{readError}</span><button type="button" aria-label="Dismiss read status notice" onclick={()=>readError=''}>×</button></div>
+ {:else if attachmentInputNotice}<div role="status"><span>{attachmentInputNotice}</span><button type="button" aria-label="Dismiss attachment notice" onclick={()=>attachmentInputNotice=''}>×</button></div>
  {:else if persistenceNotice}<div role="status"><span>{persistenceNotice}</span><button type="button" aria-label="Dismiss sign-in notice" onclick={()=>persistenceNotice=''}>×</button></div>
  {:else if isLive&&syncStatus==='offline'}<div role="status"><span>Sync paused after an error. Automatic retry is enabled.</span></div>
  {:else}<div><span class="status-indicator"></span><span>{authBusy?authPhase:isLive?'Microsoft 365 connected · background sync active':'TAUT · not connected to Microsoft 365'}</span></div>{/if}

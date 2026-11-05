@@ -76,3 +76,15 @@ for(const sample of [
  const preview=page.getByRole('region',{name:'Formatted message preview'}).getByRole('region',{name:`${sample.label} code block`});await expect(preview.locator('.keyword').first()).toBeVisible();await expect(preview.locator('script')).toHaveCount(0);
  await page.screenshot({path:info.outputPath(sample.language+'-highlighting.png')});expect(graph.writes).toEqual([]);
 });
+
+test('short message bubbles have balanced vertical spacing while explicit line breaks remain',async({page,graph},info)=>{
+ graph.messages['chat-alex']=[message('short','<p>Good idea</p>'),message('mine','<p>Update pushed</p>',me.id),{...message('multiline',''),body:{contentType:'text',content:'First line\n\nThird line'}}];
+ await signIn(page);
+ for(const text of ['Good idea','Update pushed']){
+  const bubble=page.locator('.bubble').filter({hasText:text});
+  const gaps=await bubble.evaluate(element=>{const box=element.getBoundingClientRect(),body=element.querySelector('.received-body')!.getBoundingClientRect();return {top:body.top-box.top,bottom:box.bottom-body.bottom};});
+  expect(Math.abs(gaps.top-gaps.bottom)).toBeLessThan(2);
+ }
+ await expect(page.locator('.bubble').filter({hasText:'First line'}).locator('.received-text')).toHaveText('First line\n\nThird line');
+ await page.screenshot({path:info.outputPath('compact-message-spacing.png')});expect(graph.writes).toEqual([]);
+});

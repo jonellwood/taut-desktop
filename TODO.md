@@ -18,7 +18,8 @@ See [ATTACHMENTS.md](ATTACHMENTS.md) for behavior, limits, recovery, and the per
 - [x] Upload/share and send only on explicit Send; show progress and actionable errors. Preserve the draft and track partial success to avoid duplicate uploads or ambiguous message retries.
 - [x] Preserve nonempty first-message text for pending conversations; allow attachment-only messages in existing chats.
 - [x] Add mocked upload/share/send tests and preserve existing attachment opening and image viewing.
-- [ ] Follow with drag/drop and clipboard images.
+- [x] Add main-composer file drops and clipboard raster-image paste into the shared local attachment staging flow; retain limits, separate drafts and explicit Send.
+- [x] User manually confirmed clipboard image paste and drag-and-drop both work perfectly in the rebuilt native app (2026-11-05).
 
 ## Group conversations
 
@@ -76,6 +77,15 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Handle delegated channel access, pagination, missing host identity and access-denied states; real private/shared and cross-tenant coverage requires manual validation.
 - [x] Document and obtain approval for delegated Team.ReadBasic.All, Channel.ReadBasic.All and ChannelMessage.Read.All (2026-11-04); keep automated testing mocked. Entra consent/fresh sign-in required.
 
+## Presence and out-of-office — requested 2026-11-05
+
+- [ ] Add explicit controls for setting my own presence, including supported availability states, duration/expiry and returning to automatic presence. Verify Graph support and tenant restrictions; document least-privilege scopes and obtain approval before adding any requested permission.
+- [ ] Add a configurable out-of-office message with explicit enable/disable and optional start/end scheduling. Review native Teams/Outlook OOO/status-message support separately from TAUT-generated chat replies so the UI clearly describes which behavior is provided.
+- [ ] Let the user choose reply scope: direct chats only, or broader coverage including group chats and Teams/channel conversations. User-approved default (2026-11-05): direct chats only; make groups/channels explicit opt-ins. Define channel/thread placement and mention/trigger behavior before implementation.
+- [ ] Send the configured OOO reply only once per sender per OOO period: Hannah sending four messages gets one reply. User-approved rule (2026-11-05): deduplicate across the enabled scopes using stable sender identity, account/tenant and an explicit OOO-period ID; persist the ledger so restarting or rebuilding does not resend. Define when a new OOO period resets eligibility.
+- [ ] Prevent reply loops and duplicate sends: process only genuinely new eligible incoming human messages after enablement, excluding own messages, historical sync, system events, bot/auto replies, edits and reaction-only changes. Reserve delivery state before sending and retain ambiguous outcomes without automatic write retries; provide clear status/recovery controls.
+- [ ] Confirm whether replies can work while TAUT is closed, asleep or offline; clearly distinguish server-side features from app-running-only behavior. Keep configuration and deduplication account-scoped, review any new permissions, and test all automated sends with mocked Graph requests before a separately authorized manual tenant test.
+
 ## Navigation polish
 
 - [ ] Add TAUT-styled tab-name tooltips on left-rail hover and keyboard focus, with accessible descriptions and no clipped/obscured labels. Existing native title tooltips are the basic fallback.
@@ -99,7 +109,9 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Preserve supported rich-text structure safely: paragraphs, line breaks, bold/italic, lists, links and blockquotes. Parse/sanitize untrusted Graph content without executing markup or auto-loading remote resources. Keep code contents literal, including angle brackets, ampersands, quotes and PowerShell variables.
 - [x] Add composer formatting controls for code blocks/inline code, language selection (including PowerShell), and basic rich text; preserve per-conversation drafts, attachments and explicit Send. Verify formatting round-trips between Teams and TAUT with mocked Graph tests before manual tenant testing.
 - [ ] Typing indicators, subject to API support.
-- [ ] Shared Media panel with images, files, and links.
+- [x] Shared Media panel with images, files, and links from loaded chat history; explicit image loading and safe external opening.
+- [ ] Expand Shared Media to older history/search beyond loaded messages.
+- [ ] Record a looping feature showcase once the core features settle.
 
 - [x] Welcome state: brief signal-settling-into-T/ animation, “Less noise. More signal.”, new-chat/search shortcuts, reduced-motion support; hide empty conversation chrome until selection.
 

@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "TAUT",
+        "dragDropEnabled": false,
         "width": 1360,
         "height": 850,
         "minWidth": 840,

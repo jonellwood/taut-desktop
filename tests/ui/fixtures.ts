@@ -218,7 +218,7 @@ export class MockGraph {
         if (!this.allowWrites) break;
         await this.sendGate;
         if (this.sendError) throw Error(this.sendError);
-        const attached = message(`attached-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text, me.id);
+        const attached = message(`attached-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replace(/\r\n?|\n/g,'<br>'), me.id);
         attached.attachments = args.ids.map((id:string) => ({ id, name:this.prepared.get(id)!.name, contentType:'reference', contentUrl:`https://example.sharepoint.com/${id}` }));
         this.messages[args.chatId] = [...(this.messages[args.chatId] ?? []), attached];
         return { id:attached.id };
@@ -226,7 +226,7 @@ export class MockGraph {
         if (!this.allowWrites) break;
         await this.sendGate;
         if (this.sendError) throw Error(this.sendError);
-        const sent = message(`sent-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text, me.id);
+        const sent = message(`sent-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replace(/\r\n?|\n/g,'<br>'), me.id);
         this.messages[args.chatId] = [...(this.messages[args.chatId] ?? []), sent];
         return { id: sent.id };
     }

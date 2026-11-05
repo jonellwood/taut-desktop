@@ -158,6 +158,12 @@ pub fn body(text: &str, formatted: bool, allow_empty: bool) -> Result<Value, Str
     if !allow_empty && visible.is_empty() {
         return Err("Write a nonempty message before sending".into());
     }
+    if !formatted && text.trim().contains(['\n', '\r']) {
+        let normalized = text.trim().replace("\r\n", "\n").replace('\r', "\n");
+        let html = escape(&normalized).replace('\n', "<br>");
+        validate_size(&html)?;
+        return Ok(json!({"contentType":"html","content":html}));
+    }
     Ok(if formatted {
         json!({"contentType":"html","content":html})
     } else {
@@ -193,6 +199,14 @@ mod tests {
     fn no_blank_code_send() {
         assert!(body("```php\n \n```", true, false).is_err());
         assert!(body("", true, true).is_ok());
+    }
+    #[test]
+    fn plain_multiline_keeps_wordle_rows_and_escapes_markup() {
+        let source = "BC Wordle #309 5/6\n\n⬛⬛⬛⬛🟩\n⬛🟩⬛⬛🟩\n⬛🟩🟩⬛🟩\n🟨🟩🟩⬛🟩\n🟩🟩🟩🟩🟩\n\nmy.berkeleycountysc.gov/wordle";
+        let result = body(source, false, false).unwrap();
+        assert_eq!(result["contentType"], "html");
+        assert_eq!(result["content"], source.replace('\n', "<br>"));
+        assert_eq!(body("<script>&\r\nnext", false, false).unwrap()["content"], "&lt;script&gt;&amp;<br>next");
     }
     #[test]
     fn links_and_literal_html() {

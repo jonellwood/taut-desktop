@@ -1,12 +1,12 @@
 <script lang="ts">
  import {Search,SquarePen,PanelLeftOpen,RefreshCw} from 'lucide-svelte';
- let {onNew,onSearch,onRefresh,onSidebar,sidebarOpen,busy=false}:
- {onNew:()=>void;onSearch:()=>void;onRefresh:()=>void;onSidebar:()=>void;sidebarOpen:boolean;busy?:boolean}=$props();
+ let {onNew,onSearch,onRefresh,onSidebar,sidebarOpen,busy=false,signedIn=true,onSignIn}:
+ {onNew:()=>void;onSearch:()=>void;onRefresh:()=>void;onSidebar:()=>void;sidebarOpen:boolean;busy?:boolean;signedIn?:boolean;onSignIn?:()=>void}=$props();
 </script>
 <section class="welcome" aria-label="Welcome to TAUT">
  <div class="welcome-tools">
   {#if !sidebarOpen}<button onclick={onSidebar} aria-label="Expand sidebar" title="Show conversations"><PanelLeftOpen size={18}/></button>{/if}
-  <button onclick={onRefresh} disabled={busy} aria-label="Refresh messages" title="Refresh conversations"><RefreshCw size={17} class={busy?'spinning':''}/></button>
+  {#if signedIn}<button onclick={onRefresh} disabled={busy} aria-label="Refresh messages" title="Refresh conversations"><RefreshCw size={17} class={busy?'spinning':''}/></button>{/if}
  </div>
  <div class="welcome-content">
   <div class="signal-art" aria-hidden="true">
@@ -27,12 +27,12 @@
   </div>
   <span class="welcome-eyebrow">TAUT / ROOM TO FOCUS</span>
   <h1>Less noise.<br/><span>More signal.</span></h1>
-  <p class="welcome-copy">Your conversations, at your pace.</p>
+  <p class="welcome-copy">{signedIn?"Your conversations, at your pace.":"Your Microsoft 365 workspace. A little more room to focus."}</p>
   <div class="welcome-actions">
-   <button class="welcome-primary" onclick={onNew}><SquarePen size={17}/>Start a conversation</button>
-   <button class="welcome-search" onclick={onSearch}><Search size={17}/>Search conversations <kbd>⌘ K</kbd></button>
+   {#if signedIn}<button class="welcome-primary" onclick={onNew}><SquarePen size={17}/>Start a conversation</button>
+   <button class="welcome-search" onclick={onSearch}><Search size={17}/>Search conversations <kbd>⌘ K</kbd></button>{:else}<button class="welcome-primary" onclick={onSignIn} disabled={busy}>Connect Microsoft 365</button>{/if}
   </div>
-  <p class="welcome-note">Choose a conversation when you’re ready.<br/>Nothing is marked read until you open it and view the latest messages.</p>
+  <p class="welcome-note">{#if signedIn}Choose a conversation when you’re ready.<br/>Nothing is marked read until you open it and view the latest messages.{:else}Sign in to bring your chats and channels into TAUT.<br/>Your workspace stays quiet until you choose a conversation.{/if}</p>
  </div>
  <span class="welcome-footer">A LITTLE LESS DISTRACTION. A LITTLE MORE ROOM.</span>
 </section>

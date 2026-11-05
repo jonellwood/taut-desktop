@@ -95,7 +95,8 @@
 
 /* Text preserves user line breaks without rendering template whitespace as blank rows. */
 .bubble{white-space:normal;padding:9px 13px}
-.message-text{white-space:pre-wrap}
+/* The body renderer preserves user line breaks; its wrapper must not add an anonymous trailing line. */
+.message-text{white-space:normal}
 .messages{min-height:0;gap:16px}
 .messages>*,.chat-thread-scroll>*{flex-shrink:0}
 .quoted-reply-event{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 12px;border-left:2px solid var(--accent);background:#1b2931;border-radius:5px;color:#aebfc9;font-size:12px}
@@ -111,3 +112,7 @@
 /* Keep formatting controls aligned with the message composer. */
 .compose-format-area{margin:0 clamp(20px,3vw,45px);flex:none;min-width:0}
 @media(max-width:700px){.compose-format-area{margin:0 12px}}
+
+ .composer{position:relative}
+.composer.file-drag-active{border-color:var(--accent);box-shadow:0 0 0 2px #efbb7055;background:#34352d}
+.attachment-drop-cue{position:absolute;inset:0;z-index:2;display:grid;place-items:center;padding:9px 12px;border:1px dashed var(--accent);border-radius:12px;background:#182128ed;color:var(--accent);font-size:12px;pointer-events:none}
