@@ -1,3 +1,6 @@
+mod away;
+mod membership;
+mod presence;
 mod compose_format;
 mod auth;
 mod teams;
@@ -21,7 +24,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
@@ -70,7 +73,8 @@ async fn auth_persistence_status(state:State<'_,AuthState>)->Result<auth::Status
 }
 
 #[tauri::command]
-async fn sign_in(state: State<'_, AuthState>, notifications:State<'_,notifications::State>) -> Result<(), String> {
+async fn sign_in(state: State<'_, AuthState>, notifications:State<'_,notifications::State>,away:State<'_,AwayState>) -> Result<(), String> {
+    away.0.lock().map_err(|_|"Away state unavailable")?.suspend();
     notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.reset();
     let epoch=state.0.lock().map_err(|_|"Authentication state unavailable")?.begin_login();
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|_| "Could not open localhost sign-in listener")?;
@@ -180,13 +184,14 @@ async fn graph_event_names(state:State<'_,AuthState>,people:Vec<EventPerson>)->R
     })).await.map_err(|_|"Participant name lookup stopped")?
 }
 #[tauri::command]
-async fn graph_profile(state: State<'_, AuthState>, notifications:State<'_,notifications::State>) -> Result<Value, String> {
+async fn graph_profile(state: State<'_, AuthState>, notifications:State<'_,notifications::State>,away:State<'_,AwayState>) -> Result<Value, String> {
     let state=AuthState(state.0.clone());
     let notifications=notifications::State(notifications.0.clone());
+    let away=away.inner().clone();
     background_read(move||{
     let generation=notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.generation;
     let value=graph_request(&state,"/me?$select=id,displayName,userPrincipalName")?;
-    if let Some(id)=value["id"].as_str(){let mut manager=notifications.0.lock().map_err(|_|"Notification state unavailable")?;if manager.tracker.generation==generation{manager.tracker.account(id);}}
+    if let Some(id)=value["id"].as_str().filter(|s|presence::guid(s)){let mut manager=notifications.0.lock().map_err(|_|"Notification state unavailable")?;if manager.tracker.generation==generation{manager.tracker.account(id);away.0.lock().map_err(|_|"Away state unavailable")?.account(id);}}
     Ok(value)
     }).await
 }
@@ -316,6 +321,57 @@ async fn graph_send_channel(state:State<'_,AuthState>,target:channel_send::Targe
    channel_send::send(permitted,target,&mut |m,p,b|graph_operation_request(&state,m,p,b)).or_else(|error|Ok(serde_json::json!({"status":"rejected","error":error})))
  }).await.map_err(|_|"Channel delivery was not confirmed. Check Teams before retrying.")?
 }
+#[derive(Clone)]
+struct AwayState(std::sync::Arc<Mutex<away::Manager>>);
+#[tauri::command]
+async fn away_settings(state:State<'_,AuthState>,away:State<'_,AwayState>,own_id:String)->Result<away::Status,String>{let auth=AuthState(state.0.clone());let away=away.inner().clone();background_read(move||{if deletion::own_id(&mut|m,p,b|graph_operation_request(&auth,m,p,b))?!=own_id{return Err("Account changed".into());}let mut manager=away.0.lock().map_err(|_|"Away settings unavailable")?;manager.account(&own_id);Ok(manager.status())}).await}
+#[tauri::command]
+async fn away_configure(state:State<'_,AuthState>,away:State<'_,AwayState>,own_id:String,config:away::Config)->Result<away::Status,String>{let auth=AuthState(state.0.clone());let away=away.inner().clone();background_read(move||{if deletion::own_id(&mut|m,p,b|graph_operation_request(&auth,m,p,b))?!=own_id{return Err("Account changed".into());}let scopes=collaboration_scopes(&auth)?;if config.enabled&&(!scope_has(&scopes,"ChatMessage.Send")||(config.channels&&!scope_has(&scopes,"ChannelMessage.Send"))){return Err("Away reply sending needs the corresponding consent and a fresh sign-in.".into());}let mut manager=away.0.lock().map_err(|_|"Away settings unavailable")?;manager.account(&own_id);manager.configure(config,notifications::now())}).await}
+#[tauri::command]
+fn away_watch_channel(away:State<'_,AwayState>,own_id:String,team_id:String,channel_id:String)->Result<(),String>{if team_id.is_empty()||team_id.len()>512||channel_id.is_empty()||channel_id.len()>512{return Err("Invalid channel".into());}let mut manager=away.0.lock().map_err(|_|"Away state unavailable")?;if manager.own.as_deref()!=Some(&own_id){return Err("Account changed".into());}let pair=(team_id,channel_id);if !manager.channels.contains(&pair)&&manager.channels.len()<20{manager.channels.push(pair);}Ok(())}
+fn away_scan(auth:&AuthState,state:&AwayState)->Result<(),String>{if !state.0.lock().map_err(|_|"Away state unavailable")?.active(notifications::now()){return Ok(());}let scopes=collaboration_scopes(auth)?;away_scan_with(state,&scopes,&mut|m,p,b|graph_operation_request(auth,m,p,b))}
+fn away_scan_with(state:&AwayState,scopes:&str,request:&mut deletion::Request<'_>)->Result<(),String>{
+ let now=notifications::now();
+ let (generation,own,config,after,channels)={let mut m=state.0.lock().map_err(|_|"Away state unavailable")?;if !m.active(now){return Ok(());}let after=m.last_scan.replace(now);let Some(after)=after.filter(|last|now-*last<90000)else{return Ok(());};(m.generation,m.own.clone().unwrap(),m.config.clone(),after.max(m.config.start),m.channels.clone())};
+ let list=deletion::read(CHAT_LIST_PATH,request)?;let mut candidates:Vec<(String,Option<(String,String,String)>,Value)>=vec![];
+ if let Some(rows)=list["value"].as_array(){for chat in rows{
+ let kind=chat["chatType"].as_str().unwrap_or("");if kind!="oneOnOne"&&!(kind=="group"&&config.groups){continue;}if chat["viewpoint"]["isHidden"].as_bool()==Some(true){continue;}
+ if !away::created(&chat["lastMessagePreview"]).is_some_and(|time|time>after&&time<=now+5000){continue;}
+ let Some(id)=chat["id"].as_str().filter(|id|deletion::valid_chat(id).is_ok())else{continue;};let encoded=percent_encoding::utf8_percent_encode(id,percent_encoding::NON_ALPHANUMERIC).to_string();let path=format!("/chats/{encoded}/messages");
+ let messages=deletion::read(&format!("{path}?$top=50&$orderby=createdDateTime%20desc"),request)?;
+ for message in messages["value"].as_array().ok_or("Away monitor could not read chat messages")?{candidates.push((path.clone(),None,message.clone()));}
+ }}
+ if config.channels{for (team,channel) in channels{let encode=|s:&str|percent_encoding::utf8_percent_encode(s,percent_encoding::NON_ALPHANUMERIC).to_string();let path=format!("/teams/{}/channels/{}/messages",encode(&team),encode(&channel));let posts=deletion::read(&format!("{path}?$top=50&$expand=replies"),request)?;if let Some(rows)=posts["value"].as_array(){for post in rows{let Some(root)=post["id"].as_str().filter(|id|!id.is_empty()&&id.len()<=512)else{continue;};candidates.push((format!("{path}/{}/replies",encode(root)),Some((team.clone(),channel.clone(),root.to_owned())),post.clone()));if let Some(replies)=post["replies"].as_array(){for reply in replies{candidates.push((format!("{path}/{}/replies",encode(root)),Some((team.clone(),channel.clone(),root.to_owned())),reply.clone()));}}}}}}
+
+ for (path,channel,message) in candidates{
+ let Some(sender)=away::eligible(&message,&own,after,now)else{continue;};
+ // Verify a live human's identity before replying; reject guests/bots/unknown identities.
+ let user=deletion::read(&format!("/users/{sender}?$select=id,userPrincipalName"),request)?;if !presence::directory_coworker(&user,&sender){continue;}
+ let mut manager=state.0.lock().map_err(|_|"Away state unavailable")?;
+ if manager.generation!=generation||manager.own.as_deref()!=Some(&own)||!manager.active(notifications::now()){break;}
+ if !(if channel.is_some(){scope_has(scopes,"ChannelMessage.Send")}else{scope_has(scopes,"ChatMessage.Send")}){continue;}
+ if !manager.reserve(&sender,notifications::now())?{continue;}
+
+ if deletion::own_id(request)?!=own{manager.finish(&sender,false);break;}
+ let text=away::text(&config);
+ let confirmed=if let Some((team_id,channel_id,root))=channel{channel_send::send(true,channel_send::Target{team_id,channel_id,message_id:Some(root),own_id:own.clone(),text,formatted:false},request).is_ok_and(|v|v["status"]=="sent")}else{let body=compose_format::body(&text,false,false)?;request(reqwest::Method::POST,&path,Some(serde_json::json!({"body":body}))).is_ok_and(|r|r.status==201&&r.body["id"].is_string())};
+ manager.finish(&sender,confirmed);
+ }
+ Ok(())
+}
+fn setup_away(app:&mut tauri::App){let root=app.path().app_config_dir().ok();let state=AwayState(std::sync::Arc::new(Mutex::new(away::Manager::new(root))));app.manage(state.clone());let auth=AuthState(app.state::<AuthState>().0.clone());std::thread::spawn(move||loop{std::thread::sleep(Duration::from_secs(30));if let Err(_)=away_scan(&auth,&state){if let Ok(mut m)=state.0.lock(){m.notice="Away reply monitoring paused after an error. Automatic monitoring will resume; uncertain replies are never repeated.".into();m.last_scan=None;}}});}
+fn collaboration_scopes(state:&AuthState)->Result<String,String>{get_access_token(state)?;Ok(state.0.lock().map_err(|_|"Authentication unavailable")?.token.as_ref().map(|t|t.scopes.clone()).unwrap_or_default())}
+fn scope_has(scopes:&str,name:&str)->bool{scopes.split_whitespace().any(|s|s.eq_ignore_ascii_case(name))}
+#[tauri::command]
+async fn collaboration_permissions(state:State<'_,AuthState>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let s=collaboration_scopes(&state)?;Ok(serde_json::json!({"readPresence":scope_has(&s,"Presence.Read.All"),"writePresence":scope_has(&s,"Presence.ReadWrite"),"teamRead":scope_has(&s,"TeamMember.Read.All"),"teamWrite":scope_has(&s,"TeamMember.ReadWriteNonOwnerRole.All"),"channelWrite":scope_has(&s,"ChannelMember.ReadWrite.All")}))}).await}
+#[tauri::command]
+async fn graph_presence(state:State<'_,AuthState>,ids:Vec<String>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let s=collaboration_scopes(&state)?;presence::lookup(&ids,scope_has(&s,"Presence.Read.All"),&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
+#[tauri::command]
+async fn graph_set_presence(state:State<'_,AuthState>,own_id:String,status:String,minutes:u32)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let s=collaboration_scopes(&state)?;presence::set(&own_id,&status,minutes,scope_has(&s,"Presence.ReadWrite"),&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
+#[tauri::command]
+async fn collaboration_roster(state:State<'_,AuthState>,target:membership::Target)->Result<membership::Roster,String>{let state=AuthState(state.0.clone());background_read(move||{let s=collaboration_scopes(&state)?;membership::roster(&target,scope_has(&s,"TeamMember.Read.All"),scope_has(&s,"TeamMember.ReadWriteNonOwnerRole.All"),scope_has(&s,"ChannelMember.ReadWrite.All"),&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
+#[tauri::command]
+async fn collaboration_member_change(state:State<'_,AuthState>,target:membership::Target,action:String,user_id:String,member_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let s=collaboration_scopes(&state)?;membership::change(&target,&action,&user_id,&member_id,scope_has(&s,"TeamMember.Read.All"),scope_has(&s,"TeamMember.ReadWriteNonOwnerRole.All"),scope_has(&s,"ChannelMember.ReadWrite.All"),&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
 fn teams_permissions_now(state:&AuthState)->Result<teams::Permissions,String>{
     get_access_token(state)?;
     let guard=state.0.lock().map_err(|_|"Authentication state unavailable")?;
@@ -510,11 +566,13 @@ async fn graph_hosted_image(state: State<'_, AuthState>, chat_id: String, messag
     }).await
 }
 #[tauri::command]
-async fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>,notifications:State<'_,notifications::State>) -> Result<(), String> {
-    let state=AuthState(state.0.clone());let uploads=uploads.0.clone();let notifications=notifications.0.clone();
+async fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::AttachmentState>,notifications:State<'_,notifications::State>,away:State<'_,AwayState>) -> Result<(), String> {
+    away.0.lock().map_err(|_|"Away state unavailable")?.suspend();
+    let state=AuthState(state.0.clone());let uploads=uploads.0.clone();let notifications=notifications.0.clone();let away=away.inner().clone();
     tauri::async_runtime::spawn_blocking(move ||{
         let result=state.0.lock().map_err(|_|"Authentication state unavailable")?.logout(&mut auth::Keychain);
         notifications.lock().map_err(|_|"Notification state unavailable")?.tracker.reset();
+        away.0.lock().map_err(|_|"Away state unavailable")?.suspend();
         uploads.lock().map_err(|_|"Attachment state unavailable")?.clear();
         result
     }).await.map_err(|_|"Sign-out stopped; saved credentials may remain")?
@@ -585,10 +643,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .setup(setup_notifications)
+        .setup(|app|{setup_notifications(app)?;setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
@@ -723,4 +781,24 @@ mod tests {
         }).is_err());
         assert_eq!(posts, 1);
     }
+}
+
+#[cfg(test)]mod away_dispatch_tests{
+ use super::*;use serde_json::json;use reqwest::Method;
+ const ME:&str="11111111-1111-1111-1111-111111111111";const OTHER:&str="22222222-2222-2222-2222-222222222222";
+ #[test]fn away_dispatch_reserves_once_and_does_not_retry_timeout(){
+ let now=notifications::now();let root=std::env::temp_dir().join(format!("taut-dispatch-{}",random_urlsafe()));let mut m=away::Manager::new(Some(root.clone()));m.account(ME);m.configure(away::Config{enabled:true,message:"Away".into(),..Default::default()},now-2000).unwrap();m.last_scan=Some(now-1000);
+ let state=AwayState(std::sync::Arc::new(Mutex::new(m)));let msg=json!({"id":"new","createdDateTime":chrono::DateTime::from_timestamp_millis(now-500).unwrap().to_rfc3339(),"messageType":"message","from":{"user":{"id":OTHER}},"body":{"content":"hello"}});let mut writes=0;
+ let mut request=|method:Method,path:&str,body:Option<Value>|{if method==Method::POST{writes+=1;assert!(state.0.try_lock().is_err());assert_eq!(path,"/chats/chat/messages");assert!(body.unwrap()["body"]["content"].as_str().unwrap().contains(away::MARKER));return Err("timeout".into());}let value=if path==CHAT_LIST_PATH{json!({"value":[{"id":"chat","chatType":"oneOnOne","lastMessagePreview":msg}]})}else if path.starts_with("/chats/"){json!({"value":[msg]})}else if path.starts_with("/users/"){json!({"id":OTHER,"userPrincipalName":"coworker@example.com"})}else{json!({"id":ME})};Ok(groups::Reply{status:200,body:value})};
+ away_scan_with(&state,"ChatMessage.Send",&mut request).unwrap();state.0.lock().unwrap().last_scan=Some(now-1000);away_scan_with(&state,"ChatMessage.Send",&mut request).unwrap();assert_eq!(writes,1);assert_eq!(state.0.lock().unwrap().config.ledger[OTHER],"uncertain");std::fs::remove_dir_all(root).unwrap();
+ }
+ #[test]fn startup_baseline_never_reads_or_sends(){let mut m=away::Manager::new(None);m.own=Some(ME.into());m.config.enabled=true;let state=AwayState(std::sync::Arc::new(Mutex::new(m)));away_scan_with(&state,"ChatMessage.Send",&mut|_,_,_|panic!("baseline never dispatches")).unwrap();}
+}
+#[cfg(test)]mod away_routing_tests{
+ use super::*;use serde_json::json;use reqwest::Method;
+ const ME:&str="11111111-1111-1111-1111-111111111111";const OTHER:&str="22222222-2222-2222-2222-222222222222";
+ #[test]fn groups_need_opt_in_and_missing_send_scope_cannot_reserve(){for (groups,scopes,expected)in [(false,"ChatMessage.Send",0),(true,"",0),(true,"ChatMessage.Send",1)]{let now=notifications::now();let root=std::env::temp_dir().join(format!("taut-away-group-{}",random_urlsafe()));let mut m=away::Manager::new(Some(root.clone()));m.account(ME);m.configure(away::Config{enabled:true,message:"Away".into(),groups,..Default::default()},now-2000).unwrap();m.last_scan=Some(now-1000);let state=AwayState(std::sync::Arc::new(Mutex::new(m)));let msg=json!({"id":"new","createdDateTime":chrono::DateTime::from_timestamp_millis(now-500).unwrap().to_rfc3339(),"messageType":"message","from":{"user":{"id":OTHER}},"body":{"content":"hello"}});let mut writes=0;
+ away_scan_with(&state,scopes,&mut|method,path,_|{if method==Method::POST{writes+=1;return Ok(groups::Reply{status:201,body:json!({"id":"sent"})});}let value=if path==CHAT_LIST_PATH{json!({"value":[{"id":"chat","chatType":"group","lastMessagePreview":msg}]})}else if path.starts_with("/chats/"){json!({"value":[msg]})}else if path.starts_with("/users/"){json!({"id":OTHER,"userPrincipalName":"coworker@example.com"})}else{json!({"id":ME})};Ok(groups::Reply{status:200,body:value})}).unwrap();assert_eq!(writes,expected);assert_eq!(state.0.lock().unwrap().config.ledger.len(),expected);std::fs::remove_dir_all(root).unwrap();}}
+ #[test]fn channel_reply_is_a_thread_reply_and_deduplicates_post_and_reply_author(){let now=notifications::now();let root=std::env::temp_dir().join(format!("taut-away-channel-{}",random_urlsafe()));let mut m=away::Manager::new(Some(root.clone()));m.account(ME);m.configure(away::Config{enabled:true,message:"Away".into(),channels:true,..Default::default()},now-2000).unwrap();m.channels.push(("team".into(),"channel".into()));m.last_scan=Some(now-1000);let state=AwayState(std::sync::Arc::new(Mutex::new(m)));let msg=json!({"id":"root","createdDateTime":chrono::DateTime::from_timestamp_millis(now-500).unwrap().to_rfc3339(),"messageType":"message","from":{"user":{"id":OTHER}},"body":{"content":"hello"}});let mut writes=0;
+ away_scan_with(&state,"ChannelMessage.Send",&mut|method,path,_|{if method==Method::POST{writes+=1;assert_eq!(path,"/teams/team/channels/channel/messages/root/replies");return Ok(groups::Reply{status:201,body:json!({"id":"sent","replyToId":"root","from":{"user":{"id":ME}}})});}let value=if path==CHAT_LIST_PATH{json!({"value":[]})}else if path.contains("$expand=replies"){let mut post=msg.clone();post["replies"]=json!([{ "id":"reply","createdDateTime":msg["createdDateTime"],"messageType":"message","from":{"user":{"id":OTHER}},"body":{"content":"second"}}]);json!({"value":[post]})}else if path.starts_with("/users/"){json!({"id":OTHER,"userPrincipalName":"coworker@example.com"})}else if path.starts_with("/me?"){json!({"id":ME})}else if path.ends_with("/messages/root"){msg.clone()}else if path.ends_with("/channels/channel"){json!({"id":"channel","isArchived":false})}else{json!({"id":"team","isArchived":false})};Ok(groups::Reply{status:200,body:value})}).unwrap();assert_eq!(writes,1);std::fs::remove_dir_all(root).unwrap();}
 }

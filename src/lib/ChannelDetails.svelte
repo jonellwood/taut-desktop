@@ -1,12 +1,19 @@
 <script lang="ts">
- import {onDestroy} from 'svelte';
+ import {describePresence,type Presence} from './presence';
+ import MemberManager from './MemberManager.svelte';
+ import {onDestroy,onMount} from 'svelte';
  import {invoke} from '@tauri-apps/api/core';
  import {X,Users,Hash,Building2,History} from 'lucide-svelte';
  import {activityLabel,postTime,memberRoles,type Team,type Channel,type ChannelMember,type ChannelPost,type TeamPage} from './teams';
- let {team,channel,permitted,ownId,activity,historyBusy,historyMore,historyError,onMoreHistory,onClose}:
- {team:Team|null;channel:Channel|null;permitted:boolean;ownId:string;activity:ChannelPost[];historyBusy:boolean;historyMore:boolean;historyError:string;onMoreHistory:()=>void;onClose:()=>void}=$props();
+ let {team,channel,permitted,ownId,activity,historyBusy,historyMore,historyError,onMoreHistory,onClose,presencePermitted=false}:
+ {team:Team|null;channel:Channel|null;permitted:boolean;ownId:string;activity:ChannelPost[];historyBusy:boolean;historyMore:boolean;historyError:string;onMoreHistory:()=>void;onClose:()=>void;presencePermitted?:boolean}=$props();
+ let managing=$state(false);
+ let rosterPresence=$state<Record<string,Presence>>({});
+ async function readPresence(){if(!presencePermitted)return;const ids=[...new Set(rows.map(m=>m.userId??'').filter(id=>/^[a-f0-9-]{36}$/i.test(id)))].slice(0,650);if(!ids.length)return;try{const r=await invoke<{value:Omit<Presence,'seen'>[]}>('graph_presence',{ids});if(alive)rosterPresence=Object.fromEntries((r.value??[]).map(p=>[p.id.toLowerCase(),{...p,seen:Date.now()}]));}catch{if(alive)rosterPresence={};}}
+
  let rows=$state<ChannelMember[]>([]);let next=$state<string|null>(null);let busy=$state(false);let error=$state('');let loaded=$state(false);
  let alive=true;let version=0;let started=false;let seen=new Set<string>();
+ onMount(()=>{const timer=setInterval(()=>void readPresence(),30000);return()=>clearInterval(timer);});
  onDestroy(()=>{alive=false;version++;});
  $effect(()=>{if(permitted&&channel?.hostTeamId&&!started){started=true;void load();}});
  async function load(more=false){
@@ -19,7 +26,7 @@
      const page=await invoke<TeamPage<ChannelMember>>('graph_teams_page',{query:{collection:'members',teamId:target.hostTeamId,channelId:target.id,next:continuation}});
      if(!alive||current!==version)return;
      if(continuation)seen.add(continuation);
-     rows=[...new Map((more?[...rows,...page.value]:page.value).filter(row=>row?.id).map(row=>[row.id,row])).values()];loaded=true;
+     rows=[...new Map((more?[...rows,...page.value]:page.value).filter(row=>row?.id).map(row=>[row.id,row])).values()];loaded=true;void readPresence();
      if(page.next&&(seen.has(page.next)||seen.size>=100)){error='Member pagination stopped at a repeated page or safety limit. Refresh members to continue.';next=null;}else next=page.next??null;
    }catch(e){if(alive&&current===version)error=String(e);}
    finally{if(alive&&current===version)busy=false;}
@@ -33,13 +40,13 @@
    <p>{channel?.description||team?.description||(channel?'No channel description provided.':'Choose a channel to see its members and history.')}</p>
   </section>
   {#if channel}
-   <section aria-label="Channel members"><div class="detail-heading"><Users size={15}/>MEMBERS{#if loaded}<span>{rows.length}{next?' +':''}</span>{/if}</div>
+   <section aria-label="Channel members"><button class="detail-button" disabled={busy||!channel.hostTeamId} onclick={()=>managing=!managing}>Manage members</button>{#if managing&&channel.hostTeamId}<MemberManager teamId={channel.hostTeamId} channelId={channel.id} {ownId} onClose={()=>managing=false} onChanged={()=>{void load();}}/>{/if}<div class="detail-heading"><Users size={15}/>MEMBERS{#if loaded}<span>{rows.length}{next?' +':''}</span>{/if}</div>
     {#if !permitted}<p>Member lists need delegated ChannelMember.Read.All consent and a fresh sign-in.</p>
     {:else}<button class="detail-button" type="button" disabled={busy} onclick={()=>load()}>Refresh members</button>
      {#if busy}<p role="status">Loading channel members…</p>{/if}
      {#if error}<p class="detail-error" role="alert">{error}</p>{/if}
      {#if loaded}<p class="member-note">{rows.length} loaded membership {rows.length===1?'record':'records'}{next?' · more available':''}. Roles and access are reported by Microsoft 365.</p>{/if}
-     {#each rows as member(member.id)}<div class="channel-member"><strong>{member.displayName||'Participant unavailable'}{#if member.userId===ownId} (You){/if}</strong><small>{memberRoles(member)}{member['@microsoft.graph.originalSourceMembershipUrl']?' · Inherited access':''}</small></div>{/each}
+     {#each rows as member(member.id)}<div class="channel-member"><strong>{member.displayName||'Participant unavailable'}{#if member.userId===ownId} (You){/if}</strong>{#if presencePermitted}<small style:color={describePresence(rosterPresence[member.userId?.toLowerCase()??'']).color}>{describePresence(rosterPresence[member.userId?.toLowerCase()??'']).label}</small>{/if}<small>{memberRoles(member)}{member['@microsoft.graph.originalSourceMembershipUrl']?' · Inherited access':''}</small></div>{/each}
      {#if loaded&&!rows.length&&!error&&!busy}<p>No membership records were returned.</p>{/if}
      {#if next}<button class="detail-button" type="button" disabled={busy} onclick={()=>load(true)}>Load more members</button>{/if}
     {/if}

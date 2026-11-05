@@ -1,9 +1,13 @@
 <script lang="ts">
+ import {describePresence,type Presence} from './presence';
  import { onMount } from 'svelte';
  import { invoke } from '@tauri-apps/api/core';
  type Member={id?:string;userId?:string;displayName?:string;email?:string;roles?:string[]};
  type Person={id:string;displayName?:string;mail?:string;userPrincipalName?:string};
- let {chatId,ownId,permitted,disabled=false,onLeft,onChanged,onBusyChange}:{chatId:string;ownId:string;permitted:boolean;disabled?:boolean;onLeft:(id:string)=>void;onChanged:()=>void;onBusyChange:(busy:boolean)=>void}=$props();
+ let {chatId,ownId,permitted,disabled=false,onLeft,onChanged,onBusyChange,presencePermitted=false}:{chatId:string;ownId:string;permitted:boolean;disabled?:boolean;onLeft:(id:string)=>void;onChanged:()=>void;onBusyChange:(busy:boolean)=>void;presencePermitted?:boolean}=$props();
+ let rosterPresence=$state<Record<string,Presence>>({});
+ async function readPresence(){if(!presencePermitted)return;const ids=[...new Set(members.map(m=>m.userId??'').filter(id=>/^[a-f0-9-]{36}$/i.test(id)))].slice(0,650);if(!ids.length)return;try{const r=await invoke<{value:Omit<Presence,'seen'>[]}>('graph_presence',{ids});if(active)rosterPresence=Object.fromEntries((r.value??[]).map(p=>[p.id.toLowerCase(),{...p,seen:Date.now()}]));}catch{if(active)rosterPresence={};}}
+
  let members=$state<Member[]>([]);
  let loading=$state(false),busy=$state(false),loaded=$state(false),incomplete=$state(false),uncertain=$state(false);
  let error=$state(''),notice=$state(''),query=$state(''),searching=$state(false);
@@ -18,13 +22,13 @@
   try{
    const result=await invoke<{value:Member[];'@odata.nextLink'?:string}>('graph_chat_members',{chatId});
    if(!active)return;
-   members=result.value??[];incomplete=Boolean(result['@odata.nextLink']);loaded=true;uncertain=false;
+   members=result.value??[];incomplete=Boolean(result['@odata.nextLink']);loaded=true;uncertain=false;void readPresence();
    if(candidate && members.some(m=>m.userId===candidate?.id))candidate=null;
    if(removal && !members.some(m=>m.id===removal?.id))removal=null;
   }catch(e){if(active)error=`Could not refresh members: ${String(e)}`;}
   finally{if(active)loading=false;}
  }
- onMount(()=>{void refresh();return()=>{active=false;serial++;if(timer)clearTimeout(timer);};});
+ onMount(()=>{void refresh();const presenceTimer=setInterval(()=>void readPresence(),30000);return()=>{clearInterval(presenceTimer);active=false;serial++;if(timer)clearTimeout(timer);};});
  function search(value:string){
   query=value;results=[];candidate=null;error='';serial++;const request=serial;
   if(timer)clearTimeout(timer);
@@ -69,7 +73,7 @@
  {#if notice}<p role="status">{notice}</p>{/if}
  {#if uncertain}<p>Refresh members and check Teams before another change.</p>{/if}
  {#if incomplete}<p>The member list is incomplete. Use Teams to manage this group.</p>{/if}
- <ul class="member-list">{#each members as member,i (member.id??i)}<li><span><strong>{label(member)}{isMe(member)?' (You)':''}</strong><small>{member.roles?.join(', ')??''}</small></span>
+ <ul class="member-list">{#each members as member,i (member.id??i)}<li><span><strong>{label(member)}{isMe(member)?' (You)':''}</strong>{#if presencePermitted}<small style:color={describePresence(rosterPresence[member.userId?.toLowerCase()??'']).color}>{describePresence(rosterPresence[member.userId?.toLowerCase()??'']).label}</small>{/if}<small>{member.roles?.join(', ')??''}</small></span>
   <button type="button" disabled={!canManage||!member.id} aria-label={isMe(member)?'Leave group':`Remove ${label(member)}`} onclick={()=>{removal=member;candidate=null;notice=''}}>{isMe(member)?'Leave':'Remove'}</button>
  </li>{/each}</ul>
  {#if !permitted}<p>Adding/removing members requires ChatMember.ReadWrite consent and a fresh sign-in.</p>{/if}

@@ -72,19 +72,19 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Add explicit plain-text channel posting/replying with approved delegated ChannelMessage.Send, separate drafts and uncertain-delivery safeguards. Manual tenant validation pending.
 - [x] Add shared formatted composition to channel posts and replies.
 - [ ] Add channel attachments, mentions and activity indicators in later passes.
-- [ ] User reports ChannelMember.ReadWrite.All admin consent is granted (2026-11-04); membership-management UI and requested write scope are not implemented. Standard-channel membership needs team-level operations; private/shared management needs owner and direct/inherited access checks.
+- [x] Add explicit ordinary team and direct private/shared channel member management with owner verification, confirmation, separate standard-channel/team semantics, leaving for non-owners, and uncertain-outcome guards. See PRESENCE_MEMBERSHIP_OOO.md. Manual tenant validation pending.
 - [ ] Later administration phase: create teams/channels and manage team/channel membership, including leaving where supported. Research role restrictions and standard/private/shared channel differences, document least-privilege permissions, and obtain scope approval before implementation. Keep mutations explicit and all automated tests mocked.
 - [x] Handle delegated channel access, pagination, missing host identity and access-denied states; real private/shared and cross-tenant coverage requires manual validation.
 - [x] Document and obtain approval for delegated Team.ReadBasic.All, Channel.ReadBasic.All and ChannelMessage.Read.All (2026-11-04); keep automated testing mocked. Entra consent/fresh sign-in required.
 
 ## Presence and out-of-office — requested 2026-11-05
 
-- [ ] Add explicit controls for setting my own presence, including supported availability states, duration/expiry and returning to automatic presence. Verify Graph support and tenant restrictions; document least-privilege scopes and obtain approval before adding any requested permission.
-- [ ] Add a configurable out-of-office message with explicit enable/disable and optional start/end scheduling. Review native Teams/Outlook OOO/status-message support separately from TAUT-generated chat replies so the UI clearly describes which behavior is provided.
-- [ ] Let the user choose reply scope: direct chats only, or broader coverage including group chats and Teams/channel conversations. User-approved default (2026-11-05): direct chats only; make groups/channels explicit opt-ins. Define channel/thread placement and mention/trigger behavior before implementation.
-- [ ] Send the configured OOO reply only once per sender per OOO period: Hannah sending four messages gets one reply. User-approved rule (2026-11-05): deduplicate across the enabled scopes using stable sender identity, account/tenant and an explicit OOO-period ID; persist the ledger so restarting or rebuilding does not resend. Define when a new OOO period resets eligibility.
-- [ ] Prevent reply loops and duplicate sends: process only genuinely new eligible incoming human messages after enablement, excluding own messages, historical sync, system events, bot/auto replies, edits and reaction-only changes. Reserve delivery state before sending and retain ambiguous outcomes without automatic write retries; provide clear status/recovery controls.
-- [ ] Confirm whether replies can work while TAUT is closed, asleep or offline; clearly distinguish server-side features from app-running-only behavior. Keep configuration and deduplication account-scoped, review any new permissions, and test all automated sends with mocked Graph requests before a separately authorized manual tenant test.
+- [x] Add explicit temporary own presence preferences and Return to automatic with approved Presence.ReadWrite. Current online preferences need an existing Teams presence session. Manual tenant validation pending.
+- [x] Add a configurable out-of-office message with explicit enable/disable and optional start/end scheduling. Review native Teams/Outlook OOO/status-message support separately from TAUT-generated chat replies so the UI clearly describes which behavior is provided.
+- [x] Let the user choose reply scope: direct chats only, or broader coverage including group chats and Teams/channel conversations. User-approved default (2026-11-05): direct chats only; make groups/channels explicit opt-ins. Define channel/thread placement and mention/trigger behavior before implementation.
+- [x] Send the configured OOO reply only once per sender per OOO period: Hannah sending four messages gets one reply. User-approved rule (2026-11-05): deduplicate across the enabled scopes using stable sender identity, account/tenant and an explicit OOO-period ID; persist the ledger so restarting or rebuilding does not resend. Define when a new OOO period resets eligibility.
+- [x] Prevent reply loops and duplicate sends: process only genuinely new eligible incoming human messages after enablement, excluding own messages, historical sync, system events, bot/auto replies, edits and reaction-only changes. Reserve delivery state before sending and retain ambiguous outcomes without automatic write retries; provide clear status/recovery controls.
+- [x] Confirm whether replies can work while TAUT is closed, asleep or offline; clearly distinguish server-side features from app-running-only behavior. Keep configuration and deduplication account-scoped, review any new permissions, and test all automated sends with mocked Graph requests before a separately authorized manual tenant test.
 
 ## Navigation polish
 
@@ -97,7 +97,8 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] User manually verified persistent sign-in across a rebuild and explicit sign-out preventing restoration (2026-11-03).
 
 - [ ] Trusted-sender image auto-loading preference.
-- [ ] Participant photos and verified Graph presence.
+- [x] Verified Graph presence for chat participants and loaded rosters, consistent colors, expiry and neutral failure states. Manual tenant validation pending.
+- [ ] Participant photos.
 - [x] Display received message reactions (including likes), grouped counts, and expandable participant lists. Reaction-only changes do not create unread/new-message indicators or notifications. Custom reactions use text-only fallback. See [REACTIONS.md](REACTIONS.md).
 - [x] User confirmed received reactions render correctly and a changed reaction from Teams appeared in TAUT within about 15-20 seconds (2026-11-03).
 - [x] Add explicit Unicode reaction selection and removal of own standard reactions, with server verification and no automatic retries.
@@ -130,3 +131,18 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 
 - [x] User manually verified a long PHP block sent from TAUT is recognized as PHP in Teams and highlighted in TAUT (2026-11-05). User also confirmed Copy code pasted into an IDE file correctly.
 - [ ] Complete remaining formatted-message round-trip checks for PowerShell, basic text, quoted replies and channel posts/replies.
+
+## Next milestone — presence, membership and away replies
+
+- [x] Implement the unified milestone described in [PRESENCE_MEMBERSHIP_OOO.md](PRESENCE_MEMBERSHIP_OOO.md): approved scopes, real presence reads/preferences, ordinary membership administration and opt-in native away replies. Team-owner role changes and mailbox/calendar OOO stay out of scope.
+- [ ] Manually validate presence, status, team/private/shared membership and away replies after consent/re-sign-in. Native presence-session management, richer status messages and broader channel discovery remain later work.
+
+## Appearance and accessibility — requested 2026-11-05
+
+- [ ] Add Light, Dark and System appearance preferences; default to System, follow macOS changes live, and persist the explicit choice locally across restarts.
+- [ ] Keep the established charcoal/amber identity in Dark and create a warm off-white/slate Light theme. Refactor shared semantic color tokens across chats, channels, threads, dialogs, composers, code blocks, media and status UI rather than applying a blanket inversion.
+- [ ] Add blue and rose accent choices alongside amber, teal and violet; use theme-specific shades so accent text, selected states and button labels stay legible in both appearances.
+- [ ] Add an independent Increase contrast preference: stronger text and boundaries, clearer selected/unread/focus states, reduced translucent decoration, and status communicated through labels/shapes as well as color. Honor macOS contrast preference by default while retaining explicit user control.
+- [ ] Verify theme/contrast combinations with browser tests and visual checks, including syntax highlighting, disabled/error states, keyboard focus, system changes, restart persistence and avoiding a wrong-theme flash on launch. No Graph permissions are needed.
+
+- [x] User reports all five presence/membership permissions added with admin consent and the milestone tested successfully in the real tenant (2026-11-05). Retain targeted edge-case/manual coverage for private/shared access and away-reply recovery as needed.

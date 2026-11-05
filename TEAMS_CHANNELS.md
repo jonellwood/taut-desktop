@@ -154,3 +154,7 @@ References:
 - https://learn.microsoft.com/en-us/graph/api/channel-post-members?view=graph-rest-1.0
 - https://learn.microsoft.com/en-us/microsoftteams/private-channels
 - https://learn.microsoft.com/en-us/microsoftteams/shared-channels
+
+## Ordinary membership administration — 2026-11-05
+
+Implemented under the user-approved delegated TeamMember.Read.All, TeamMember.ReadWriteNonOwnerRole.All and ChannelMember.ReadWrite.All scopes. Channel details now offers Manage members, with a complete fresh management roster, explicit add/remove confirmation, ordinary-member leave, team-wide warnings for standard channels, direct private/shared routing, ownership/archive/account checks and no automatic write retries. Owners and inherited memberships stay read-only in this pass. Use Teams for owner transfers, guest-style directory accounts or invitations. Team/channel creation remains future work. See PRESENCE_MEMBERSHIP_OOO.md for limits and permission setup.

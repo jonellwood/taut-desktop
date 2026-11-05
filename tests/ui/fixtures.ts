@@ -30,6 +30,13 @@ export class MockGraph {
   messages: Record<string, MockMessage[]> = { 'chat-alex': [message('hello', 'Hello from Alex')] };
   // Write commands fail closed unless a test deliberately enables its fake writes.
   allowWrites = false;
+  collaboration={readPresence:false,writePresence:false,teamRead:true,teamWrite:true,channelWrite:true};
+  presenceRows=[{id:alex.id,availability:'Available',activity:'Available'},{id:me.id,availability:'Busy',activity:'InAMeeting'}];
+  presenceStatus='confirmed';
+  memberRoster={rows:[{id:'owner',userId:me.id,displayName:me.displayName,roles:['owner']},{id:'alex-member',userId:alex.id,displayName:alex.displayName,roles:[]}],kind:'standard',canManage:true,reason:'Changes affect the entire team and its standard channels.'};
+  memberStatus='confirmed';
+  awayConfig={enabled:false,message:'',groups:false,channels:false,start:0,end:null as number|null,period:''};
+
   quoteStatus='sent';
   quoteGate?:Promise<void>;
   teamsPermissions:{teams:boolean;channels:boolean;messages:boolean;send?:boolean;members?:boolean}={teams:true,channels:true,messages:true,send:true,members:true};
@@ -83,10 +90,19 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
+      case 'collaboration_permissions':return this.collaboration;
+      case 'graph_presence':return {value:this.presenceRows.filter(p=>args.ids.includes(p.id))};
+      case 'graph_set_presence':if(!this.allowWrites)break;return {status:this.presenceStatus,error:this.presenceStatus==='confirmed'?undefined:'Status change not confirmed.'};
+      case 'collaboration_roster':return structuredClone(this.memberRoster);
+      case 'collaboration_member_change':if(!this.allowWrites)break;return {status:this.memberStatus,error:'Membership change not confirmed.'};
+      case 'away_settings':return {config:this.awayConfig,notice:'',sent:0,reserved:0};
+      case 'away_watch_channel':return;
+      case 'away_configure':if(!this.allowWrites)break;this.awayConfig={...args.config,period:'mock-period'};return {config:this.awayConfig,notice:'',sent:0,reserved:0};
+
       case 'graph_send_channel': {
         if(!this.allowWrites)break;
         await this.channelSendGate;
