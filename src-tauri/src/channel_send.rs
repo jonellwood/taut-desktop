@@ -19,7 +19,7 @@ pub fn send(permitted:bool,target:Target,request:&mut Request<'_>)->Result<Value
  if !permitted{return Err("ChannelMessage.Send permission is missing. Grant consent and sign in again.".into());}
  let team=segment(&target.team_id)?;let channel=segment(&target.channel_id)?;
  let parent=target.message_id.as_deref().map(segment).transpose()?;
- if target.text.trim().is_empty()||target.text.chars().count()>4000{return Err("Enter a message of up to 4000 characters.".into());}
+ if target.text.trim().is_empty(){return Err("Enter a nonempty message.".into());}
  let body=crate::compose_format::body(&target.text,target.formatted,false)?;
  if !own_id(request)?.eq_ignore_ascii_case(&target.own_id){return Err("Account changed. Reopen this channel.".into());}
  let team_path=format!("/teams/{team}");
@@ -80,7 +80,7 @@ mod tests{
  #[test]
  fn invalid_or_unapproved_input_never_requests(){
    assert!(send(false,target(false),&mut |_,_,_|panic!("No HTTP")).is_err());
-   for (field,value) in [("team","pending:user"),("channel","bad/id"),("root","../root"),("text","  "),("text",&"a".repeat(4001))]{
+   for (field,value) in [("team","pending:user"),("channel","bad/id"),("root","../root"),("text","  "),("text",&"a".repeat(65537))]{
      let mut t=target(true);match field{"team"=>t.team_id=value.into(),"channel"=>t.channel_id=value.into(),"root"=>t.message_id=Some(value.into()),_=>t.text=value.into()};
      assert!(send(true,t,&mut |_,_,_|panic!("No HTTP")).is_err());
    }

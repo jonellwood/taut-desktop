@@ -7,7 +7,7 @@ Received formatting is shared across chat messages, quoted-chat originals/replie
 - Teams Graph HTML codeblock/code, HTML pre/code and preformatted text.
 - Language label, selectable monospace text, bounded vertical scrolling and horizontal scrolling for long lines.
 - Copy code copies the underlying decoded source, including indentation, tabs, blank lines and trailing newlines. No line numbers or highlight markup enter the clipboard. Clipboard failure explains manual selection instead of claiming success.
-- Lightweight PowerShell lexical highlighting for comments, strings, variables, control words, commands and numbers. This is a display lexer, not a PowerShell parser. Other languages retain their label and plain code; unknown languages safely fall back to plain display.
+- Lightweight lexical highlighting for PowerShell, PHP and JavaScript. PowerShell colors comments, strings, variables, control words, commands and numbers. PHP and JavaScript color comments, strings, keywords, function calls and numbers; PHP also colors variables. These are display lexers, not full language parsers. Other languages retain their label and plain code; unknown languages safely fall back to plain display.
 - Paragraphs, div line structure, explicit breaks, bold/italic/underline/strike, headings, ordered/unordered lists, inline code, blockquotes and explicit HTTP(S) links. Link opening requires a user click and uses the native opener.
 - Body contentType text remains literal, including angle brackets and newlines. A missing body uses the existing text fallback.
 
@@ -43,10 +43,30 @@ Use **Format** above a composer to reveal Bold, Inline code, List, Link, a code 
 
 Chat formatted mode uses Enter for a newline and Command+Enter (Control+Enter) for explicit Send. Plain mode retains Enter to send / Shift+Enter for a newline. Reply and channel composers retain explicit send buttons. Formatting flags belong to their individual conversation or thread drafts and follow pending chats when their server ID is retained. Attachments and ambiguity/retry safeguards remain in place. Drafts are in memory, as before; authentication persistence does not persist drafts across quitting.
 
-Rust independently compiles source into the small escaped HTML vocabulary. The frontend never supplies trusted HTML. Empty formatted code cannot create a pending conversation, prepare files, or send a text-only message. Existing attachment-only messages remain permitted. Outgoing code uses Graph's documented codeblock element and a validated language class; Graph/Teams may normalize language highlighting. TAUT locally highlights PowerShell and labels other supported languages, including PHP, with the existing plain-code fallback.
+Rust independently compiles source into the small escaped HTML vocabulary. The frontend never supplies trusted HTML. Empty formatted code cannot create a pending conversation, prepare files, or send a text-only message. Existing attachment-only messages remain permitted. Outgoing code uses Graph's documented codeblock element and a validated language class; Graph/Teams may normalize language highlighting. TAUT locally highlights PowerShell, PHP and JavaScript. Other languages retain their label with the existing plain-code fallback.
 
 Manual acceptance after rebuilding: send a short PowerShell code block to the test chat, check Teams line breaks/indentation and copy the received code back into an editor. Try a bold/list/link message, then a quoted reply and a channel post/reply. Automated tests use mocked IPC/Graph requests exclusively; tenant rendering still requires this manual round-trip.
 
 Verification: 60 Node tests and 117 Rust tests passed; full Chromium/WebKit suite 326 passed. After the final documented-codeblock markup and toolbar alignment change, all 30 focused formatting/layout browser tests passed again. UI TypeScript, Svelte/Vite build, cargo check and git diff --check passed. Three pre-existing Svelte accessibility warnings remain. No automated requests touched the real tenant.
 
 List editing: in formatted composers, Enter at the end of a bullet inserts the next `- `; Enter on an empty bullet removes that marker and moves to column one of a new blank line. Shift+Enter inserts a plain newline. Code fences, selected text, IME composition and send shortcuts are excluded from bullet continuation.
+
+## PHP and JavaScript highlighting
+
+Shared by received messages, reply panes and local composer previews. Code copying always uses original decoded source, never token markup. Escaped quotes, line/block comments, PHP variables and JavaScript template strings are scanned without evaluating code or loading a dependency. Unclosed strings/comments remain bounded; snippets over 100,000 characters use plain code. PHP heredoc/nowdoc, JavaScript regular-expression literals, nested template interpolation and embedded languages are not fully parsed; token coloring is intentionally lexical. Language metadata is required; TAUT does not guess missing labels.
+
+Manual validation: open the PHP method previously shown in plain code and try a JavaScript snippet. Verify colors and Copy code into the IDE. Existing PowerShell behavior remains covered by the same tests.
+
+PHP/JavaScript verification: 64 Node tests and 42 focused Chromium/WebKit tests passed, including exact source copying and local preview coloring. UI TypeScript, Svelte/Vite build and git diff --check passed; the same three existing accessibility warnings remain. No native or Graph request behavior changed, and no real tenant mutations were tested.
+
+## Long messages and language corrections — 2026-11-05
+
+Removed TAUT's arbitrary 4,000-character cap from normal chat, first-message creation, groups, attachments, quoted replies, channel posts and replies. TAUT now applies a conservative 64 KiB local budget to both source and outgoing body, taking the larger of UTF-8 bytes and UTF-16 bytes. Formatted HTML escaping and wrappers count toward the budget; attachment message JSON is additionally checked before posting. This is a TAUT safety budget, not a claim that Graph has a 64 KiB character limit. Microsoft documents an approximate 100 KB Teams message limit and recommends keeping the message within 80 KB: https://learn.microsoft.com/en-us/microsoftteams/limits-specifications-teams
+
+Composers retain the full pasted draft and show an explanatory warning if it is too large; users can shorten it or explicitly send a file. Pending sends validate before creating a chat or preparing files. No splitting, uploading, retrying or sending happens automatically. Channel and quoted-reply textareas no longer truncate pastes at 4,000 characters.
+
+The code language selector updates the opening fence of the block at the cursor, or the sole block in a draft. Code block reuses that existing block instead of adding nested fences. Code contents and selection remain intact. Changing a language is a local draft edit.
+
+Long-message verification: 65 Node tests, 118 Rust tests and the full 342-test Chromium/WebKit suite passed. After the final language-picker synchronization refinement, all 20 composer browser tests passed again. UI TypeScript, build, cargo check and diff checks passed. Tests used mocked requests, including long PHP sends and pre-creation rejection of oversized escaped code. No real Teams messages, uploads or chats were created during verification.
+
+Manual acceptance — 2026-11-05: user confirms the long PHP block sends successfully after the size-limit fix. Their side-by-side screenshot shows Teams recognizes PHP and TAUT renders its syntax colors and indentation. User prefers TAUT presentation. Copy code into an IDE file was previously confirmed; other formatted chat/thread/channel round-trips remain separate manual checks.

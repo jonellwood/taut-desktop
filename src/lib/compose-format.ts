@@ -44,3 +44,34 @@ export function bulletEnter(text:string,start:number,end:number):{text:string;ca
  }
  return {text:text.slice(0,start)+'\n- '+text.slice(end),caret:start+3};
 }
+
+export const messageByteLimit=64*1024;
+export function messageBytes(value:string){return Math.max(new TextEncoder().encode(value).length,value.length*2);}
+export function messageSizeError(text:string,formatted=false):string{
+ const source=text.trim();let bytes=messageBytes(source);
+ if(bytes<=messageByteLimit&&formatted)bytes=Math.max(bytes,messageBytes(formatDraft(source).html));
+ return bytes>messageByteLimit?`Message is too large (${(bytes/1024).toFixed(1)} KiB including formatting). TAUT supports up to 64 KiB. Shorten it or send the code as a file. Your draft is saved.`:'';
+}
+// Change a fence at the caret (or the only block), without wrapping/nesting it.
+function codeFenceAt(text:string,start:number,end:number){
+ const blocks:{start:number;headerEnd:number;end:number}[]=[];let open:{start:number;headerEnd:number;end:number}|null=null,offset=0;
+ for(const line of text.split('\n')){
+  if(!open&&line.startsWith('```'))open={start:offset,headerEnd:offset+line.length-(line.endsWith('\r')?1:0),end:text.length};
+  else if(open&&(line==='```'||line==='```\r')){open.end=offset+line.length;blocks.push(open);open=null;}
+  offset+=line.length+1;
+ }
+ if(open)blocks.push(open);
+ return blocks.find(b=>start>=b.start&&end<=b.end)??(blocks.length===1?blocks[0]:null);
+}
+export function currentCodeLanguage(text:string,start:number,end:number):string|null{
+ const block=codeFenceAt(text,start,end);if(!block)return null;
+ const language=text.slice(block.start+3,block.headerEnd).trim().toLowerCase();
+ return composeLanguages.includes(language)?language:null;
+}
+export function changeCodeLanguage(text:string,start:number,end:number,language:string):{text:string;start:number;end:number}|null{
+ if(!composeLanguages.includes(language))return null;
+ const block=codeFenceAt(text,start,end);if(!block)return null;
+ const header='```'+language,delta=header.length-(block.headerEnd-block.start);
+ const move=(position:number)=>position<=block.start?position:position<block.headerEnd?Math.min(position,block.start+header.length):position+delta;
+ return {text:text.slice(0,block.start)+header+text.slice(block.headerEnd),start:move(start),end:move(end)};
+}

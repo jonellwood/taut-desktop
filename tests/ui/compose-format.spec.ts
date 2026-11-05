@@ -63,3 +63,19 @@ for(const composer of ['chat','quote','post','channel reply'])test(`List starter
  await input.fill('```text\n- literal');await input.press('Enter');await expect(input).toHaveValue('```text\n- literal\n');
  expect(graph.writes).toEqual([]);
 });
+
+test('long PHP draft changes its existing fence and sends intact; oversize stays local',async({page,graph})=>{
+ graph.allowWrites=true;await signIn(page);const input=page.getByRole('textbox',{name:'Message',exact:true});const code="$value = 'hello';\n".repeat(400);
+ await page.getByRole('button',{name:'Format',exact:true}).click();await input.fill('```powershell\n'+code+'```');await expect(page.getByRole('combobox',{name:'Code language'})).toHaveValue('powershell');await page.getByRole('combobox',{name:'Code language'}).selectOption('php');await expect(input).toHaveValue('```php\n'+code+'```');await expect(page.getByRole('combobox',{name:'Code language'})).toHaveValue('php');
+ await page.getByRole('button',{name:'Preview',exact:true}).click();await expect(page.getByRole('region',{name:'Formatted message preview'}).getByRole('region',{name:'PHP code block'})).toBeVisible();await page.getByRole('button',{name:'Close preview'}).click();
+ await page.getByRole('button',{name:'Send message',exact:true}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_message').length).toBe(1);expect(graph.calls.find(c=>c.command==='graph_send_message')?.args.text).toBe('```php\n'+code+'```');
+ const oversized='```php\n'+'&'.repeat(8000)+'\n```';await input.fill(oversized);await page.getByRole('button',{name:'Send message',exact:true}).click();await expect(page.getByRole('alert')).toContainText('64 KiB');await expect(input).toHaveValue(oversized);expect(graph.calls.filter(c=>c.command==='graph_send_message')).toHaveLength(1);
+});
+
+test('quoted and channel composers preserve and send text beyond the former 4000 character cap',async({page,graph})=>{
+ graph.allowWrites=true;await signIn(page);const text='Long snippet line\n'.repeat(300);
+ await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();const quote=page.getByRole('complementary',{name:'Chat reply thread'});await quote.getByRole('textbox',{name:'Quoted reply'}).fill(text);await expect(quote.getByRole('textbox')).toHaveValue(text);await quote.getByRole('button',{name:'Send quoted reply'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_reply_with_quote').length).toBe(1);
+ graph.teamData.posts=[{id:'post',body:{contentType:'text',content:'Original'}}];await page.getByRole('button',{name:'Teams and Channels',exact:true}).click();await page.getByRole('button',{name:'Browse team IT Development'}).click();await page.getByRole('button',{name:'Open channel General',exact:true}).click();
+ const post=page.getByRole('form',{name:'New channel post'});await post.getByRole('textbox').fill(text);await expect(post.getByRole('textbox')).toHaveValue(text);await post.getByRole('button',{name:'Post to channel'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_channel').length).toBe(1);
+ await page.getByRole('button',{name:'View replies',exact:true}).last().click();const reply=page.getByRole('form',{name:'Channel reply'});await reply.getByRole('textbox').fill(text);await reply.getByRole('button',{name:'Send channel reply'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_channel').length).toBe(2);
+});

@@ -35,3 +35,16 @@ test('Enter continues and exits bullets only at a collapsed end caret outside co
  const after='```text\n- literal\n```\n- First';assert.ok(bulletEnter(after,after.length,after.length));
  assert.deepEqual(bulletEnter('- First\nAfter',7,7),{text:'- First\n- \nAfter',caret:10});
 });
+
+test('message budget accepts long snippets and counts UTF-8, UTF-16 and escaped HTML',async()=>{
+ const {messageSizeError,messageBytes,changeCodeLanguage,currentCodeLanguage}=await import('../src/lib/compose-format.ts');
+ const code='```php\n'+"$value = 'hello';\n".repeat(400)+'```';
+ assert.equal(messageSizeError(code,true),'');assert.equal(messageBytes('😀'),4);
+ assert.match(messageSizeError('😀'.repeat(17000)),/too large/);
+ assert.match(messageSizeError('```php\n'+'&'.repeat(8000)+'\n```',true),/too large/);
+ const calls=[];await assert.rejects(submitMessage(async(...args)=>{calls.push(args);return{id:'created'}},'pending:other','other','me','```php\n'+'&'.repeat(8000)+'\n```',()=>{},async()=>['file'],undefined,true),/too large/);assert.deepEqual(calls,[]);
+ assert.equal(currentCodeLanguage('```php\necho 1;\n```',10,10),'php');
+ const crlf=changeCodeLanguage('```powershell\r\necho 1;\r\n```',16,16,'php');assert.equal(crlf.text,'```php\r\necho 1;\r\n```');
+ const source='```powershell\necho "<safe>";\n```';const changed=changeCodeLanguage(source,20,20,'php');assert.equal(changed.text,'```php\necho "<safe>";\n```');assert.equal(changed.start,13);
+ const multiple='```php\nfirst\n```\n```javascript\nsecond\n```';assert.ok(changeCodeLanguage(multiple,multiple.indexOf('second'),multiple.indexOf('second'),'php').text.includes('```php\nsecond'));
+});

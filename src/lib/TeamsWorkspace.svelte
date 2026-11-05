@@ -1,7 +1,7 @@
 <script lang="ts">
  import MessageBody from './MessageBody.svelte';
  import ChannelDetails from './ChannelDetails.svelte';
- import {formatDraft} from './compose-format';
+ import {formatDraft,messageSizeError} from './compose-format';
  import ChannelComposer from './ChannelComposer.svelte';
  import {channelDraftKey,type ChannelDrafts} from './teams';
  import {onDestroy} from 'svelte';
@@ -37,7 +37,8 @@
    const channel=selectedChannel;const root=reply?selectedPost:null;
    if(reply&&(!root||root.deletedDateTime||isChannelActivity(root)))return;
    const key=reply?replyKey:postKey;const text=(drafts[key]?.text??'').trim();
-   if(!text||text.length>4000||drafts[key]?.uncertain)return;
+   if(!text||drafts[key]?.uncertain)return;
+   const sizeError=messageSizeError(text,drafts[key]?.formatted);if(sizeError){drafts[key]={...drafts[key],error:sizeError};return;}
    if(drafts[key]?.formatted&&!formatDraft(text).visible){drafts[key]={...drafts[key],error:'Write a nonempty message before sending.'};return;}
    const target={...(drafts[key]?.formatted?{formatted:true}:{}),teamId:channel.hostTeamId!,channelId:channel.id,messageId:root?.id??null,ownId,text};
    const capturedPosts=posts,capturedReplies=replies;

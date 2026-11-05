@@ -60,3 +60,19 @@ test('highlight wrappers and HTML spaces preserve source and long lines scroll w
  const viewport=await page.locator('.messages').boundingBox();const code=await block.boundingBox();expect(code!.width).toBeLessThan(viewport!.width);
  expect(graph.writes).toEqual([]);
 });
+
+for(const sample of [
+ {language:'php',label:'PHP',source:"<?php\n// Sync inventory\npublic function syncInventory(): array {\n\t$host = Environment::get('ldap.server', '<script>');\n\treturn ['success' => true, 'count' => 42];\n}\n?>\n"},
+ {language:'javascript',label:'JavaScript',source:'// Load items\nexport async function loadItems() {\n\tconst count = 42;\n\treturn await fetch("https://example.com/<script>");\n}\n'}
+])test(`${sample.label} highlights in received code and local preview with lossless copying`,async({page,graph},info)=>{
+ await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async(text:string)=>{(window as any).copiedCode=text;}}}));
+ graph.messages['chat-alex']=[{...message('highlighted',''),body:{contentType:'html',content:block(sample.source,sample.language)}}];
+ await signIn(page);const received=page.locator('.messages').getByRole('region',{name:`${sample.label} code block`});
+ expect(await received.locator('pre code').textContent()).toBe(sample.source);
+ for(const style of ['keyword','string','comment','number','command'])expect(await received.locator('.'+style).count()).toBeGreaterThan(0);
+ if(sample.language==='php')await expect(received.locator('.variable')).toHaveText('$host');
+ await received.getByRole('button',{name:'Copy code'}).click();expect(await page.evaluate(()=>(window as any).copiedCode)).toBe(sample.source);
+ await page.getByRole('button',{name:'Format',exact:true}).click();await page.getByRole('textbox',{name:'Message',exact:true}).fill('```'+sample.language+'\n'+sample.source+'```');await page.getByRole('button',{name:'Preview',exact:true}).click();
+ const preview=page.getByRole('region',{name:'Formatted message preview'}).getByRole('region',{name:`${sample.label} code block`});await expect(preview.locator('.keyword').first()).toBeVisible();await expect(preview.locator('script')).toHaveCount(0);
+ await page.screenshot({path:info.outputPath(sample.language+'-highlighting.png')});expect(graph.writes).toEqual([]);
+});

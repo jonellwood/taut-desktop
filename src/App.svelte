@@ -12,7 +12,7 @@
  import ChatThread from './lib/ChatThread.svelte';
  import FormattingToolbar from './lib/FormattingToolbar.svelte';
  import {continueList} from './lib/continue-list';
- import {formatDraft} from './lib/compose-format';
+ import {formatDraft,messageSizeError} from './lib/compose-format';
  import {quotedMessageIds,chatReplies} from './lib/chat-threads';
  import TeamsWorkspace from './lib/TeamsWorkspace.svelte';
  import EmojiPicker from './lib/EmojiPicker.svelte';
@@ -167,7 +167,8 @@
  async function sendQuotedReply(){
    if(!activeThread||!threadRoot||threadRoot.deleted||sendBusy||stagingBusy||authBusy||operationBusy||groupBusy||reauthRequired||selected.hidden)return;
    const {chatId,rootId}=activeThread;const key=replyKey;const text=(replyDrafts[key]??'').trim();const session=nameSession;
-   if(!text||text.length>4000||replyUncertain[key])return;
+   if(!text||replyUncertain[key])return;
+   const sizeError=messageSizeError(text,formattedReplies[key]);if(sizeError){replyErrors[key]=sizeError;return;}
    if(formattedReplies[key]&&!formatDraft(text).visible){replyErrors[key]='Write a nonempty reply before sending.';return;}
    sendBusy=true;replyErrors[key]='';
    try{
@@ -715,6 +716,7 @@
    const text=draft.trim();
    const filesAtSubmit=[...selectedFiles];
    if((!text && !filesAtSubmit.length) || mode!=='chats' || sendBusy || stagingBusy || groupBusy || operationBusy || authBusy || reauthRequired || selected?.hidden || !selected || selected.id==='empty')return;
+   const sizeError=messageSizeError(text,formattedDrafts[selectedId]);if(sizeError){sendError=sizeError;return;}
    if(filesAtSubmit.length){
      if(!isLive)return;
      if(selected.id.startsWith('pending:') && !text){sendError='Write a first message before creating this conversation.';return;}

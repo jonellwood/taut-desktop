@@ -243,7 +243,7 @@ async fn graph_messages(state: State<'_, AuthState>, chat_id: String) -> Result<
 fn graph_send_message(state: State<'_, AuthState>, chat_id: String, text: String, formatted: Option<bool>) -> Result<Value, String> {
     if chat_id.is_empty() || chat_id.len() > 512 { return Err("Invalid chat identifier".into()); }
     let content = text.trim();
-    if content.is_empty() || content.chars().count() > 4000 { return Err("Message must contain 1–4000 characters".into()); }
+
     let body = compose_format::body(content, formatted.unwrap_or(false), false)?;
     let encoded: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
     let payload = serde_json::json!({"body": body});
@@ -457,9 +457,7 @@ fn create_chat_with(
     recipient: &str, own_id: &str, first_message: &str,
     mut request: impl FnMut(reqwest::Method, &str, Option<&Value>) -> Result<Value, String>,
 ) -> Result<Value, String> {
-    if first_message.trim().is_empty() || first_message.trim().chars().count() > 4000 {
-        return Err("A first message of 1–4000 characters is required".into());
-    }
+    compose_format::body(first_message,false,false)?;
     let recipient = recipient.trim();
     let valid_guid = recipient.len() == 36 && recipient.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
     let valid_upn = recipient.len() <= 254 && recipient.contains('@') && !recipient.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"' || c == '/');
@@ -683,7 +681,7 @@ mod tests {
     }
     #[test]
     fn empty_first_message_never_requests_graph() {
-        for text in ["".to_owned(), "   ".to_owned(), "x".repeat(4001)] {
+        for text in ["".to_owned(), "   ".to_owned(), "x".repeat(65537)] {
             assert!(create_chat_with(OTHER, ME, &text, |_, _, _| panic!("unexpected Graph request")).is_err());
         }
     }

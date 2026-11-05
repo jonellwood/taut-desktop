@@ -141,15 +141,20 @@ pub fn render(source: &str) -> (String, String) {
     }
     (html, visible.trim().into())
 }
+pub const MESSAGE_BYTE_LIMIT:usize=64*1024;
+pub fn validate_size(text:&str)->Result<(),String>{
+ let bytes=text.len().max(text.encode_utf16().count()*2);
+ if bytes>MESSAGE_BYTE_LIMIT{return Err(format!("Message is too large ({:.1} KiB including formatting). TAUT supports up to 64 KiB. Shorten it or send the code as a file. Your draft is saved.",bytes as f64/1024.0));}
+ Ok(())
+}
 pub fn body(text: &str, formatted: bool, allow_empty: bool) -> Result<Value, String> {
-    if text.trim().chars().count() > 4000 {
-        return Err("Message must contain at most 4000 characters".into());
-    }
+    validate_size(text.trim())?;
     let (html, visible) = if formatted {
         render(text.trim())
     } else {
         (String::new(), text.trim().into())
     };
+    if formatted {validate_size(&html)?;}
     if !allow_empty && visible.is_empty() {
         return Err("Write a nonempty message before sending".into());
     }
@@ -162,6 +167,13 @@ pub fn body(text: &str, formatted: bool, allow_empty: bool) -> Result<Value, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn long_messages_and_encoded_size_guards(){
+      let source=format!("```php\n{}\n```", "$value = 'hello';\n".repeat(400));
+      assert!(body(&source,true,false).is_ok());assert!(body(&"😀".repeat(17000),false,false).is_err());
+      assert!(body(&format!("```php\n{}\n```","&".repeat(8000)),true,false).is_err());
+      assert!(validate_size(&"x".repeat(MESSAGE_BYTE_LIMIT/2)).is_ok());assert!(validate_size(&"x".repeat(MESSAGE_BYTE_LIMIT/2+1)).is_err());
+    }
     #[test]
     fn safe_code_and_formatting() {
         let b = body(

@@ -49,7 +49,7 @@ pub fn send_quote(permitted:bool,chat:&str,parent:&str,own:&str,text:&str,reques
 pub fn send_formatted_quote(permitted: bool, chat: &str, parent: &str, own: &str, text: &str, formatted:bool, request: &mut Request<'_>) -> Result<Value,String> {
     if !permitted { return Err("ChatMessage.Send permission is missing. Sign in again.".into()); }
     valid_chat(chat)?;
-    if !valid_id(chat) || !valid_id(parent) || text.trim().is_empty() || text.chars().count()>4000 {return Err("Choose a message and enter a reply of up to 4000 characters.".into());}
+    if !valid_id(chat) || !valid_id(parent) || text.trim().is_empty() {return Err("Choose a message and enter a nonempty reply.".into());}
     let body=crate::compose_format::body(text,formatted,false)?;
     if !crate::deletion::own_id(request)?.eq_ignore_ascii_case(own) {return Err("Account changed. Reopen the conversation.".into());}
     let original=quoted_parent(chat,parent,request)?;

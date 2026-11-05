@@ -6,7 +6,7 @@
 </script>
 <form class="channel-composer" aria-label={label} onsubmit={event=>{event.preventDefault();onSend();}}>
  <FormattingToolbar {text} {formatted} {input} {disabled} {onText} {onFormat}/>
- <label>{label}<textarea use:continueList={{formatted,onText}} bind:this={input} aria-label={label} value={text} maxlength="4000" rows="3" disabled={disabled} oninput={event=>onText(event.currentTarget.value)} placeholder={label==='New channel post'?'Start a conversation…':'Reply to this post…'}></textarea></label>
+ <label>{label}<textarea use:continueList={{formatted,onText}} bind:this={input} aria-label={label} value={text} rows="3" disabled={disabled} oninput={event=>onText(event.currentTarget.value)} placeholder={label==='New channel post'?'Start a conversation…':'Reply to this post…'}></textarea></label>
  {#if error}<p role="alert">{error}</p>{/if}
  {#if uncertain}<button type="button" disabled={disabled} onclick={onRefresh}>Refresh messages</button><button type="button" disabled={disabled} onclick={onAcknowledge}>I checked Teams — enable retry</button>{/if}
  <button type="submit" disabled={disabled||uncertain||!text.trim()}>{label==='New channel post'?'Post to channel':'Send channel reply'}</button>

@@ -1,4 +1,4 @@
-import {formatDraft} from './compose-format.ts';
+import {formatDraft,messageSizeError} from './compose-format.ts';
 export type KnownChat = {id:string;chatType?:string;members?:{userId?:string;email?:string;userPrincipalName?:string}[]};
 export function existingChat(chats:KnownChat[],recipient:string,ownId:string){
  const key=recipient.trim().toLowerCase();
@@ -23,8 +23,9 @@ export type GraphInvoke = <T>(command:string,args:Record<string,unknown>)=>Promi
 export async function submitMessage(invoke:GraphInvoke,chatId:string,recipient:string|undefined,ownId:string,text:string,onCreated:(id:string)=>void,prepare?:(chatId:string)=>Promise<string[]>,group?:GroupCreation,formatted=false){
  const content=text.trim();
  const options=formatted?{formatted:true}:{};
+ const sizeError=messageSizeError(content,formatted);if(sizeError)throw Error(sizeError);
  if(formatted&&!formatDraft(content).visible&&(!prepare||recipient!==undefined||group!==undefined))throw Error('Write a nonempty message before sending.');
- if((!content && (!prepare || recipient!==undefined || group!==undefined)) || [...content].length>4000)throw Error('Message must contain 1–4000 characters.');
+ if((!content && (!prepare || recipient!==undefined || group!==undefined)))throw Error('Write a nonempty message before sending.');
  if((recipient!==undefined && group!==undefined) || chatId.startsWith('pending:') !== (recipient!==undefined || group!==undefined))throw Error('Invalid pending conversation. Reopen the draft before sending.');
  if(recipient!==undefined){
   recipient=recipient.trim();

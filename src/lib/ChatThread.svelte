@@ -44,7 +44,7 @@
   <form onsubmit={(event)=>{event.preventDefault();onSend();}}>
    <label for="quoted-reply">Reply with quote</label>
    <FormattingToolbar text={replyText} {formatted} input={replyInput} {disabled} {onText} {onFormat}/>
-   <textarea use:continueList={{formatted,onText}} bind:this={replyInput} id="quoted-reply" aria-label="Quoted reply" rows="4" maxlength="4000" value={replyText} disabled={disabled} oninput={(event)=>onText(event.currentTarget.value)} placeholder="Write a reply…"></textarea>
+   <textarea use:continueList={{formatted,onText}} bind:this={replyInput} id="quoted-reply" aria-label="Quoted reply" rows="4" value={replyText} disabled={disabled} oninput={(event)=>onText(event.currentTarget.value)} placeholder="Write a reply…"></textarea>
    {#if sendError}<p role="alert">{sendError}</p>{/if}
    {#if uncertain}<button type="button" disabled={disabled} onclick={onRefresh}>Refresh chat messages</button><button type="button" disabled={disabled} onclick={onAcknowledge}>I checked Teams — enable retry</button>{/if}
    <button type="submit" disabled={disabled||uncertain||!replyText.trim()}>Send quoted reply</button>

@@ -69,7 +69,8 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Read channel posts and threaded replies with independent pagination, safe text rendering and stale-response protection. See TEAMS_CHANNELS.md.
 - [x] Add a channel details panel with read-only member roster and loaded activity history; thread view replaces details and closing restores it. Delegated ChannelMember.Read.All approved 2026-11-04; Entra consent/fresh sign-in and manual roster validation pending.
 - [x] Add explicit plain-text channel posting/replying with approved delegated ChannelMessage.Send, separate drafts and uncertain-delivery safeguards. Manual tenant validation pending.
-- [ ] Add channel attachments, formatting, mentions and activity indicators in later passes.
+- [x] Add shared formatted composition to channel posts and replies.
+- [ ] Add channel attachments, mentions and activity indicators in later passes.
 - [ ] User reports ChannelMember.ReadWrite.All admin consent is granted (2026-11-04); membership-management UI and requested write scope are not implemented. Standard-channel membership needs team-level operations; private/shared management needs owner and direct/inherited access checks.
 - [ ] Later administration phase: create teams/channels and manage team/channel membership, including leaving where supported. Research role restrictions and standard/private/shared channel differences, document least-privilege permissions, and obtain scope approval before implementation. Keep mutations explicit and all automated tests mocked.
 - [x] Handle delegated channel access, pagination, missing host identity and access-denied states; real private/shared and cross-tenant coverage requires manual validation.
@@ -112,6 +113,8 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] Move frequently used legacy blocking Graph reads off the native UI thread; retain unchanged formatted-message DOM during polling and use a single-pass PowerShell display lexer.
 - [ ] Manually recheck the reported macOS beachball after rebuilding; profile further if it recurs.
 - [x] User manually confirmed PowerShell display and Copy code work (2026-11-04).
-- [ ] Expand syntax highlighting beyond PowerShell, including PHP when language metadata is available; retain plain-code fallback rather than guessing missing language labels.
+- [x] Add PHP and JavaScript lexical highlighting when language metadata is available; retain lossless copy and a plain-code fallback rather than guessing missing language labels.
+- [ ] Extend highlighting to further languages and advanced PHP/JavaScript syntax as needed.
 
-- [ ] Manually verify newly composed formatted messages round-trip through Teams (PowerShell code, basic text, quoted replies, channel posts/replies).
+- [x] User manually verified a long PHP block sent from TAUT is recognized as PHP in Teams and highlighted in TAUT (2026-11-05). User also confirmed Copy code pasted into an IDE file correctly.
+- [ ] Complete remaining formatted-message round-trip checks for PowerShell, basic text, quoted replies and channel posts/replies.

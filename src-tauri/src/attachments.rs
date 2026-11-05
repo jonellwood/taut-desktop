@@ -298,12 +298,13 @@ pub fn send_formatted(
     request: &mut Request<'_>,
 ) -> Result<Value, String> {
     valid_chat(chat)?;
-    if ids.is_empty() || ids.len() > 5 || text.trim().chars().count() > 4000 {
-        return Err("Attach 1–5 files and use up to 4000 message characters".into());
+    if ids.is_empty() || ids.len() > 5 {
+        return Err("Attach 1–5 files".into());
     }
     let mut unique = std::collections::HashSet::new();
     let mut attachments = Vec::new();
     let mut content = if formatted {crate::compose_format::body(text,true,true)?["content"].as_str().unwrap().to_owned()} else {escape(text.trim())};
+    crate::compose_format::validate_size(&content)?;
     let recipients = members(chat, request)?;
     let mut total = 0u64;
     for id in ids {
@@ -327,7 +328,9 @@ pub fn send_formatted(
     if total > 25 * 1024 * 1024 {
         return Err("Attachments exceed the 25 MB message limit".into());
     }
-    let reply=request(Method::POST, &format!("/chats/{}/messages", enc(chat)), Some(json!({"body":{"contentType":"html","content":content},"attachments":attachments})), None)
+    let payload=json!({"body":{"contentType":"html","content":content},"attachments":attachments});
+    crate::compose_format::validate_size(&payload.to_string())?;
+    let reply=request(Method::POST, &format!("/chats/{}/messages", enc(chat)), Some(payload), None)
         .map_err(|_| "Delivery was not confirmed. Files may already be shared and the message may have arrived. Check Teams before explicitly retrying; your draft is saved.".to_owned())?;
     if reply.status != 201
         || reply.body["id"]

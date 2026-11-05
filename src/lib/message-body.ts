@@ -12,7 +12,7 @@ export function codeLanguage(value:string):string{
  const result=aliases[name]??name;
  return /^[a-z][a-z0-9+#.-]{0,30}$/.test(result)?result:'plaintext';
 }
-export function languageLabel(value:string){const labels:Record<string,string>={powershell:'PowerShell',plaintext:'Plain text',javascript:'JavaScript',typescript:'TypeScript',json:'JSON',html:'HTML',css:'CSS',sql:'SQL'};return labels[value]??value;}
+export function languageLabel(value:string){const labels:Record<string,string>={powershell:'PowerShell',php:'PHP',plaintext:'Plain text',javascript:'JavaScript',typescript:'TypeScript',json:'JSON',html:'HTML',css:'CSS',sql:'SQL'};return labels[value]??value;}
 function codeText(node:Node,depth=0):string{
  if(depth>100)return '[Nested content omitted]';
  if(node.nodeType===3)return node.textContent??'';
@@ -59,7 +59,9 @@ export function receivedText(body:ReceivedBody|undefined,fallback=''):string{
 export type CodeToken={text:string;style?:'comment'|'string'|'variable'|'keyword'|'number'|'command'};
 export function codeTokens(text:string,language:string):CodeToken[]{
  // Single-pass display lexer: unterminated/escaped strings never trigger regex backtracking.
- if(language!=='powershell'||text.length>100000)return [{text}];
+ if(text.length>100000)return [{text}];
+ if(language==='php'||language==='javascript')return webCodeTokens(text,language);
+ if(language!=='powershell')return [{text}];
  const keywords=new Set(['function','param','if','else','elseif','foreach','for','while','return','try','catch','finally','throw','switch','in','begin','process','end']);
  const tokens:CodeToken[]=[];let i=0,plain=0;
  function emit(end:number,style:CodeToken['style']){
@@ -89,6 +91,37 @@ export function codeTokens(text:string,language:string):CodeToken[]{
    }
    if(/[0-9]/.test(c)){while(end<text.length&&/[0-9.]/.test(text[end]))end++;emit(end,'number');continue;}
    i++;
+ }
+ if(plain<text.length)tokens.push({text:text.slice(plain)});
+ return tokens;
+}
+
+// Small display-only lexer, not a language parser. No source is evaluated.
+const javascriptKeywords=new Set('async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield'.split(' '));
+const phpKeywords=new Set('abstract and array as bool break callable case catch class clone const continue declare default die do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile enum eval exit extends false final finally float fn for foreach function global if implements include include_once instanceof insteadof int interface isset iterable list match mixed namespace new null object or parent print private protected public readonly require require_once return self static string super switch throw trait true try unset use var void while xor yield'.split(' '));
+function webCodeTokens(text:string,language:'php'|'javascript'):CodeToken[]{
+ const tokens:CodeToken[]=[];let i=0,plain=0;const php=language==='php';
+ const keywords=php?phpKeywords:javascriptKeywords;
+ const number=/(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9][0-9_]*)(?:[eE][+-]?[0-9_]+)?)(?:n)?/y;
+ function emit(end:number,style:CodeToken['style']){if(i>plain)tokens.push({text:text.slice(plain,i)});tokens.push({text:text.slice(i,end),style});i=end;plain=end;}
+ while(i<text.length){
+  const c=text[i];let end=i+1;
+  if(text.startsWith('/*',i)){const close=text.indexOf('*/',i+2);emit(close<0?text.length:close+2,'comment');continue;}
+  if(text.startsWith('//',i)||(php&&c==='#'&&text[i+1]!=='[')){const close=text.indexOf('\n',i);emit(close<0?text.length:close,'comment');continue;}
+  if(c==="'"||c==='"'||(!php&&c==='`')){
+   while(end<text.length){if(text[end]==='\\'){end=Math.min(text.length,end+2);continue;}if(text[end++]===c)break;}
+   emit(end,'string');continue;
+  }
+  if(php&&(text.startsWith('<?php',i)||text.startsWith('?>',i))){emit(i+(text.startsWith('<?php',i)?5:2),'keyword');continue;}
+  if(php&&c==='$'&&/[A-Za-z_\u0080-\uffff]/.test(text[end]??'')){while(end<text.length&&/[\w\u0080-\uffff]/.test(text[end]))end++;emit(end,'variable');continue;}
+  if(/[A-Za-z_$\u0080-\uffff]/.test(c)){
+   while(end<text.length&&/[\w$\u0080-\uffff]/.test(text[end]))end++;
+   const word=text.slice(i,end);let next=end;while(next<text.length&&/\s/.test(text[next]))next++;
+   const style=keywords.has(php?word.toLowerCase():word)?'keyword':text[next]==='('?'command':undefined;
+   if(style){emit(end,style);continue;}i=end;continue;
+  }
+  if(/[0-9]/.test(c)||(c==='.'&&/[0-9]/.test(text[end]??''))){number.lastIndex=i;const match=number.exec(text);if(match){emit(number.lastIndex,'number');continue;}}
+  i++;
  }
  if(plain<text.length)tokens.push({text:text.slice(plain)});
  return tokens;
