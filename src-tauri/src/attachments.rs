@@ -287,20 +287,24 @@ fn escape(text: &str) -> String {
         .replace('\'', "&#39;")
         .replace('\n', "<br>")
 }
-pub fn send(
+#[cfg(test)]
+pub fn send(store: &HashMap<String, Upload>,chat:&str,text:&str,ids:&[String],request:&mut Request<'_>)->Result<Value,String>{send_formatted(store,chat,text,ids,false,request)}
+pub fn send_formatted(
     store: &HashMap<String, Upload>,
     chat: &str,
     text: &str,
     ids: &[String],
+    formatted: bool,
     request: &mut Request<'_>,
 ) -> Result<Value, String> {
     valid_chat(chat)?;
-    if ids.is_empty() || ids.len() > 5 || text.trim().chars().count() > 4000 {
-        return Err("Attach 1–5 files and use up to 4000 message characters".into());
+    if ids.is_empty() || ids.len() > 5 {
+        return Err("Attach 1–5 files".into());
     }
     let mut unique = std::collections::HashSet::new();
     let mut attachments = Vec::new();
-    let mut content = escape(text.trim());
+    let mut content = if formatted {crate::compose_format::body(text,true,true)?["content"].as_str().unwrap().to_owned()} else {escape(text.trim())};
+    crate::compose_format::validate_size(&content)?;
     let recipients = members(chat, request)?;
     let mut total = 0u64;
     for id in ids {
@@ -324,7 +328,9 @@ pub fn send(
     if total > 25 * 1024 * 1024 {
         return Err("Attachments exceed the 25 MB message limit".into());
     }
-    let reply=request(Method::POST, &format!("/chats/{}/messages", enc(chat)), Some(json!({"body":{"contentType":"html","content":content},"attachments":attachments})), None)
+    let payload=json!({"body":{"contentType":"html","content":content},"attachments":attachments});
+    crate::compose_format::validate_size(&payload.to_string())?;
+    let reply=request(Method::POST, &format!("/chats/{}/messages", enc(chat)), Some(payload), None)
         .map_err(|_| "Delivery was not confirmed. Files may already be shared and the message may have arrived. Check Teams before explicitly retrying; your draft is saved.".to_owned())?;
     if reply.status != 201
         || reply.body["id"]
@@ -454,6 +460,12 @@ mod tests {
             "aGk=",
             &mut |m, p, b, d| graph.request(m, p, b, d),
         )
+    }
+    #[test]
+    fn formatted_send_preserves_file_references(){
+      let mut store=HashMap::new();let mut graph=Graph::default();prepare_file(&mut store,&mut graph).unwrap();
+      send_formatted(&store,"chat","**See file** <x>",&[ID.into()],true,&mut |m,p,b,d|graph.request(m,p,b,d)).unwrap();
+      let payload=graph.calls.last().unwrap().2.as_ref().unwrap();let content=payload["body"]["content"].as_str().unwrap();assert!(content.starts_with("<p><strong>See file</strong> &lt;x&gt;</p>"));assert!(content.contains("<attachment id="));assert_eq!(payload["attachments"].as_array().unwrap().len(),1);
     }
     #[test]
     fn invalid_input_and_missing_permission_make_no_requests() {

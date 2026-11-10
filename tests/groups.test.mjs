@@ -11,7 +11,7 @@ test('group selection is pure with stable per-group drafts and optional names',(
  assert.throws(()=>pendingGroupConversation(users,'Bad:name','me'));
 });
 test('group creation requires nonempty first text and valid local state',async()=>{
- for(const text of ['', ' ', 'x'.repeat(4001)])await assert.rejects(submitMessage(async()=>assert.fail(),'pending:group',undefined,'me',text,()=>assert.fail(),undefined,{recipients:['alex','blair'],topic:''}));
+ for(const text of ['', ' ', 'x'.repeat(65537)])await assert.rejects(submitMessage(async()=>assert.fail(),'pending:group',undefined,'me',text,()=>assert.fail(),undefined,{recipients:['alex','blair'],topic:''}));
  await assert.rejects(submitMessage(async()=>assert.fail(),'pending:group',undefined,'me','Hi',()=>assert.fail(),undefined,{recipients:['alex','me'],topic:''}));
 });
 test('group first Send creates once, retains ID, then prepares and sends files',async()=>{

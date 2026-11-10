@@ -14,7 +14,7 @@ test('only known one-on-one membership can be reused',()=>{
 });
 test('empty, oversized, and self sends make zero Graph requests',async()=>{
  const invoke=async()=>assert.fail('Graph must not be called');
- for(const text of ['','   ','a'.repeat(4001)])await assert.rejects(submitMessage(invoke,'pending:other','other','me',text,()=>{}));
+ for(const text of ['','   ','a'.repeat(65537)])await assert.rejects(submitMessage(invoke,'pending:other','other','me',text,()=>{}));
  await assert.rejects(submitMessage(invoke,'pending:me','me','me','Hi',()=>{}));
 });
 test('explicit first Send creates then sends; existing chats only send',async()=>{

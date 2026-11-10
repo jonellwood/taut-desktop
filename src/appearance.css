@@ -1,0 +1,90 @@
+:root {
+ --surface-base:#f7f6f2;--surface-panel:#eeefec;--surface-raised:#ffffff;--surface-hover:#dce3e6;
+ --text-primary:#202e37;--text-secondary:#4d626e;--text-on-accent:#15222a;
+ --border:#c4cdd0;--border-strong:#7b8e98;--error:#a62e24;--error-surface:#fce7e3;--error-border:#b75145;
+ --syntax-comment:#526b65;--syntax-string:#306b32;--syntax-variable:#724999;--syntax-keyword:#875300;--syntax-command:#19647d;--syntax-number:#8d4925;
+ --accent:#875300;--accent-swatch:#efbb70;
+}
+:root[data-theme='dark'] {
+ --surface-base:#10191f;--surface-panel:#19242c;--surface-raised:#27343e;--surface-hover:#344650;
+ --text-primary:#e8edf0;--text-secondary:#a3b4bf;--text-on-accent:#15222a;
+ --border:#354752;--border-strong:#758c99;--error:#ffb5a9;--error-surface:#462622;--error-border:#db8274;
+ --syntax-comment:#9cafaa;--syntax-string:#93c990;--syntax-variable:#c5b0e8;--syntax-keyword:#efbb70;--syntax-command:#86c5db;--syntax-number:#d5ad8d;
+ --accent:#efbb70;
+}
+:root[data-accent='teal']{--accent:#146c60;--accent-swatch:#63d4c1}
+:root[data-accent='violet']{--accent:#6941ac;--accent-swatch:#b3a0ff}
+:root[data-accent='blue']{--accent:#245fb1;--accent-swatch:#85b8ff}
+:root[data-accent='rose']{--accent:#a63863;--accent-swatch:#f59dbd}
+:root[data-theme='dark'][data-accent='teal']{--accent:#63d4c1}
+:root[data-theme='dark'][data-accent='violet']{--accent:#b3a0ff}
+:root[data-theme='dark'][data-accent='blue']{--accent:#85b8ff}
+:root[data-theme='dark'][data-accent='rose']{--accent:#f59dbd}
+:root{--accent-soft:color-mix(in srgb,var(--accent) 13%,var(--surface-panel));--accent-border:color-mix(in srgb,var(--accent) 65%,var(--border));--line:var(--border);--muted:var(--text-secondary)}
+:root[data-contrast='increased']{--text-primary:#101b22;--text-secondary:#293e49;--border:#657984;--border-strong:#314b59;--syntax-comment:#314b42}
+:root[data-theme='dark'][data-contrast='increased']{--text-primary:#ffffff;--text-secondary:#d5e1e8;--border:#8499a5;--border-strong:#c0d1dc;--syntax-comment:#c2d3cd}
+:root[data-contrast='increased'] button:disabled{opacity:.65}
+:root[data-contrast='increased'] :focus-visible{outline-width:3px}
+.appearance-options{display:flex;gap:8px;flex-wrap:wrap}
+.appearance-options select{color:var(--text-primary);background:var(--surface-raised);border:1px solid var(--border-strong);padding:8px;border-radius:6px}
+.swatches button[aria-pressed='true']{outline:2px solid var(--accent);outline-offset:3px}
+:root:not([data-theme='dark']){--text-on-accent:#ffffff}
+:root{--presence-available:#19754e;--presence-busy:#b83931;--presence-away:#875300;--presence-offline:#667b87}
+:root[data-theme='dark']{--presence-available:#63d5a8;--presence-busy:#ef867e;--presence-away:#efbb70;--presence-offline:#a3b4bf}
+:root[data-contrast='increased'] .signal-mark{filter:none}
+:root[data-contrast='increased'] .welcome{background:var(--surface-base)}
+select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.live-dot{background:var(--presence-available)}
+.live-dot.presence-muted,.status .live-dot.presence-muted{background:var(--presence-offline)}
+.status .live-dot.presence-away{background:var(--presence-away)}
+/* A softer daylight canvas, with message surfaces distinct from surrounding chrome. */
+:root:not([data-theme='dark']){--surface-base:#e9e9e3;--surface-panel:#e1e5e2;--surface-raised:#f5f5ef;--surface-hover:#d4dedd}
+:root:not([data-theme='dark']) .message-line:not(.mine) .bubble{background:#f0f2ed}
+:root:not([data-theme='dark']) .mine .bubble{background:color-mix(in srgb,var(--accent) 6%,#f5f5ef)}
+.settings-dialog{width:min(960px,calc(100vw - 40px));height:min(760px,calc(100dvh - 48px));max-height:calc(100dvh - 48px);margin:24px auto;padding:0;display:flex;flex-direction:column;overflow:hidden}
+.settings-dialog>.dialog-top{flex:none;padding:24px 28px;margin:0;border-bottom:1px solid var(--border)}
+.settings-dialog .dialog-top h2{margin-bottom:0}
+.settings-layout{display:grid;grid-template-columns:195px minmax(0,1fr);flex:1;min-height:0}
+.settings-nav{padding:24px 14px;background:var(--surface-base);border-right:1px solid var(--border);display:flex;flex-direction:column;gap:6px;overflow:auto}
+.settings-nav button{text-align:left;padding:12px 14px;border-radius:8px;font-size:13px;white-space:nowrap;border:1px solid transparent}
+.settings-nav button:hover{background:var(--surface-hover)}
+.settings-nav button[aria-pressed='true']{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-border);font-weight:700}
+.settings-nav small{margin-top:auto;padding:24px 14px 0;line-height:1.8;color:var(--text-secondary);font-size:11px}
+.settings-content{min-width:0;overflow:auto;padding:28px 32px;scrollbar-gutter:stable}
+.settings-page[hidden]{display:none}
+.settings-page-heading h3{font-size:24px;margin:0 0 8px;letter-spacing:-.5px}
+.settings-page-heading p{color:var(--text-secondary);margin:0 0 28px;line-height:1.6}
+.settings-dialog .setting-row{gap:24px;padding:20px 0;align-items:center;flex-wrap:wrap}
+.settings-dialog .setting-row>div:first-child{flex:1;min-width:180px}
+.settings-dialog .setting-row p{line-height:1.6;max-width:420px}
+.settings-dialog .swatches{flex:none;gap:12px;padding:8px 4px}
+.settings-dialog .settings-bottom{flex:none;margin:0;padding:16px 28px;border-top:1px solid var(--border);gap:16px}
+.settings-bottom span{font-size:11px;line-height:1.5;color:var(--text-secondary)}
+.settings-dialog button.outline-button,.settings-dialog .settings-bottom button{white-space:nowrap;flex-shrink:0;padding:10px 16px;min-height:38px;border-radius:8px}
+.settings-dialog .session-storage-status{font-size:12px;color:var(--text-secondary);max-width:180px;line-height:1.6}
+.segmented{margin:0;padding:4px;display:flex;gap:4px;border:1px solid var(--border-strong);border-radius:10px;background:var(--surface-base);min-width:0}
+.segmented label{position:relative;cursor:pointer;flex:1;display:flex}
+.segmented input{position:absolute;opacity:0;width:1px;height:1px}
+.segmented span{display:block;flex:1;text-align:center;white-space:nowrap;border:1px solid transparent;border-radius:6px;padding:8px 12px;color:var(--text-secondary);font-size:12px}
+.segmented input:checked+span{background:var(--surface-raised);border-color:var(--accent-border);color:var(--accent);font-weight:700;box-shadow:0 1px 3px #00000012}
+.segmented input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.settings-dialog select{appearance:none;background-color:var(--surface-raised);color:var(--text-primary);border:1px solid var(--border-strong);border-radius:8px;min-height:40px;padding:9px 38px 9px 12px;font-size:13px;line-height:1.5;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23758790' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+.settings-dialog input[type=datetime-local]{min-height:40px;border-radius:8px;padding:8px 12px;font:inherit}
+.settings-dialog input[type=checkbox]{width:17px;height:17px;flex-shrink:0}
+.settings-dialog .own-status,.settings-dialog .away-settings{border-top:0;padding-top:0}
+.settings-empty{color:var(--text-secondary);line-height:1.7}
+@media(max-width:700px){
+ .settings-dialog{width:calc(100vw - 24px);height:calc(100dvh - 24px);max-height:calc(100dvh - 24px);margin:12px auto}
+ .settings-layout{display:flex;flex-direction:column}
+ .settings-nav{flex:none;flex-direction:row;padding:10px;border-right:0;border-bottom:1px solid var(--border);gap:4px}
+ .settings-nav small{display:none}.settings-nav button{padding:10px;font-size:12px}
+ .settings-content{padding:22px;flex:1}.settings-dialog>.dialog-top{padding:18px 22px}
+ .settings-dialog .settings-bottom{padding:14px 22px}.segmented span{padding:8px 10px}
+}
+
+.settings-overlay{padding:0;align-items:center}
+.settings-dialog[aria-label="TAUT preferences"]{max-height:calc(100dvh - 48px);overflow:hidden}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+@media(max-width:700px){.settings-dialog[aria-label="TAUT preferences"]{max-height:calc(100dvh - 24px)}}
+.rail-buttons{min-height:0;overflow-y:auto;flex-shrink:1}
+.rail-bottom,.brand{flex-shrink:0}

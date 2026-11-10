@@ -65,9 +65,7 @@ pub fn create(
     expected_own_id: &str,
     request: &mut Request<'_>,
 ) -> Result<Value, String> {
-    if first_message.trim().is_empty() || first_message.trim().chars().count() > 4000 {
-        return Err("Write a first message of 1–4000 characters before creating the group".into());
-    }
+    crate::compose_format::body(first_message,false,false)?;
     let topic = topic.trim();
     if topic.chars().count() > 250 || topic.contains(':') || topic.chars().any(char::is_control) {
         return Err(
@@ -325,7 +323,7 @@ mod tests {
         ] {
             assert!(create(&recipients, "Team", "Hi", ME, &mut |_, _, _| panic!()).is_err());
         }
-        for text in ["".to_owned(), " ".into(), "x".repeat(4001)] {
+        for text in ["".to_owned(), " ".into(), "x".repeat(65537)] {
             assert!(create(
                 &[A.into(), B.into()],
                 "Team",

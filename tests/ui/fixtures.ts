@@ -1,3 +1,4 @@
+import {formatDraft} from '../../src/lib/compose-format';
 import { test as base, expect, type Page } from '@playwright/test';
 
 export const me = { id: '11111111-1111-1111-1111-111111111111', displayName: 'Test User' };
@@ -14,7 +15,8 @@ export type MockMessage = {
   id: string; messageType: string; createdDateTime: string; deletedDateTime?:string|null;
   from?: { user: { id: string; displayName?:string } }; body: { content: string; contentType: string };
   eventDetail?:import('../../src/lib/activity').EventDetail;
-  attachments?: { id: string; name: string; contentType: string; contentUrl: string }[];
+  reactions?:import('../../src/lib/reactions').ApiReaction[];
+  attachments?: { id: string; name?: string; contentType: string; contentUrl?: string; content?:string }[];
 };
 export function message(id: string, content: string, sender = alex.id): MockMessage {
   return { id, messageType: 'message', createdDateTime: '2026-01-01T12:00:00Z', from: { user: { id: sender } }, body: { content, contentType: 'html' } };
@@ -28,15 +30,58 @@ export class MockGraph {
   messages: Record<string, MockMessage[]> = { 'chat-alex': [message('hello', 'Hello from Alex')] };
   // Write commands fail closed unless a test deliberately enables its fake writes.
   allowWrites = false;
+  collaboration={readPresence:false,writePresence:false,teamRead:true,teamWrite:true,channelWrite:true};
+  presenceRows=[{id:alex.id,availability:'Available',activity:'Available'},{id:me.id,availability:'Busy',activity:'InAMeeting'}];
+  presenceStatus='confirmed';
+  memberRoster={rows:[{id:'owner',userId:me.id,displayName:me.displayName,roles:['owner']},{id:'alex-member',userId:alex.id,displayName:alex.displayName,roles:[]}],kind:'standard',canManage:true,reason:'Changes affect the entire team and its standard channels.'};
+  memberStatus='confirmed';
+  awayConfig={enabled:false,message:'',groups:false,channels:false,mail:false,start:0,end:null as number|null,period:''};
+
+  quoteStatus='sent';
+  quoteGate?:Promise<void>;
+  teamsPermissions:{teams:boolean;channels:boolean;messages:boolean;send?:boolean;members?:boolean}={teams:true,channels:true,messages:true,send:true,members:true};
+  channelSendStatus="sent";
+  channelSendGate?:Promise<void>;
+  teamError='';
+  teamErrors:Record<string,string>={};
+  teamGate?:Promise<void>;
+  teamReplyGate?:Promise<void>;
+  teamMemberGate?:Promise<void>;
+  teamPages:Record<string,{value:any[];next:string|null}>={};
+  teamData:Record<string,any[]>={members:[{id:'member-alex',userId:alex.id,displayName:alex.displayName,roles:['owner']},{id:'member-me',userId:me.id,displayName:me.displayName,roles:[]}],joined:[{id:'team-dev',displayName:'IT Development',description:'A shared space for building better things.'}],associated:[{id:'team-dev',displayName:'IT Development'}],channels:[{id:'general',displayName:'General',membershipType:'standard',hostTeamId:'team-dev'}],shared:[],posts:[{id:'post-1',subject:'Welcome to the channel',createdDateTime:'2026-11-03T12:00:00Z',from:{user:{displayName:'Alex Example'}},body:{contentType:'html',content:'<p>Today’s project updates.</p><p>Keep the conversation focused.</p>'}}],replies:[{id:'reply-1',createdDateTime:'2026-11-03T12:01:00Z',from:{user:{displayName:'Blair Example'}},body:{contentType:'text',content:'Ready for the next step.'}}]};
+  mailPermitted=true;
+  mailError='';mailGate?:Promise<void>;
+  mailCanSend=true;
+  mailSendResult={status:'accepted',error:''};
+  mailMessages:any[]=[{id:'mail-1',conversationId:'conversation-1',subject:'Project document',from:{emailAddress:{name:'Alex Example',address:'alex@example.test'}},toRecipients:[{emailAddress:{name:'Test User',address:'me@example.test'}}],receivedDateTime:'2026-11-05T14:00:00Z',bodyPreview:'Here is the project document.',isRead:false,hasAttachments:true,webLink:'https://outlook.office.com/mail/id/mail-1',body:{contentType:'text',content:'Here is the project document.\n\nLet me know what you think.'}}];
+  mailPages:Record<string,{value:any[];next:string|null}>={};
+  mailFilesByMessage:Record<string,any[]>={};
+  mailFiles:any[]=[{id:'file-1',name:'project.txt',contentType:'text/plain',size:5}];
+  mailFile={contentType:'text/plain',base64:'aGVsbG8='};
+  mailSaveResult=true;
+  notificationSettings={enabled:false,showNames:false,error:null as string|null};
+  notificationConfigError='';
+  notificationTestError='';
+  notificationTests=0;
+  pendingNotificationChat:string|null=null;
   restoredSession = false;
   sessionSaved = true;
   persistenceNotice: string|null = null;
   restoreGate?: Promise<void>;
   signOutError = '';
   profileError = '';
+  peopleError = '';
+  peopleGate?: Promise<void>;
   profileId = me.id;
   messagesError = '';
+  chatsError = '';
+  parentError='';
+  parentGate?:Promise<void>;
+  parentMessages:Record<string,MockMessage>={};
   readError = '';
+  reactionError = '';
+  reactionGate?: Promise<void>;
+  reactionStatusError = '';
   readConfirmed = true;
   createError = '';
   sendError = '';
@@ -57,15 +102,77 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['mail_set_read','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
+      case 'mail_write_permission': return true;
+      case 'mail_set_read': {const m=this.mailMessages.find(m=>m.id===args.messageId);if(!m)throw Error('Missing mail');m.isRead=args.isRead;return {id:m.id,isRead:m.isRead};}
+      case 'mail_send_permission': return this.mailCanSend;
+      case 'mail_send_new': return this.mailSendResult;
+      case 'mail_permission':return this.mailPermitted;
+      case 'mail_page':{
+        await this.mailGate;if(this.mailError)throw Error(this.mailError);
+        const q=args.query;
+        if(!this.mailPermitted)throw Error('Mail.Read consent is required');
+        if(q.next&&this.mailPages[q.next])return this.mailPages[q.next];
+        if(q.collection==='message')return this.mailMessages.find(m=>m.id===q.messageId);
+        if(q.collection==='attachments')return {value:this.mailFilesByMessage[q.messageId]??this.mailFiles,next:null};
+        if(q.collection==='conversation')return {value:this.mailMessages.filter(m=>m.conversationId===q.conversationId),next:null};
+        return this.mailPages.first??{value:q.search?this.mailMessages.filter(m=>(m.subject+' '+m.bodyPreview).toLowerCase().includes(q.search.toLowerCase())):this.mailMessages,next:null};
+      }
+      case 'mail_attachment':return this.mailFile;
+      case 'mail_save_attachment':return this.mailSaveResult;
+      case 'collaboration_permissions':return this.collaboration;
+      case 'graph_presence':return {value:this.presenceRows.filter(p=>args.ids.includes(p.id))};
+      case 'graph_set_presence':if(!this.allowWrites)break;return {status:this.presenceStatus,error:this.presenceStatus==='confirmed'?undefined:'Status change not confirmed.'};
+      case 'collaboration_roster':return structuredClone(this.memberRoster);
+      case 'collaboration_member_change':if(!this.allowWrites)break;return {status:this.memberStatus,error:'Membership change not confirmed.'};
+      case 'away_settings':return {config:this.awayConfig,notice:'',sent:0,reserved:0};
+      case 'away_watch_channel':return;
+      case 'away_configure':if(!this.allowWrites)break;this.awayConfig={...args.config,period:'mock-period'};return {config:this.awayConfig,notice:'',sent:0,reserved:0};
+
+      case 'graph_send_channel': {
+        if(!this.allowWrites)break;
+        await this.channelSendGate;
+        if(this.channelSendStatus!=='sent')return {status:this.channelSendStatus,error:'Channel send failed. Draft saved.'};
+        const t=args.target;
+        const sent={id:'channel-sent-'+this.writes.length,replyToId:t.messageId,createdDateTime:'2026-11-04T15:00:00Z',from:{user:{id:me.id,displayName:'Test User'}},body:{contentType:t.formatted?'html':'text',content:t.formatted?formatDraft(t.text).html:t.text}};
+        const collection=t.messageId?'replies':'posts';this.teamData[collection]=[...this.teamData[collection],sent];
+        return {status:'sent',message:sent};
+      }
+      case 'teams_permissions': return this.teamsPermissions;
+      case 'graph_teams_page': {
+        if(this.teamError||this.teamErrors[args.query.collection])throw Error(this.teamError||this.teamErrors[args.query.collection]);
+        if(args.query.collection==='posts')await this.teamGate;
+        if(args.query.collection==='replies')await this.teamReplyGate;
+        if(args.query.collection==='members')await this.teamMemberGate;
+        const q=args.query;
+        return this.teamPages[q.next??`${q.collection}:${q.teamId??''}:${q.channelId??''}:${q.messageId??''}`]??{value:this.teamData[q.collection]??[],next:null};
+      }
+      case 'notification_settings': return this.notificationSettings;
+      case 'notification_view': return null;
+      case 'notification_configure':
+        if(this.notificationConfigError)throw Error(this.notificationConfigError);
+        this.notificationSettings={enabled:args.enabled,showNames:args.showNames,error:null};return this.notificationSettings;
+      case 'notification_test':
+        if(this.notificationTestError)throw Error(this.notificationTestError);
+        return ++this.notificationTests;
+      case 'notification_take_open': {const id=this.pendingNotificationChat;this.pendingNotificationChat=null;return id;}
       case 'restore_session': await this.restoreGate; return {restored:this.restoredSession,saved:this.restoredSession,notice:this.persistenceNotice};
       case 'auth_persistence_status': return {restored:true,saved:this.sessionSaved,notice:this.persistenceNotice};
       case 'sign_in': return null;
       case 'sign_out': this.restoredSession=false;if(this.signOutError)throw Error(this.signOutError);return null;
-      case 'graph_profile': if(this.profileError)throw Error(this.profileError);return {...me,id:this.profileId};
+      case 'graph_reply_with_quote': {
+        if(!this.allowWrites)break;
+        await this.quoteGate;
+        if(this.quoteStatus!=='sent')return {status:this.quoteStatus,error:'Reply delivery failed. Your draft is saved.'};
+        const sent={...message('quoted-'+this.writes.length,args.formatted?formatDraft(args.text).html:args.text,me.id),attachments:[{id:args.messageId,contentType:'messageReference',content:JSON.stringify({messageId:args.messageId})}]};
+        this.messages[args.chatId]=[...(this.messages[args.chatId]??[]),sent];
+        return {status:'sent',message:sent};
+      }
+      case 'graph_chat_message': await this.parentGate;if(this.parentError)throw Error(this.parentError);return this.parentMessages[args.messageId]??this.messages[args.chatId]?.find(m=>m.id===args.messageId)??Promise.reject(Error('Quoted message unavailable'));
+      case 'graph_profile': if(this.profileError)throw Error(this.profileError);return {...me,id:this.profileId,mail:"me@example.test",userPrincipalName:"me@example.test"};
       case 'attachment_permission': return this.attachmentPermission;
       case 'group_member_permission': return this.groupPermission;
       case 'chat_write_permission': return this.chatWritePermission;
@@ -98,8 +205,25 @@ export class MockGraph {
         const target=this.chats.find(c=>c.id===args.chatId)!;
         target.viewpoint={...target.viewpoint,lastMessageReadDateTime:latest.createdDateTime};return true;
       }
+      case 'graph_reaction_state': {
+        if(this.reactionStatusError)throw Error(this.reactionStatusError);
+        return (this.messages[args.chatId]?.find(m=>m.id===args.messageId)?.reactions??[]).filter(r=>r.user?.user?.id===me.id).map(r=>r.reactionType);
+      }
+      case 'graph_change_reaction': {
+        if(!this.allowWrites)break;
+        await this.reactionGate;
+        if(this.reactionError)throw Error(this.reactionError);
+        const target=this.messages[args.chatId]!.find(m=>m.id===args.messageId)!;
+        const aliases:Record<string,string>={like:'👍',heart:'❤️',laugh:'😆',surprised:'😮',sad:'😢',angry:'😠'};
+        const matches=(r:NonNullable<MockMessage['reactions']>[number])=>r.user?.user?.id===me.id&&(aliases[r.reactionType??'']??r.reactionType)===args.emoji;
+        if(args.remove)target.reactions=(target.reactions??[]).filter(r=>!matches(r));
+        else if(!(target.reactions??[]).some(matches))target.reactions=[...(target.reactions??[]),{reactionType:args.emoji,user:{user:{id:me.id,displayName:me.displayName}}}];
+        return null;
+      }
       case 'graph_chat_members': return {value:this.chats.find(c=>c.id===args.chatId)?.members??[],...(this.membershipIncomplete?{'@odata.nextLink':'https://graph.microsoft.com/next'}:{})};
-      case 'graph_chats': return { value: this.chats };
+      case 'graph_chats': if(this.chatsError)throw Error(this.chatsError);return { value: this.chats };
+      case 'people_page': await this.peopleGate;if(this.peopleError)throw Error(this.peopleError);return {value:[me,{...alex,jobTitle:'Engineer',department:'Technology',companyName:'Example',officeLocation:'Main office',businessPhones:['1234']},blair,casey],next:null};
+      case 'people_profile': return {user:{...[me,alex,blair,casey].find(p=>p.id===args.id),jobTitle:'Engineer',department:'Technology',companyName:'Example',officeLocation:'Main office',businessPhones:['1234']},manager:args.id===alex.id?blair:null,notice:''};
       case 'graph_search_users': return { value: [me, alex, blair, casey].filter(u => `${u.displayName} ${'mail' in u ? u.mail : ''}`.toLowerCase().includes(args.query.toLowerCase())) };
       case 'graph_messages':
         await this.messagesGate;
@@ -141,7 +265,7 @@ export class MockGraph {
         if (!this.allowWrites) break;
         await this.sendGate;
         if (this.sendError) throw Error(this.sendError);
-        const attached = message(`attached-${this.writes.length}`, args.text, me.id);
+        const attached = message(`attached-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replace(/\r\n?|\n/g,'<br>'), me.id);
         attached.attachments = args.ids.map((id:string) => ({ id, name:this.prepared.get(id)!.name, contentType:'reference', contentUrl:`https://example.sharepoint.com/${id}` }));
         this.messages[args.chatId] = [...(this.messages[args.chatId] ?? []), attached];
         return { id:attached.id };
@@ -149,7 +273,7 @@ export class MockGraph {
         if (!this.allowWrites) break;
         await this.sendGate;
         if (this.sendError) throw Error(this.sendError);
-        const sent = message(`sent-${this.writes.length}`, args.text, me.id);
+        const sent = message(`sent-${this.writes.length}`, args.formatted?formatDraft(args.text).html:args.text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replace(/\r\n?|\n/g,'<br>'), me.id);
         this.messages[args.chatId] = [...(this.messages[args.chatId] ?? []), sent];
         return { id: sent.id };
     }

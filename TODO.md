@@ -1,84 +1,70 @@
-# TAUT Desktop todo
+# TAUT Desktop roadmap
 
-## Current status
+Updated November 10, 2026. Work in the numbered queue in order. Keep new ideas in the later backlog unless we explicitly reprioritize them.
 
-- Pending-conversation workflow implemented; user reports draft creation works as expected in manual testing (2026-11-03).
-- Attachment/composer improvements, mocked UI regression tests, and CI committed and pushed as `504cadd` on `test/pending-conversation-ci`.
-- Group chat implementation is on `feat/group-chats`; the user approved `ChatMember.ReadWrite` on 2026-11-03; the user confirmed Entra delegated permission and admin consent on 2026-11-03; the user confirmed named group creation, first-message sending, member addition with history choices, and member removal on 2026-11-03.
-- User is manually testing against the actual Office 365 tenant with their boss's approval. Automated tests continue to use mocks; this does not authorize unspecified automated tenant mutations.
+## Current checkpoint
 
-## Attachment sending — manually verified
+People v1 is accepted. Chats, channels, presence/membership, away replies, appearance, unified search and Mail reading/composing/replying/forwarding are implemented. Mail drafts are local to this Mac. The checkpoint is `5ac97f9` on `feat/message-deletion`; the end-of-day Mail checkpoint follows it on the same branch.
 
-See [ATTACHMENTS.md](ATTACHMENTS.md) for behavior, limits, recovery, and the permission proposal.
+Completed milestones and their original validation notes are preserved in [ROADMAP_COMPLETED.md](ROADMAP_COMPLETED.md). Feature documents and current source define behavior. Automated testing always uses mocks; manual tenant testing is performed by the user.
 
-- [x] Verify the documented Graph upload/share/reference flow. User approved delegated `Files.ReadWrite` on 2026-11-03; scope added.
-- [x] User confirms tenant admin consent and successful live attachment sending (2026-11-03). Automated testing remains mocked.
-- [ ] Low priority: investigate reported soft/low-resolution appearance; distinguish preview rendering from original file quality. Current upload code sends the selected file bytes without image resizing.
-- [x] Add paperclip selection, local attachment staging, preview/removal, and per-conversation attachment drafts. Selecting a file must not upload or share it.
-- [x] Upload/share and send only on explicit Send; show progress and actionable errors. Preserve the draft and track partial success to avoid duplicate uploads or ambiguous message retries.
-- [x] Preserve nonempty first-message text for pending conversations; allow attachment-only messages in existing chats.
-- [x] Add mocked upload/share/send tests and preserve existing attachment opening and image viewing.
-- [ ] Follow with drag/drop and clipboard images.
+## Next — in order
 
-## Group conversations
+1. [x] **Mail attachments and inline images.** File picker, clipboard image paste and file drop; locally persisted attachment drafts; image placement in the body; names/sizes/inline status in review; explicit send only. Preserve failed/uncertain drafts. Start with bounded small files under existing Mail.Send; larger uploads need a separate design and permission review. See [MAIL.md](MAIL.md).
+2. [x] **Mail signatures.** Saved signature editor, defaults for new mail/replies/forwards, preview and per-draft control. Defaults are edited in Settings → Mail. Keep signature changes separate from the user's message and attachment review.
+3. [x] **Chat → Respond by email.** Create an editable local draft with quoted source attribution; review recipients and any attachments explicitly. Never send or cross-post on selection. Reverse Mail → Chat is a later extension.
 
-See [GROUP_CHATS.md](GROUP_CHATS.md) for implemented behavior, permissions, and limits.
+The three-item implementation queue is complete; signature sending and the received chat quote were user-validated. Received inline image approval and Mail read-state controls were manually validated by the user, including read/unread propagation to Outlook web and native.
 
-- [x] Create group chats with multiple selected coworkers and an optional name; keep recipient selection local until explicit creation/send.
-- [x] View and manage group members, including adding and removing members.
-- [x] Leave a group chat by removing myself, with clear confirmation and consequences.
-- [x] Verify documented Graph operations, least-privilege delegated permissions, and history choices; add mocked coverage for creation and member operations.
-- [x] User approved delegated `ChatMember.ReadWrite` on 2026-11-03; scope added to Rust.
-- [x] User confirmed delegated `ChatMember.ReadWrite` and tenant admin consent (2026-11-03).
-- [x] User manually verified named group creation, first-message sending, adding a user with history options, and removing that user (2026-11-03).
-- [ ] Manually validate leaving a group (mocked coverage already passes).
-- [x] Add a chronological activity timeline for member changes and group-name changes using structured Graph system events; no extra permissions.
-- [ ] Follow up: guest/federated participant role handling, larger/paginated groups, existing-group renaming (requires separate scope review).
+## Mail and discovery — later
 
-## Message deletion and personal chat visibility
+- [ ] Multiple named signatures, with separate defaults for new emails, replies and forwards (for example, full and short forms).
+- [x] High Importance indicator in the list and message header, using actual metadata.
+- [ ] Compact meeting request/update/response cards, including empty-body Sent acceptance responses. Never infer RSVP state from subject text.
+- [x] Mail read state: right-click Mark read / Mark unread and configurable mark-read-after-viewing delay, with focus/visibility guards and server reconciliation. Delegated Mail.ReadWrite approved and Entra admin consent confirmed November 10, 2026; see MAIL.md. Requested scope and implementation added.
+- [ ] Mail unread badge with honest mailbox coverage and quiet background synchronization.
+- [ ] Mail deletion/organization and mailbox-synced drafts: document semantics and obtain explicit feature approval; existing Mail.ReadWrite approval covers read-state changes only.
+- [x] Explicit per-image approval: Preview renders a received inline/CID image in HTML view, modal preview in plain text; remember approval per account/message/image and provide revocation. Never treat a click as sender-wide trust.
+- [ ] Optional trusted-sender image controls; preserve remote-image privacy protections and improve signature layout fidelity.
+- [ ] Unified search: channel provider, sender/date filters and broader chat history. Verify Teams server-search support/scopes first; current Chats search covers loaded messages.
+- [ ] Unified file discovery across mailbox attachments and OneDrive/SharePoint references, preserving source links and access boundaries.
+- [ ] Mail → Chat local draft bridge.
 
-See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operations, and limits.
+## Teams, chats and people — later
 
-- [x] Soft-delete and restore own normal messages, with Rust ownership verification and explicit confirmation; tenant policy may restrict either operation.
-- [x] Hide/unhide a conversation for myself, preserving shared history, membership, files, and session drafts; expose hidden chats in the sidebar.
-- [x] User approved delegated `Chat.ReadWrite` on 2026-11-03; added to Rust's requested scopes.
-- [x] User confirmed Entra delegated `Chat.ReadWrite` consent and manually verified message deletion/restoration and hide/unhide with the unsent draft preserved (2026-11-03).
-- [x] Document exact consequences; failed or uncertain actions do not silently change the UI or automatically retry. Read-only status checks precede explicit retries.
-- [x] Mocked coverage for permissions, ownership, cancellation, success, failure, recovery, stale reads, and draft preservation.
-- [ ] Deferred: administrative deletion of shared threads for everyone. Requires separate `Chat.ManageDeletion.All` approval and supported admin role; user delegated the release choice and this release offers Hide for me only.
+- [ ] Paginate beyond the newest 50 chats; extend Shared Media beyond loaded history.
+- [ ] Explicit Mark unread for chats, without immediately marking the same selection read again.
+- [ ] Channel attachments, mentions and activity indicators.
+- [ ] Create teams/channels: research standard/private/shared semantics, role restrictions and least-privilege permissions before implementation. Ordinary membership management already exists.
+- [ ] Existing group renaming, guest/federated role handling and larger group pagination.
+- [ ] Native presence-session management, richer status messages and broader channel discovery.
+- [ ] Participant photos.
+- [ ] Distinguish tenant members and guests using verified directory metadata.
+- [ ] Private local People/Chat sections: many-to-many membership, per-account persistence, never create tenant groups or Teams.
+- [ ] Bounded member profile deck for small groups; searchable roster for large groups.
+- [ ] Typing indicators, subject to supported API availability.
+- [ ] Administrative shared-thread deletion stays deferred; requires separate approval and supported admin role.
 
-## Incoming message visibility
+## Calendar, Files and calls — future milestones
 
-- [x] Request expanded latest-message previews and newest-message ordering from Graph; show message previews/times, per-conversation unread dots, and an unread-conversation badge on Chats.
-- [x] Preserve drafts and synchronize read state to Teams only after explicitly opening a conversation and viewing the latest messages in the focused window. Use existing Chat.ReadWrite; no new permissions or native notifications. Start with no conversation selected; server read positions remain authoritative, including external mark-unread changes.
-- [x] Cover incoming inactive/new chats, local reads and later messages, hidden chats, and server-marked unread own messages and suppression of system/reaction-only changes with mocked tests.
-- Chat list currently loads the newest 50 chats; existing active and local draft conversations remain retained during synchronization. Inactive chat-list updates use the existing 30-second polling interval while TAUT is visible.
-- [ ] Paginate the full chat list for larger histories.
-- [x] Manual Refresh updates the whole chat list as well as the selected conversation; keep manually marked-unread own/group messages visible.
-- [ ] Add explicit Mark unread controls using the supported Graph action, with no automatic re-reading until the user opens the conversation again.
-- [x] User confirmed that marking a conversation read in either app updates the other, with an acceptable propagation delay (2026-11-03).
+- [ ] Calendar: reconcile invitations, updates and RSVP state across Mail/Teams/calendar. Show confirmed response with Change response; only prompt again when the latest update requires it. Unread mail is not an unanswered invitation. Avoid duplicate attention alerts.
+- [ ] Files: lightweight OneDrive browser and shared discovery across communication sources.
+- [ ] Calls: research supported native integration and permissions before defining scope.
+- [ ] Decide whether Activity adds useful signal before implementing a feed.
 
-## Conversation organization — lower priority
+## Polish and validation
 
-- [ ] Add Pin / Unpin controls for chats. The Pinned section currently renders favorites, but live chats have no pinning control.
-- [ ] Persist pins per signed-in account across restarts. Establish whether pins are TAUT-local or can synchronize with Teams after verifying supported APIs; do not imply Teams synchronization without it.
-
-## Teams and channels
-
-- [ ] Show the teams the signed-in user belongs to and their accessible channels in TAUT navigation.
-- [ ] Read channel conversations and threaded replies; follow with explicit posting/replying, attachments, and activity indicators.
-- [ ] Handle standard, private, and shared channel access correctly, with pagination and clear unavailable/access-denied states.
-- [ ] Research channel-specific Graph operations and least-privilege delegated permissions. Document and obtain approval for any additional scope before implementation; keep automated testing mocked.
-
-## Remaining backlog
-
-- [x] Implement persistent sign-in across rebuilds/restarts using macOS Keychain for refresh tokens, silent startup restoration in Rust, token rotation, and cleanup on explicit sign-out. Keep tokens out of Svelte, logs, URLs, and plaintext files; handle Keychain failures and revoked/expired grants. See [PERSISTENT_AUTH.md](PERSISTENT_AUTH.md).
-- [x] User manually verified persistent sign-in across a rebuild and explicit sign-out preventing restoration (2026-11-03).
-
-- [ ] Trusted-sender image auto-loading preference.
-- [ ] Participant photos and verified Graph presence.
-- [ ] Display received message reactions (including likes), with grouped counts and who reacted. Keep reaction changes out of unread/new-message indicators and suppress reaction notifications.
-- [ ] Native message notifications with reaction noise suppressed.
-- [ ] Code-block formatting and syntax highlighting.
-- [ ] Typing indicators, subject to API support.
-- [ ] Shared Media panel with images, files, and links.
+- [ ] Styled rail tooltips for hover/focus and an optional persistent navigation-label preference.
+- [ ] Consistent context menus while preserving useful native text/copy/writing tools.
+- [ ] Additional syntax languages as needed.
+- [ ] Investigate soft attachment previews separately from original uploaded bytes.
+- [ ] Recheck the reported macOS beachball; profile if it recurs.
+- [ ] Targeted manual edge cases: leave group; private/shared/cross-tenant membership; away-reply recovery. Basic presence/membership/away milestone was user-validated.
+- [ ] Manual Mail away replies: one reply per coworker across chat/mail, thread association, automated-mail suppression. Mail.Send consent is confirmed; this specific test remains outstanding.
+- [ ] Further signature rendering polish and chat-to-email edge cases; basic signature sending and received quote were user-validated, as were attachments and inline image sending.
+- [ ] Manual Mail edge cases: government-tenant policy, long pagination, forwarded original attachment fidelity. New mail sending, replies, draft restart and PDF save were user-validated.
+- [ ] Native macOS notification click routing and OS appearance/contrast changes. Banner delivery was user-validated; automated theme/contrast coverage passes.
+- [ ] Remaining formatted-message round-trip edge cases in channels and quoted replies; long PHP send and IDE copy were user-validated.
+- [ ] Optional accent-matched Dock icon, later.
+- [ ] Looping feature showcase after core workflows settle.
+- [ ] Installable alpha packaging is deferred until the prospective tester has her MacBook.

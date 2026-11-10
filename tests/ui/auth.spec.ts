@@ -4,7 +4,7 @@ test('startup restores a saved session without launching interactive sign-in or 
  graph.restoredSession=true;
  await page.goto('/');
  await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeEnabled();
- await expect(page.locator('.conversation-header')).toContainText('Select a conversation');
+ await expect(page.getByRole('region',{name:'Welcome to TAUT'})).toBeVisible();
  expect(graph.calls.some(c=>c.command==='graph_messages')).toBe(false);
  await row(page,alex.displayName).click();
  await expect(page.locator('.messages')).toContainText('Hello from Alex');
@@ -14,7 +14,8 @@ test('startup restores a saved session without launching interactive sign-in or 
 
 test('no saved credential leaves manual sign-in available without fetching private data',async({page,graph})=>{
  await page.goto('/');await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeEnabled();
- expect(graph.calls.map(c=>c.command)).toEqual(['restore_session']);expect(graph.writes).toEqual([]);
+ expect(graph.calls.filter(c=>c.command==='restore_session')).toHaveLength(1);
+ expect(graph.calls.some(c=>c.command.startsWith('graph_'))).toBe(false);expect(graph.writes).toEqual([]);
 });
 
 test('startup restore disables duplicate sign-in until it completes',async({page,graph})=>{
@@ -36,14 +37,14 @@ test('Keychain save failure allows a temporary session and shows an actionable n
  graph.sessionSaved=false;graph.persistenceNotice='Connected for this session, but Keychain could not save your sign-in.';
  await signIn(page);await expect(page.getByRole('status')).toContainText('Keychain could not save');
  await expect(page.locator('.messages')).toContainText('Hello from Alex');
- await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Account',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'TAUT preferences'})).toContainText('Temporary sign-in');expect(graph.writes).toEqual([]);
 });
 
 test('retrying saved sign-in after a transient failure restores without interactive auth',async({page,graph})=>{
  graph.persistenceNotice='Microsoft sign-in is unavailable. Your saved sign-in has been kept.';
  await page.goto('/');await expect(page.getByRole('status')).toContainText('kept');
- await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Account',exact:true}).click();
  graph.restoredSession=true;graph.persistenceNotice=null;
  await page.getByRole('button',{name:'Retry saved sign-in',exact:true}).click();
  await expect(page.getByRole('dialog')).toContainText('Sign-in saved in macOS Keychain');
@@ -67,7 +68,7 @@ test('Keychain deletion failure still signs out locally and allows explicit clea
  await signIn(page);graph.signOutError='Signed out of this session, but the saved sign-in could not be removed from Keychain. It may restore on next launch.';
  await page.getByRole('button',{name:'Sign out',exact:true}).click();
  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeEnabled();await expect(page.getByRole('alert')).toContainText('may restore');
- await page.getByRole('button',{name:'Settings',exact:true}).click();graph.signOutError='';
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Account',exact:true}).click();graph.signOutError='';
  await page.getByRole('button',{name:'Clear saved sign-in',exact:true}).click();
  await expect(page.getByRole('alert')).toHaveCount(0);expect(graph.calls.filter(c=>c.command==='sign_out')).toHaveLength(2);expect(graph.writes).toEqual([]);
 });
@@ -96,5 +97,7 @@ test('reconnecting as a different account clears prior account drafts and media'
  graph.profileId=blair.id;graph.messagesError='';
  await page.getByRole('button',{name:'Reconnect',exact:true}).click();
  await expect(page.getByRole('button',{name:'Reconnect',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('region',{name:'Welcome to TAUT'})).toBeVisible();
+ await row(page,alex.displayName).click();
  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('');expect(graph.writes).toEqual([]);
 });

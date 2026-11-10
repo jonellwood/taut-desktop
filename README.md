@@ -1,49 +1,35 @@
-# TAUT Desktop — Alpha 1.1 (Microsoft 365 read-only)
+# TAUT Desktop
 
-This release adds Microsoft sign-in via **system browser + PKCE**, a one-time loopback callback, access/refresh tokens held **only in Rust process memory**, and read-only Graph chat listing and messages. No client secret, browser token storage, backend, or automated sending.
+A native macOS Microsoft Teams and Mail client built with Tauri 2, Rust, Svelte 5 and Microsoft Graph. Current features include chats and channels, People directory, presence, unified search, Mail reading/composing/replies/forwards, local drafts and signatures, attachments, and individually approved inline images. See [TODO.md](TODO.md) for the roadmap and [TAUT_HANDOFF.md](TAUT_HANDOFF.md) for development context; current source is authoritative.
 
-## Running
+## Set up on another Mac
+
+Install Xcode Command Line Tools (`xcode-select --install`), Node.js 24 with npm, and stable Rust with Cargo through rustup. Git and access to this GitHub repository are required. Full native development requires macOS.
 
 ```bash
-npm install
+git clone --branch feat/message-deletion https://github.com/jonellwood/taut-desktop.git
+cd taut-desktop
+npm ci
 npm run tauri dev
 ```
 
-Click **Sign in** at the bottom of the conversation panel or open Settings. Finish the browser sign-in and return to TAUT. One-on-one chat names may be limited where Graph omits member display names. Chat history is limited to the newest 50 messages and the initial 50 chats (pagination is planned). Presence is placeholder only.
+The first native build compiles Rust dependencies and can take several minutes. Click **Sign in** in TAUT and complete Microsoft sign-in in your system browser. The Entra application identifiers are configured in Rust; no `.env` file or client secret is needed. Tenant consent and device/Conditional Access policies still apply on the laptop.
 
-## Entra
+For subsequent updates, stop the app, run `git pull --ff-only` and `npm ci`, then restart `npm run tauri dev`. Commit or preserve any local changes before pulling.
 
-- Tenant: `5c747a22-76d4-498e-9d9a-75523aff7ceb`
-- Client: `082aabde-4018-4e9e-8936-d2b74a34d9de`
-- Authentication platform **Mobile and desktop applications**, redirect URI `http://localhost`.
-- Delegated permissions: `User.Read`, `Chat.Read`, `ChatMessage.Send`, `Chat.Create` (but only `User.Read` and `Chat.Read` requested by this alpha).
-- No client secret.
+Your laptop starts with its own local state. Keychain sign-in credentials, local drafts and their attachment copies, signatures, appearance preferences, image approvals and People caches do not transfer through Git. Sign in again; existing Teams conversations and mail load from Microsoft 365. Check Settings → Mail on the laptop for signature and automatic read-marking preferences.
 
-## Security notes
+`npm run dev` starts only the browser frontend; Microsoft sign-in and Graph access require the native Tauri runtime. Automated browser tests provide their own mocked IPC.
 
-- Browser authentication uses PKCE S256, randomized state and an ephemeral listener at `127.0.0.1`.
-- Tokens never cross into JavaScript or localStorage; Graph requests are made by Rust.
-- Tokens expire/re-authenticate on app restart and refresh in memory until sign-out.
-- For production, replace the custom minimal OAuth implementation with a reviewed native identity library and OS keychain storage if persistent login is desired. Validate identity and redirects against tenant policy.
-- Graph responses are shown in the app UI. Chat data is not written to disk by TAUT.
-- OAuth may fail for tenants using different cloud endpoints or policies.
-- Avoid sharing screenshots or console output with sensitive message data.
+## Authentication and safety
 
-## Known limits
-
-- **Read-only**: Sending is disabled in live mode even though the permission is registered.
-- No calls, meetings, Teams channel messages, chat attachments, or live subscriptions.
-- API errors return status codes rather than sensitive response payloads.
-- Browser-only `npm run dev` operates in mock mode; native runtime required for sign-in.
-
-
-## Alpha 1.2 sending test
-1. Stop TAUT and update project files from this package (keep your local changes backed up).
-2. Run `npm install` and `npm run tauri dev`.
-3. Sign out if previously signed in, then sign in again. OAuth now requests the delegated `ChatMessage.Send` permission.
-4. Pick a safe test chat, send a short message, and confirm it appears in official Teams.
-5. Click the refresh arrow in the chat header to load new messages.
-6. Sending currently requires the app to receive a valid Graph `201 Created` response; in ambiguous failures check Teams before retrying.
+- OAuth uses the system browser, PKCE and a loopback callback. Access tokens stay in Rust; persistent credentials use macOS Keychain, never frontend storage or URLs.
+- This is a tenant-specific public desktop application with no client secret. Requested delegated scopes are defined by `SCOPES` in `src-tauri/src/lib.rs`; feature permission rationale is documented in [MAIL.md](MAIL.md), [PEOPLE.md](PEOPLE.md), and related feature documents.
+- Selecting a new contact stages a local conversation. Chat creation and sending require explicit Send with nonempty content. Mail sends require review and explicit confirmation; uncertain sends must be checked in Outlook before retrying.
+- Mail read/unread controls update Microsoft 365. Optional timed read marking is off by default. Mail refresh currently picks up external Outlook changes when returning to Mail or using Refresh.
+- Received remote images remain blocked. Inline/CID images require individual preview approval; approval can be revoked with Block again.
+- Never mutate real Microsoft 365 data during automated testing. All Graph tests use mocks. Manual sends and other mailbox changes require explicit user authorization.
+- Local drafts and caches can contain communication data. Do not commit exported messages, credentials, personal cache files or sensitive screenshots.
 
 ## Automated regression checks
 
