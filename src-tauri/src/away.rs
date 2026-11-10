@@ -13,6 +13,7 @@ pub struct Config {
     pub message: String,
     pub groups: bool,
     pub channels: bool,
+    pub mail: bool,
     pub start: i64,
     pub end: Option<i64>,
     pub period: String,

@@ -66,20 +66,20 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 
 ## Teams and channels
 
-- [x] Show joined/associated teams and accessible standard/private/shared channels in a dedicated rail destination, with pagination and host identity for shared channels. Manual tenant validation pending.
+- [x] Show joined/associated teams and accessible standard/private/shared channels in a dedicated rail destination, with pagination and host identity for shared channels. User validated in the tenant.
 - [x] Read channel posts and threaded replies with independent pagination, safe text rendering and stale-response protection. See TEAMS_CHANNELS.md.
 - [x] Add a channel details panel with read-only member roster and loaded activity history; thread view replaces details and closing restores it. Delegated ChannelMember.Read.All approved 2026-11-04; Entra consent/fresh sign-in and manual roster validation pending.
-- [x] Add explicit plain-text channel posting/replying with approved delegated ChannelMessage.Send, separate drafts and uncertain-delivery safeguards. Manual tenant validation pending.
+- [x] Add explicit plain-text channel posting/replying with approved delegated ChannelMessage.Send, separate drafts and uncertain-delivery safeguards. User validated in the tenant.
 - [x] Add shared formatted composition to channel posts and replies.
 - [ ] Add channel attachments, mentions and activity indicators in later passes.
-- [x] Add explicit ordinary team and direct private/shared channel member management with owner verification, confirmation, separate standard-channel/team semantics, leaving for non-owners, and uncertain-outcome guards. See PRESENCE_MEMBERSHIP_OOO.md. Manual tenant validation pending.
+- [x] Add explicit ordinary team and direct private/shared channel member management with owner verification, confirmation, separate standard-channel/team semantics, leaving for non-owners, and uncertain-outcome guards. See PRESENCE_MEMBERSHIP_OOO.md. User validated in the tenant.
 - [ ] Later administration phase: create teams/channels and manage team/channel membership, including leaving where supported. Research role restrictions and standard/private/shared channel differences, document least-privilege permissions, and obtain scope approval before implementation. Keep mutations explicit and all automated tests mocked.
 - [x] Handle delegated channel access, pagination, missing host identity and access-denied states; real private/shared and cross-tenant coverage requires manual validation.
 - [x] Document and obtain approval for delegated Team.ReadBasic.All, Channel.ReadBasic.All and ChannelMessage.Read.All (2026-11-04); keep automated testing mocked. Entra consent/fresh sign-in required.
 
 ## Presence and out-of-office — requested 2026-11-05
 
-- [x] Add explicit temporary own presence preferences and Return to automatic with approved Presence.ReadWrite. Current online preferences need an existing Teams presence session. Manual tenant validation pending.
+- [x] Add explicit temporary own presence preferences and Return to automatic with approved Presence.ReadWrite. Current online preferences need an existing Teams presence session. User validated in the tenant.
 - [x] Add a configurable out-of-office message with explicit enable/disable and optional start/end scheduling. Review native Teams/Outlook OOO/status-message support separately from TAUT-generated chat replies so the UI clearly describes which behavior is provided.
 - [x] Let the user choose reply scope: direct chats only, or broader coverage including group chats and Teams/channel conversations. User-approved default (2026-11-05): direct chats only; make groups/channels explicit opt-ins. Define channel/thread placement and mention/trigger behavior before implementation.
 - [x] Send the configured OOO reply only once per sender per OOO period: Hannah sending four messages gets one reply. User-approved rule (2026-11-05): deduplicate across the enabled scopes using stable sender identity, account/tenant and an explicit OOO-period ID; persist the ledger so restarting or rebuilding does not resend. Define when a new OOO period resets eligibility.
@@ -97,7 +97,7 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 - [x] User manually verified persistent sign-in across a rebuild and explicit sign-out preventing restoration (2026-11-03).
 
 - [ ] Trusted-sender image auto-loading preference.
-- [x] Verified Graph presence for chat participants and loaded rosters, consistent colors, expiry and neutral failure states. Manual tenant validation pending.
+- [x] Verified Graph presence for chat participants and loaded rosters, consistent colors, expiry and neutral failure states. User validated in the tenant.
 - [ ] Participant photos.
 - [x] Display received message reactions (including likes), grouped counts, and expandable participant lists. Reaction-only changes do not create unread/new-message indicators or notifications. Custom reactions use text-only fallback. See [REACTIONS.md](REACTIONS.md).
 - [x] User confirmed received reactions render correctly and a changed reaction from Teams appeared in TAUT within about 15-20 seconds (2026-11-03).
@@ -139,10 +139,66 @@ See [DELETION.md](DELETION.md) for behavior, permission approval, Graph operatio
 
 ## Appearance and accessibility — requested 2026-11-05
 
-- [ ] Add Light, Dark and System appearance preferences; default to System, follow macOS changes live, and persist the explicit choice locally across restarts.
-- [ ] Keep the established charcoal/amber identity in Dark and create a warm off-white/slate Light theme. Refactor shared semantic color tokens across chats, channels, threads, dialogs, composers, code blocks, media and status UI rather than applying a blanket inversion.
-- [ ] Add blue and rose accent choices alongside amber, teal and violet; use theme-specific shades so accent text, selected states and button labels stay legible in both appearances.
-- [ ] Add an independent Increase contrast preference: stronger text and boundaries, clearer selected/unread/focus states, reduced translucent decoration, and status communicated through labels/shapes as well as color. Honor macOS contrast preference by default while retaining explicit user control.
+- [x] Add Light, Dark and System appearance preferences; default to System, follow macOS changes live, and persist the explicit choice locally across restarts.
+- [x] Keep the established charcoal/amber identity in Dark and create a warm off-white/slate Light theme. Refactor shared semantic color tokens across chats, channels, threads, dialogs, composers, code blocks, media and status UI rather than applying a blanket inversion.
+- [x] Add blue and rose accent choices alongside amber, teal and violet; use theme-specific shades so accent text, selected states and button labels stay legible in both appearances.
+- [x] Add an independent Increase contrast preference: stronger text and boundaries, clearer selected/unread/focus states, reduced translucent decoration, and status communicated through labels/shapes as well as color. Honor macOS contrast preference by default while retaining explicit user control.
 - [ ] Verify theme/contrast combinations with browser tests and visual checks, including syntax highlighting, disabled/error states, keyboard focus, system changes, restart persistence and avoiding a wrong-theme flash on launch. No Graph permissions are needed.
 
 - [x] User reports all five presence/membership permissions added with admin consent and the milestone tested successfully in the real tenant (2026-11-05). Retain targeted edge-case/manual coverage for private/shared access and away-reply recovery as needed.
+
+- [x] Reorganize growing Preferences into categorized navigation with a fixed header/footer, segmented appearance/contrast choices, consistently styled dropdowns, and preserved unfinished forms when changing categories.
+- [x] Soften light-mode surfaces and give messages subtle tone separation while keeping increased contrast available.
+
+## Mail and unified discovery — 2026-11-05
+
+- [ ] Show incoming email High Importance with a clear, accessible indicator in the conversation list and message header; preserve sender importance metadata.
+- [x] New Mail composer: To/Cc/Bcc, subject, existing formatting/preview, local drafts, recipient review and explicit Send; save sent copies, preserve failed drafts and prevent automatic retries after uncertain acceptance. Use existing delegated Mail.Send; mailbox-synced drafts remain a separate Mail.ReadWrite proposal.
+
+- [x] Document and obtain approval for delegated Mail.Read in MAIL.md.
+- [x] Optional read-only Mail preview: Inbox/Sent, mailbox search, paginated summaries, expandable conversations, safe text reading, explicit attachment preview/save and Open in Outlook.
+- [ ] Manually verify Mail with Entra consent and fresh sign-in, including real pagination, conversation matching, attachment save dialog and government-tenant policies. Mail remains manual-refresh and does not mark messages read in this preview.
+- [x] Initial unified search: loaded Chats plus paginated mailbox search, source labels, navigation, permission/error isolation and preserved drafts.
+- [ ] Expand unified search across Mail, Chats and Channels with source badges, sender/date filters, coverage labels and separate query providers; verify Teams search availability/scopes separately.
+- [ ] Unified file discovery across mailbox attachments and OneDrive/SharePoint references, retaining original source links and access boundaries.
+- [ ] Email composing/replies and chat↔mail draft bridges, with explicit recipients/quote/attachment review. Mail.Send is approved for away replies; propose any additional Mail.ReadWrite access separately.
+- [ ] Packaging an installable alpha is deferred until the prospective tester has her MacBook.
+
+- [x] Render HTML Mail with tables/headings/lists/code, sandbox isolation, blocked images, explicit reviewed links and a Plain text toggle.
+- [ ] Future Mail presentation: explicit inline-image display and richer layout fidelity; keep remote-image loading opt-in.
+
+- [x] Mail reading polish: visible active HTML/Plain text choice, saved default in Preferences → Mail, and validated sender text/background/border colors.
+- [x] Extend existing away replies to opt-in internal Mail, sharing schedule/message/durable coworker ledger; delegated Mail.Send approved.
+- [ ] Manually validate Mail away replies after Entra Mail.Send consent and fresh sign-in: explicit opt-in, single reply per coworker across chat/mail, thread association and suppression of automatic mail. TAUT must remain running.
+
+- [ ] Polish right-click menus consistently across message actions, selected text, and native macOS writing/copy tools; preserve useful native text actions.
+
+- [ ] Manually validate New Mail composing/sending after rebuild: local draft restart, To/Cc/Bcc, formatting, accepted Sent copy and tenant policy. Email attachment composition, replies/forward and chat↔mail bridges follow.
+
+- [ ] Mail composition follow-up: attach files and insert inline images, including clipboard/drop support and explicit send review.
+- [ ] Mail signature fidelity: explicit inline/CID image rendering and optional trusted-sender image controls; retain remote-image privacy protections.
+
+- [ ] Calendar: reconcile meeting invitations/updates and RSVP state across Mail, Teams and calendar. Show confirmed Accepted/Tentative/Declined status with an explicit Change response action; request a fresh response only when the latest update needs one. Keep unread mail separate from unanswered invitations and avoid duplicate attention alerts.
+- [ ] Mail meeting messages: render request/update/response metadata (including Sent acceptance responses) as compact meeting cards with subject, time, organizer and response state, rather than an empty HTML body. Do not infer RSVP state from subject text.
+
+- [x] Mail conversation details and shared media pane: participants, date range, explicit conversation/email scope, files/images/links, source navigation, optional inline images and verified duplicate image grouping.
+
+- [ ] Mail signatures: saved signature editor, default for new mail/replies/forwards, preview and explicit per-draft control.
+- [ ] Mail deletion with clear mailbox semantics, confirmation and recovery where supported; separate permission proposal before scope expansion.
+- [ ] Mail navigation unread counter badge, with accurate mailbox coverage and quiet background synchronization.
+- [ ] Mail right-click Mark as unread; synchronize read state with Microsoft 365 after permission review.
+- [x] People tab: deliberate coworker name/email search, presence, basic profile details and explicit Chat/Email actions. Chat reuses existing conversations or stages a local pending chat; Email opens a local addressed draft. User validated in the tenant.
+- [x] Mail Reply, Reply all and Forward: source-bound local drafts, recipient review, original context and explicit Graph send actions using approved Mail.Send.
+
+- [ ] Later appearance polish: optionally match the macOS Dock icon's T/ mark and border to the selected TAUT accent, updating when the accent changes. Retain amber as the default and preserve the recognizable icon shape; investigate native runtime icon support when scheduled.
+
+- [x] People directory second pass: account/tenant-scoped cached roster; show cached results immediately, background refresh with last-updated/error status, explicit refresh, pagination and refresh selected profile on click. Add name sorting and local filters. Clear the current directory on sign-out; isolate cached rosters across accounts.
+- [x] People profiles: richer job/contact/organization details after reviewing required delegated permissions and obtaining approval for any scope expansion.
+- [x] People connections pane: selected coworker’s shared chats, email conversations and shared files with source links; distinguish loaded/local coverage from full search. Keep profile in center, directory left and optional connections right; no automatic messages or mailbox changes.
+
+- [ ] People organization: distinguish tenant members from external/guest people using verified directory metadata (never infer from email domains alone).
+- [ ] Private local sections for People and Chats: user-named sections with membership in one or multiple sections, saved per account on this device. These are personal organization preferences and must never create Microsoft 365 Teams, groups, or directory identities.
+
+- [ ] Explore a bounded member profile deck for small groups, reusing People card switching; large groups keep a searchable member list rather than eagerly creating a card for every member.
+
+- [x] People v1 complete: cached directory, filters, local hiding, rich profiles, shared connections and bounded manager card deck; user acceptance confirmed November 10, 2026.

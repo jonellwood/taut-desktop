@@ -1,4 +1,5 @@
 import {test,expect,signIn,message,me} from './fixtures';
+test.beforeEach(async({page})=>{await page.addInitScript(()=>localStorage.setItem('taut.formatting.visible.v1','false'));});
 const source='# Connect to Microsoft Graph\nConnect-MgGraph -Scopes "Directory.Read.All"\n\n\t$OUName = "EMS"\nif ($OUName -eq "EMS") {\n    Write-Host "<tag> & value"\n}\n'.replaceAll('\\n','\n');
 function escape(value:string){return value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
 function block(code=source,language='PowerShell'){return '<codeblock class="'+language+'"><code>'+escape(code).replaceAll('\n','<br>')+'</code></codeblock>';}

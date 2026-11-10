@@ -37,14 +37,14 @@ test('Keychain save failure allows a temporary session and shows an actionable n
  graph.sessionSaved=false;graph.persistenceNotice='Connected for this session, but Keychain could not save your sign-in.';
  await signIn(page);await expect(page.getByRole('status')).toContainText('Keychain could not save');
  await expect(page.locator('.messages')).toContainText('Hello from Alex');
- await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Account',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'TAUT preferences'})).toContainText('Temporary sign-in');expect(graph.writes).toEqual([]);
 });
 
 test('retrying saved sign-in after a transient failure restores without interactive auth',async({page,graph})=>{
  graph.persistenceNotice='Microsoft sign-in is unavailable. Your saved sign-in has been kept.';
  await page.goto('/');await expect(page.getByRole('status')).toContainText('kept');
- await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Account',exact:true}).click();
  graph.restoredSession=true;graph.persistenceNotice=null;
  await page.getByRole('button',{name:'Retry saved sign-in',exact:true}).click();
  await expect(page.getByRole('dialog')).toContainText('Sign-in saved in macOS Keychain');
@@ -68,7 +68,7 @@ test('Keychain deletion failure still signs out locally and allows explicit clea
  await signIn(page);graph.signOutError='Signed out of this session, but the saved sign-in could not be removed from Keychain. It may restore on next launch.';
  await page.getByRole('button',{name:'Sign out',exact:true}).click();
  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeEnabled();await expect(page.getByRole('alert')).toContainText('may restore');
- await page.getByRole('button',{name:'Settings',exact:true}).click();graph.signOutError='';
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Account',exact:true}).click();graph.signOutError='';
  await page.getByRole('button',{name:'Clear saved sign-in',exact:true}).click();
  await expect(page.getByRole('alert')).toHaveCount(0);expect(graph.calls.filter(c=>c.command==='sign_out')).toHaveLength(2);expect(graph.writes).toEqual([]);
 });

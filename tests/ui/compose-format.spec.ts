@@ -1,4 +1,5 @@
 import {test,expect,signIn,me} from './fixtures';
+test.beforeEach(async({page})=>{await page.addInitScript(()=>localStorage.setItem('taut.formatting.visible.v1','false'));});
 const source='**Try this**\n```powershell\n\t$x = "<safe>"\nWrite-Host $x\n```';
 test('formatting controls preview locally, preserve chat drafts, and send only explicitly',async({page,graph},info)=>{
  graph.allowWrites=true;graph.attachmentPermission=true;await signIn(page);const input=page.getByRole('textbox',{name:'Message',exact:true});
@@ -7,7 +8,7 @@ test('formatting controls preview locally, preserve chat drafts, and send only e
  await page.getByRole('button',{name:'Preview',exact:true}).click();const preview=page.getByRole('region',{name:'Formatted message preview'});
  await expect(preview.locator('strong')).toHaveText('Try this');await expect(preview.getByRole('region',{name:'PowerShell code block'})).toContainText('$x = "<safe>"');
  await page.getByRole('button',{name:'Close preview'}).click();
- await page.getByRole('button',{name:/^BE Blair Example/}).click();await expect(page.getByRole('button',{name:'Format',exact:true})).toHaveAttribute('aria-pressed','false');await input.fill('Blair draft');
+ await page.getByRole('button',{name:/^BE Blair Example/}).click();await expect(page.getByRole('button',{name:'Format',exact:true})).toHaveAttribute('aria-pressed','true');await input.fill('Blair draft');
  await page.getByRole('button',{name:/^AE Alex Example/}).click();await expect(input).toHaveValue(source+'\n');await expect(page.getByRole('button',{name:'Format',exact:true})).toHaveAttribute('aria-pressed','true');
  await page.getByRole('button',{name:'Preview',exact:true}).click();await page.screenshot({path:info.outputPath('composer-formatting.png')});
  expect(graph.writes).toEqual([]);await page.getByRole('button',{name:'Send message',exact:true}).click();
@@ -31,7 +32,7 @@ test('channel post and reply formatting use independent drafts and explicit send
  graph.allowWrites=true;graph.teamData.posts=[{id:'post',messageType:'message',from:{user:{id:me.id,displayName:'Test User'}},body:{contentType:'text',content:'Original'}}];
  await signIn(page);await page.getByRole('button',{name:'Teams and Channels',exact:true}).click();await page.getByRole('button',{name:'Browse team IT Development'}).click();await page.getByRole('button',{name:'Open channel General',exact:true}).click();
  const post=page.getByRole('form',{name:'New channel post'});await post.getByRole('button',{name:'Format',exact:true}).click();await post.getByRole('textbox').fill('**New post**');
- await page.getByRole('button',{name:'View replies',exact:true}).click();const reply=page.getByRole('form',{name:'Channel reply'});await expect(reply.getByRole('button',{name:'Format',exact:true})).toHaveAttribute('aria-pressed','false');await reply.getByRole('button',{name:'Format',exact:true}).click();await reply.getByRole('textbox').fill('`reply`');
+ await page.getByRole('button',{name:'View replies',exact:true}).click();const reply=page.getByRole('form',{name:'Channel reply'});await expect(reply.getByRole('button',{name:'Format',exact:true})).toHaveAttribute('aria-pressed','true');await reply.getByRole('button',{name:'Preview',exact:true}).click();await reply.getByRole('textbox').fill('`reply`');
  expect(graph.writes).toEqual([]);await reply.getByRole('button',{name:'Send channel reply'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_channel').length).toBe(1);expect(graph.calls.find(c=>c.command==='graph_send_channel')?.args.target.formatted).toBe(true);await expect(post.getByRole('textbox')).toHaveValue('**New post**');await post.getByRole('button',{name:'Post to channel'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_channel').length).toBe(2);
 });
 

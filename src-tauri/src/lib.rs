@@ -1,4 +1,8 @@
+mod people;
+mod mail;
+mod mail_send;
 mod away;
+mod away_mail;
 mod membership;
 mod presence;
 mod compose_format;
@@ -24,7 +28,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All User.Read.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All Mail.Read Mail.Send";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
@@ -50,8 +54,12 @@ fn exchange_token(form: &[(&str, &str)]) -> Result<Value, auth::ExchangeError> {
     }
     Ok(value)
 }
+fn refresh_form(refresh:&str)->[(&str,&str);3]{
+    // Retain the original grant on refresh. New permissions require explicit interactive sign-in.
+    [("client_id",CLIENT_ID),("grant_type","refresh_token"),("refresh_token",refresh)]
+}
 fn refresh_exchange(refresh:&str)->Result<Value,auth::ExchangeError>{
-    exchange_token(&[("client_id",CLIENT_ID),("grant_type","refresh_token"),("refresh_token",refresh),("scope",SCOPES)])
+    exchange_token(&refresh_form(refresh))
 }
 #[cfg(test)]
 fn store_token(state:&AuthState,value:Value)->Result<(),String>{
@@ -190,7 +198,7 @@ async fn graph_profile(state: State<'_, AuthState>, notifications:State<'_,notif
     let away=away.inner().clone();
     background_read(move||{
     let generation=notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.generation;
-    let value=graph_request(&state,"/me?$select=id,displayName,userPrincipalName")?;
+    let value=graph_request(&state,"/me?$select=id,displayName,userPrincipalName,mail")?;
     if let Some(id)=value["id"].as_str().filter(|s|presence::guid(s)){let mut manager=notifications.0.lock().map_err(|_|"Notification state unavailable")?;if manager.tracker.generation==generation{manager.tracker.account(id);away.0.lock().map_err(|_|"Away state unavailable")?.account(id);}}
     Ok(value)
     }).await
@@ -215,6 +223,10 @@ async fn graph_chat_members(state: State<'_, AuthState>, chat_id: String) -> Res
     }).await
 }
 
+#[tauri::command]
+async fn people_page(state:State<'_,AuthState>,next:Option<String>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;people::page(next.as_deref(),scope_has(&scopes,"User.Read.All"),&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
+#[tauri::command]
+async fn people_profile(state:State<'_,AuthState>,id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;people::detail(&id,scope_has(&scopes,"User.Read.All"),&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
 // Directory lookup is tenant-scoped, delegated, and returns only basic profile fields.
 #[tauri::command]
 async fn graph_search_users(state: State<'_, AuthState>, query: String) -> Result<Value, String> {
@@ -326,10 +338,21 @@ struct AwayState(std::sync::Arc<Mutex<away::Manager>>);
 #[tauri::command]
 async fn away_settings(state:State<'_,AuthState>,away:State<'_,AwayState>,own_id:String)->Result<away::Status,String>{let auth=AuthState(state.0.clone());let away=away.inner().clone();background_read(move||{if deletion::own_id(&mut|m,p,b|graph_operation_request(&auth,m,p,b))?!=own_id{return Err("Account changed".into());}let mut manager=away.0.lock().map_err(|_|"Away settings unavailable")?;manager.account(&own_id);Ok(manager.status())}).await}
 #[tauri::command]
-async fn away_configure(state:State<'_,AuthState>,away:State<'_,AwayState>,own_id:String,config:away::Config)->Result<away::Status,String>{let auth=AuthState(state.0.clone());let away=away.inner().clone();background_read(move||{if deletion::own_id(&mut|m,p,b|graph_operation_request(&auth,m,p,b))?!=own_id{return Err("Account changed".into());}let scopes=collaboration_scopes(&auth)?;if config.enabled&&(!scope_has(&scopes,"ChatMessage.Send")||(config.channels&&!scope_has(&scopes,"ChannelMessage.Send"))){return Err("Away reply sending needs the corresponding consent and a fresh sign-in.".into());}let mut manager=away.0.lock().map_err(|_|"Away settings unavailable")?;manager.account(&own_id);manager.configure(config,notifications::now())}).await}
+async fn away_configure(state:State<'_,AuthState>,away:State<'_,AwayState>,own_id:String,config:away::Config)->Result<away::Status,String>{let auth=AuthState(state.0.clone());let away=away.inner().clone();background_read(move||{if deletion::own_id(&mut|m,p,b|graph_operation_request(&auth,m,p,b))?!=own_id{return Err("Account changed".into());}let scopes=collaboration_scopes(&auth)?;if config.enabled&&(!scope_has(&scopes,"ChatMessage.Send")||(config.channels&&!scope_has(&scopes,"ChannelMessage.Send"))||(config.mail&&(!scope_has(&scopes,"Mail.Read")||!scope_has(&scopes,"Mail.Send")))){return Err("Away reply sending needs the corresponding consent and a fresh sign-in.".into());}let mut manager=away.0.lock().map_err(|_|"Away settings unavailable")?;manager.account(&own_id);manager.configure(config,notifications::now())}).await}
 #[tauri::command]
 fn away_watch_channel(away:State<'_,AwayState>,own_id:String,team_id:String,channel_id:String)->Result<(),String>{if team_id.is_empty()||team_id.len()>512||channel_id.is_empty()||channel_id.len()>512{return Err("Invalid channel".into());}let mut manager=away.0.lock().map_err(|_|"Away state unavailable")?;if manager.own.as_deref()!=Some(&own_id){return Err("Account changed".into());}let pair=(team_id,channel_id);if !manager.channels.contains(&pair)&&manager.channels.len()<20{manager.channels.push(pair);}Ok(())}
-fn away_scan(auth:&AuthState,state:&AwayState)->Result<(),String>{if !state.0.lock().map_err(|_|"Away state unavailable")?.active(notifications::now()){return Ok(());}let scopes=collaboration_scopes(auth)?;away_scan_with(state,&scopes,&mut|m,p,b|graph_operation_request(auth,m,p,b))}
+fn away_scan(auth:&AuthState,state:&AwayState)->Result<(),String>{if !state.0.lock().map_err(|_|"Away state unavailable")?.active(notifications::now()){return Ok(());}let scopes=collaboration_scopes(auth)?;away_scan_with(state,&scopes,&mut|m,p,b|away_graph_request(auth,m,p,b))}
+fn away_graph_request(auth:&AuthState,method:reqwest::Method,path:&str,body:Option<Value>)->Result<groups::Reply,String>{
+ if method==reqwest::Method::POST&&path.starts_with("/me/messages/")&&path.ends_with("/reply"){
+  let mime=body.as_ref().and_then(Value::as_str).ok_or("Invalid away reply")?;
+  let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Mail HTTP client unavailable")?;
+  let request=mail_away_payload(client.post(format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(auth)?),mime);
+  let response=request.send().map_err(|_|"Mail away reply was not confirmed")?;
+  return Ok(groups::Reply{status:response.status().as_u16(),body:Value::Null});
+ }
+ graph_operation_request(auth,method,path,body)
+}
+fn mail_away_payload(request:reqwest::blocking::RequestBuilder,mime:&str)->reqwest::blocking::RequestBuilder{request.header("Content-Type","text/plain").body(mime.to_owned())}
 fn away_scan_with(state:&AwayState,scopes:&str,request:&mut deletion::Request<'_>)->Result<(),String>{
  let now=notifications::now();
  let (generation,own,config,after,channels)={let mut m=state.0.lock().map_err(|_|"Away state unavailable")?;if !m.active(now){return Ok(());}let after=m.last_scan.replace(now);let Some(after)=after.filter(|last|now-*last<90000)else{return Ok(());};(m.generation,m.own.clone().unwrap(),m.config.clone(),after.max(m.config.start),m.channels.clone())};
@@ -356,6 +379,16 @@ fn away_scan_with(state:&AwayState,scopes:&str,request:&mut deletion::Request<'_
  let text=away::text(&config);
  let confirmed=if let Some((team_id,channel_id,root))=channel{channel_send::send(true,channel_send::Target{team_id,channel_id,message_id:Some(root),own_id:own.clone(),text,formatted:false},request).is_ok_and(|v|v["status"]=="sent")}else{let body=compose_format::body(&text,false,false)?;request(reqwest::Method::POST,&path,Some(serde_json::json!({"body":body}))).is_ok_and(|r|r.status==201&&r.body["id"].is_string())};
  manager.finish(&sender,confirmed);
+ }
+ if config.mail&&scope_has(scopes,"Mail.Read")&&scope_has(scopes,"Mail.Send"){
+  for candidate in away_mail::candidates(&own,after,now,request)?{
+   let mut manager=state.0.lock().map_err(|_|"Away state unavailable")?;
+   if manager.generation!=generation||manager.own.as_deref()!=Some(&own)||!manager.active(notifications::now()){break;}
+   if !manager.reserve(&candidate.sender,notifications::now())?{continue;}
+   if deletion::own_id(request)?!=own{manager.finish(&candidate.sender,false);break;}
+   let accepted=away_mail::reply(&candidate,&away::text(&config),request);
+   manager.finish(&candidate.sender,accepted);
+  }
  }
  Ok(())
 }
@@ -393,6 +426,58 @@ async fn graph_teams_page(state:State<'_,AuthState>,query:teams::Query)->Result<
         })
     }).await.map_err(|_|"Teams read stopped")?
 }
+// Mail access is opt-in and read-only. Even search uses GET and no mailbox write endpoints.
+fn mail_request(state:&AuthState,path:&str)->Result<(u16,Value),String>{
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Mail HTTP client unavailable")?;
+ let response=client.get(format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(state)?).header("Prefer","outlook.body-content-type=\"html\"").send().map_err(|_|"Mail could not connect. Refresh to try again.")?;
+ let status=response.status().as_u16();if status!=200{return Ok((status,Value::Null));}
+ let mut bytes=Vec::new();response.take(24*1024*1024+1).read_to_end(&mut bytes).map_err(|_|"Mail response could not be read")?;
+ if bytes.len()>24*1024*1024{return Err("Mail response is too large. Open this item in Outlook.".into());}
+ Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid mail response")?))
+}
+#[tauri::command]
+async fn mail_send_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Mail.Send"))).await}
+#[tauri::command]
+async fn mail_send_new(state:State<'_,AuthState>,own_id:String,draft:mail_send::Draft)->Result<Value,String>{
+ let state=AuthState(state.0.clone());background_read(move||{
+  mail_send::payload(&draft)?;
+  // Bind identity verification and the send to one token snapshot, even if the
+  // user signs out or switches accounts while this worker is running.
+  let token=get_access_token(&state)?;
+  let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Mail client unavailable")?;
+  let me=client.get("https://graph.microsoft.com/v1.0/me?$select=id").bearer_auth(&token).send().map_err(|_|"Account could not be checked")?;
+  if !me.status().is_success(){return Err("Account could not be checked. Reconnect before sending.".into());}
+  let identity:Value=me.json().map_err(|_|"Invalid account response")?;
+  if identity["id"].as_str()!=Some(own_id.as_str()){return Err("Account changed. Reopen your draft after reconnecting.".into());}
+  let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Send");
+  if !permitted{return Err("Sending needs Mail.Send consent and a fresh sign-in.".into());}
+  static ATTEMPTS:std::sync::OnceLock<Mutex<std::collections::HashSet<String>>>=std::sync::OnceLock::new();
+  let key=format!("{own_id}:{}",draft.attempt_id);
+  {let mut attempts=ATTEMPTS.get_or_init(Default::default).lock().map_err(|_|"Send state unavailable")?;if attempts.len()>10000{return Err("Restart TAUT before sending more mail.".into());}if !attempts.insert(key){return Ok(serde_json::json!({"status":"uncertain","error":"This send was already attempted. Check Sent in Outlook."}));}}
+  mail_send::send(&draft,true,&mut|body|client.post(format!("https://graph.microsoft.com/v1.0{}",mail_send::route(&draft).expect("validated mail route"))).bearer_auth(&token).json(&body).send().map(|reply|reply.status().as_u16()).map_err(|_|"Mail send unconfirmed".into()))
+ }).await
+}
+#[tauri::command]
+async fn mail_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Mail.Read"))).await}
+#[tauri::command]
+async fn mail_page(state:State<'_,AuthState>,query:mail::Query)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");mail::page(&query,permitted,&mut|path|mail_request(&state,path))}).await}
+#[tauri::command]
+async fn mail_attachment(state:State<'_,AuthState>,message_id:String,attachment_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");mail::attachment(&message_id,&attachment_id,permitted,&mut|path|mail_request(&state,path))}).await}
+#[tauri::command]
+async fn mail_save_attachment(state:State<'_,AuthState>,message_id:String,attachment_id:String)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");
+ let file=mail::attachment(&message_id,&attachment_id,permitted,&mut|path|mail_request(&state,path))?;
+ #[cfg(target_os="macos")]{
+  let name=file["name"].as_str().unwrap_or("attachment").chars().filter(|c|!c.is_control()&&!"/:\\".contains(*c)).take(180).collect::<String>();
+  let script="on run argv\ntry\nset destination to choose file name with prompt \"Save mail attachment\" default name (item 1 of argv)\nreturn POSIX path of destination\non error number -128\nreturn \"\"\nend try\nend run";
+  let output=Command::new("osascript").args(["-e",script,"--",if name.is_empty(){"attachment"}else{&name}]).output().map_err(|_|"Save dialog unavailable")?;
+  if !output.status.success(){return Err("Save dialog could not complete".into());}
+  let path=String::from_utf8(output.stdout).map_err(|_|"Save destination unavailable")?;let path=path.trim_end_matches(['\r','\n']);if path.is_empty(){return Ok(false);}
+  let bytes=base64::engine::general_purpose::STANDARD.decode(file["base64"].as_str().ok_or("Attachment unavailable")?).map_err(|_|"Attachment could not be decoded")?;
+  std::fs::write(path,bytes).map_err(|_|"Attachment could not be saved to that location")?;Ok(true)
+ }
+ #[cfg(not(target_os="macos"))]{let _=file;Err("Saving mail attachments is currently supported on macOS. Open the message in Outlook.".into())}
+ }).await}
 // Graph action POSTs without payloads still need explicit HTTP message framing.
 fn graph_operation_payload(request:reqwest::blocking::RequestBuilder,method:&reqwest::Method,body:Option<Value>)->reqwest::blocking::RequestBuilder {
     if let Some(body)=body {request.json(&body)}
@@ -646,13 +731,20 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn refresh_does_not_silently_request_new_mail_scopes(){
+        let form=super::refresh_form("mock-refresh");
+        assert_eq!(form.iter().map(|(key,_)|*key).collect::<Vec<_>>(),vec!["client_id","grant_type","refresh_token"]);
+        assert!(!form.iter().any(|(key,_)|*key=="scope"));
+    }
+
     use super::*;
     const ME: &str = "11111111-1111-1111-1111-111111111111";
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
@@ -802,3 +894,23 @@ mod tests {
  #[test]fn channel_reply_is_a_thread_reply_and_deduplicates_post_and_reply_author(){let now=notifications::now();let root=std::env::temp_dir().join(format!("taut-away-channel-{}",random_urlsafe()));let mut m=away::Manager::new(Some(root.clone()));m.account(ME);m.configure(away::Config{enabled:true,message:"Away".into(),channels:true,..Default::default()},now-2000).unwrap();m.channels.push(("team".into(),"channel".into()));m.last_scan=Some(now-1000);let state=AwayState(std::sync::Arc::new(Mutex::new(m)));let msg=json!({"id":"root","createdDateTime":chrono::DateTime::from_timestamp_millis(now-500).unwrap().to_rfc3339(),"messageType":"message","from":{"user":{"id":OTHER}},"body":{"content":"hello"}});let mut writes=0;
  away_scan_with(&state,"ChannelMessage.Send",&mut|method,path,_|{if method==Method::POST{writes+=1;assert_eq!(path,"/teams/team/channels/channel/messages/root/replies");return Ok(groups::Reply{status:201,body:json!({"id":"sent","replyToId":"root","from":{"user":{"id":ME}}})});}let value=if path==CHAT_LIST_PATH{json!({"value":[]})}else if path.contains("$expand=replies"){let mut post=msg.clone();post["replies"]=json!([{ "id":"reply","createdDateTime":msg["createdDateTime"],"messageType":"message","from":{"user":{"id":OTHER}},"body":{"content":"second"}}]);json!({"value":[post]})}else if path.starts_with("/users/"){json!({"id":OTHER,"userPrincipalName":"coworker@example.com"})}else if path.starts_with("/me?"){json!({"id":ME})}else if path.ends_with("/messages/root"){msg.clone()}else if path.ends_with("/channels/channel"){json!({"id":"channel","isArchived":false})}else{json!({"id":"team","isArchived":false})};Ok(groups::Reply{status:200,body:value})}).unwrap();assert_eq!(writes,1);std::fs::remove_dir_all(root).unwrap();}
 }
+
+#[cfg(test)]mod mail_away_dispatch_tests{
+ use super::*;use reqwest::Method;use serde_json::json;
+ const ME:&str="11111111-1111-1111-1111-111111111111";const OTHER:&str="22222222-2222-2222-2222-222222222222";
+ #[test]fn mail_opt_in_scope_gates_durable_dedup_and_uncertain_results(){
+ for (opt_in,scopes,accepted,already_replied,expected) in [(false,"Mail.Read Mail.Send",true,false,0),(true,"Mail.Read",true,false,0),(true,"Mail.Read Mail.Send",true,false,1),(true,"Mail.Read Mail.Send",false,false,1),(true,"Mail.Read Mail.Send",true,true,0)]{
+  let now=notifications::now();let root=std::env::temp_dir().join(format!("taut-away-mail-{}",random_urlsafe()));let mut m=away::Manager::new(Some(root.clone()));m.account(ME);m.configure(away::Config{enabled:true,message:"Away now".into(),mail:opt_in,..Default::default()},now-2000).unwrap();m.last_scan=Some(now-1000);if already_replied{m.reserve(OTHER,now-1000).unwrap();m.finish(OTHER,true);}
+  let state=AwayState(std::sync::Arc::new(Mutex::new(m)));let time=chrono::DateTime::from_timestamp_millis(now-500).unwrap().to_rfc3339();let mut writes=0;let mut mail_reads=0;
+  let mut request=|method:Method,path:&str,body:Option<Value>|{
+   if method==Method::POST{writes+=1;assert!(state.0.try_lock().is_err());assert_eq!(path,"/me/messages/new/reply");assert!(body.unwrap().is_string());if !accepted{return Err("timeout".into());}return Ok(groups::Reply{status:202,body:Value::Null});}
+   let value=if path==CHAT_LIST_PATH{json!({"value":[]})}else if path=="/me?$select=id"{json!({"id":ME})}else if path.starts_with("/me?$select=id,mail"){json!({"id":ME,"mail":"me@example.com"})}else if path.starts_with("/me/mailFolders"){mail_reads+=1;json!({"value":[{"id":"new","receivedDateTime":time},{"id":"old","receivedDateTime":"2020-01-01T00:00:00Z"}]})}else if path.starts_with("/me/messages/new?"){json!({"id":"new","receivedDateTime":time,"isDraft":false,"from":{"emailAddress":{"address":"alex@example.com"}},"sender":{"emailAddress":{"address":"alex@example.com"}},"toRecipients":[{"emailAddress":{"address":"me@example.com"}}],"replyTo":[],"internetMessageHeaders":[],"subject":"Hello","internetMessageId":"<original@example.com>"})}else if path.starts_with("/users/"){json!({"id":OTHER,"mail":"alex@example.com","userPrincipalName":"alex@example.com"})}else{panic!("unexpected route {path}")};Ok(groups::Reply{status:200,body:value})
+  };
+  away_scan_with(&state,scopes,&mut request).unwrap();state.0.lock().unwrap().last_scan=Some(now-1000);away_scan_with(&state,scopes,&mut request).unwrap();drop(request);assert_eq!(writes,expected);
+  if !opt_in||!scopes.contains("Mail.Send"){assert_eq!(mail_reads,0);}
+  let mut restored=away::Manager::new(Some(root.clone()));restored.account(ME);if expected==1{assert_eq!(restored.config.ledger[OTHER],if accepted{"sent"}else{"uncertain"});assert!(!restored.reserve(OTHER,now).unwrap());}std::fs::remove_dir_all(root).unwrap();
+ }
+ }
+}
+
+#[cfg(test)]mod mail_away_transport_tests{use super::*;#[test]fn mime_reply_transport_uses_raw_text(){let request=mail_away_payload(Client::new().post("https://example.test/reply"),"YWJj").build().unwrap();assert_eq!(request.headers()["content-type"],"text/plain");assert_eq!(request.body().unwrap().as_bytes().unwrap(),b"YWJj");}}
