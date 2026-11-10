@@ -165,3 +165,49 @@ Verified: production build (three existing App accessibility warnings), UI TypeS
 User confirmed People v1 complete. Checkpoint includes accumulated Mail preview/composition/replies/attachments, unified search, appearance/preferences and People development since the previous commit. Future People organization and group decks remain in TODO.
 
 Checkpoint validation: 80 Node tests, 156 Rust tests and all 478 mocked Chromium/WebKit UI tests passed. UI TypeScript and production build passed; build retains three existing App accessibility warnings. No real Microsoft 365 data mutated during automated tests.
+
+## Mail roadmap implementation — November 10, 2026
+
+Reorganized TODO.md into the active ordered roadmap and archived completed history in ROADMAP_COMPLETED.md. Implemented local email file copies in IndexedDB, attachment/inline-image selection plus paste/drop, CID image sending, bounded Graph fileAttachment payloads, and retention after uncertain sending. User confirmed attachment and inline-image sending worked in their manual tenant test.
+
+Added account-local signature defaults for new mail/replies/forwards, an explicit per-draft signature snapshot and review preview. Chat Respond by email creates a local draft quoting the message and loaded replies, with blank recipients and file names only. Mailbox search now has a clear button that resets the current folder view.
+
+Next: remembered approval for individual received inline images in HTML view (plain text keeps modal preview), then timed/read-unread controls and unread badge. Mail.ReadWrite requires documented user approval before implementation; it was not added. Signature and chat-to-email live acceptance remain pending.
+
+Validation: 84 Node tests, 157 Rust tests, UI TypeScript and production build passed (three existing App accessibility warnings). All 490 mocked Chromium/WebKit UI cases passed across the full run and targeted rerun: the full run had two assertions expecting an original clipboard filename, corrected to match the intentionally generated clipboard name; both corrected cases passed on rerun. No automated real Microsoft 365 writes or new OAuth scopes.
+
+### Mail signature and reference polish
+Moved account signature defaults to Settings → Mail with Include/Omit choices, leaving only per-draft inclusion in the composer. Chat email drafts now resolve the actual message sender address (known membership or read-only profile lookup) and place an escaped “In reference to” HTML quote above the reply. Recipients remain editable; unresolved addresses stay blank. No new Graph scopes or automated real-tenant writes.
+Validation for signature/reference polish: 85 Node tests, 38 mocked Mail/preferences UI cases in Chromium/WebKit, and four final targeted signature/bridge cases passed. Production build and UI TypeScript passed, retaining three existing App accessibility warnings. Inspected the WebKit signature settings screenshot. No Rust behavior changed in this follow-up.
+
+### Mail confirmation follow-up
+Confirmed chat references are included in the actual outgoing HTML body; the composer now places the quote in its body area with explicit recipient-facing wording. Added portable HTML line breaks. Self-addressed To recipients require confirmation with an account-local remembered opt-out. Draft discard now uses a centered native dialog with Cancel focused, keyboard dismissal and scroll-free focus restoration. Signature sending was user validated; rendering polish remains future work.
+Validation: 85 Node tests and 42 mocked Mail/preferences browser cases passed in Chromium/WebKit. UI TypeScript passed; production build passed with three existing App accessibility warnings. No new scopes or automated Microsoft 365 writes.
+
+Review & send now opens a centered confirmation dialog with Keep editing focused. The confirmation footer stays visible while lengthy review details scroll within the dialog. Escape returns to the unchanged draft. Verified 40 mocked Mail composer browser cases (Chromium/WebKit), including a small viewport, plus 85 Node tests, UI TypeScript and production build. Build retains three existing App accessibility warnings. No real Microsoft 365 writes.
+
+### Cached recipient suggestions and quieter review
+To/Cc/Bcc suggest up to five matching names/email addresses from the current account’s People cache after two characters. Keyboard arrows/Enter or pointer selection replaces the current comma/semicolon-delimited address fragment; Escape dismisses suggestions. No lookup requests are made while typing; explicit Find a coworker remains available when the cache has no match. Review shows only Signature included/not included; the outgoing signature is unchanged. Multiple named signatures with separate action defaults are on TODO.md.
+Validation: 70 mocked Mail/People/formatting browser tests passed in Chromium and WebKit, plus 85 Node tests, UI TypeScript and production build (three existing App accessibility warnings). No automated Microsoft 365 writes or new scopes.
+
+
+## Mail read-state authorization — November 10, 2026
+
+User explicitly approved delegated Mail.ReadWrite and confirmed Entra tenant admin consent. Purpose and boundaries are documented in MAIL.md. Scope addition and implementation remain pending, following received inline image approval. Use mocks for all automated mailbox mutations; fresh interactive sign-in will be needed when TAUT requests the expanded scope.
+
+### November 10: received image approval and mailbox read state
+- Added approved delegated Mail.ReadWrite request; fresh interactive sign-in required.
+- Explicit read/unread controls (message and loaded conversation context menu), server account verification and isRead-only PATCH with GET reconciliation; no write retries.
+- Optional focused/visible message delay (Off default, 3/5/10 seconds); manual unread pauses until reopening.
+- HTML CID Preview remembers per-attachment approval locally; Block again revokes. Plain-text preview stays modal; remote images remain blocked.
+- Validation uses mocked Graph only. Node 85 and Rust 160 tests pass; production build passes with three existing App accessibility warnings. Mail browser regression results recorded in final response.
+- Mail browser regressions: 84 passed across Chromium/WebKit; the two new delay checks passed on rerun after correcting the test to advance the fixture's frozen clock (86 checks total). UI TypeScript and git diff whitespace checks pass. No live Microsoft 365 mutation tests performed.
+
+
+### Mail acceptance and laptop handoff — November 10, 2026
+- User confirmed received inline images render successfully, including linked signature images. Fixed Graph's derived contentId selection, preserved bounded image dimensions (including Outlook inch/point sizes), and suppressed numbered link markers for rendered image-only links while retaining reviewed destinations in Email links.
+- User confirmed Mark read / Mark unread works; TAUT changes propagate to Outlook web and native within seconds. Changes made in Outlook appear after returning to Mail; current manual/navigation refresh behavior is accepted. Native context menu can appear outside a message/row hit area; no change requested.
+- Added actual Graph importance metadata to summaries and message reads, with a High importance indicator on the latest loaded message row and each applicable message header. Never infer importance from subject text.
+- README now contains current Mac clone/run instructions and explains that local drafts, signatures, image approvals, preferences, caches and Keychain credentials do not transfer through Git. Active development branch: feat/message-deletion.
+
+End-of-day validation: 85 Node tests and 162 offline locked Rust library tests passed; offline locked cargo check, UI TypeScript, production build and diff whitespace checks passed. Browser suite: 504 passed in the full run; the two new importance cases initially used an ambiguous subject selector, corrected to match the exact subject, and both passed in the targeted Chromium/WebKit rerun (506 cases covered). Build retains three existing App accessibility warnings. No native app launch or real Microsoft 365 operations during automated checks. Checkpoint includes the accumulated November 10 Mail work and README laptop setup; push destination is origin/feat/message-deletion.

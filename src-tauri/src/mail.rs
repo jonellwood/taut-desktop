@@ -16,7 +16,7 @@ pub struct Query {
 }
 fn id(value:Option<&str>)->Result<&str,String>{value.filter(|s|!s.is_empty()&&s.len()<=1024&&!s.chars().any(|c|c.is_control()||"/\\?#".contains(c))&&*s!="."&&*s!="..").ok_or("Invalid mail identifier".into())}
 fn enc(s:&str)->String{percent_encoding::utf8_percent_encode(s,percent_encoding::NON_ALPHANUMERIC).to_string()}
-const SUMMARY:&str="id,conversationId,subject,from,toRecipients,receivedDateTime,sentDateTime,bodyPreview,isRead,hasAttachments,webLink";
+const SUMMARY:&str="id,conversationId,subject,from,toRecipients,receivedDateTime,sentDateTime,bodyPreview,isRead,hasAttachments,importance,webLink";
 fn route(q:&Query)->Result<String,String>{
  let mut pairs:Vec<(&str,String)>=vec![];
  let path=match q.collection.as_str(){
@@ -32,7 +32,9 @@ fn route(q:&Query)->Result<String,String>{
   },
   "conversation"=>{let c=id(q.conversation_id.as_deref())?;pairs.extend([("$select",SUMMARY.into()),("$top","25".into()),("$filter",format!("conversationId eq '{}'",c.replace('\'',"''")))]);"/me/messages".into()},
   "message"=>{pairs.push(("$select",format!("{SUMMARY},ccRecipients,replyTo,body")));format!("/me/messages/{}",enc(id(q.message_id.as_deref())?))},
-  "attachments"=>{pairs.extend([("$select","id,name,contentType,size,isInline".into()),("$top","25".into())]);format!("/me/messages/{}/attachments",enc(id(q.message_id.as_deref())?))},
+  // contentId belongs to fileAttachment, not the base attachment collection.
+  // Qualify the derived property; keep contentBytes out of metadata requests.
+  "attachments"=>{pairs.extend([("$select","id,name,contentType,size,isInline,microsoft.graph.fileAttachment/contentId".into()),("$top","25".into())]);format!("/me/messages/{}/attachments",enc(id(q.message_id.as_deref())?))},
   _=>return Err("Unsupported mail collection".into())
  };
  let query=url::form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs).finish();Ok(format!("{path}?{query}"))
@@ -80,6 +82,32 @@ pub fn attachment(message:&str,attachment:&str,permitted:bool,request:&mut dyn F
 mod tests{
  use super::*;
  fn query(collection:&str)->Query{Query{collection:collection.into(),folder:None,message_id:Some("mail-id".into()),conversation_id:Some("conv-id".into()),search:None,next:None}}
+ #[test]fn message_reads_select_actual_importance(){
+  for collection in ["messages","conversation","message"]{
+   let path=route(&query(collection)).unwrap();
+   let url=Url::parse(&format!("https://graph.microsoft.com/v1.0{path}")).unwrap();
+   let selected=url.query_pairs().find(|(k,_)|k=="$select").unwrap().1.into_owned();
+   assert!(selected.split(',').any(|field|field=="importance"));
+  }
+ }
+ #[test]fn attachment_metadata_qualifies_file_properties_and_preserves_paging(){
+  let mut q=query("attachments");q.message_id=Some("mail+id=".into());
+  let root=route(&q).unwrap();
+  let url=Url::parse(&format!("https://graph.microsoft.com/v1.0{root}")).unwrap();
+  assert_eq!(url.path(),"/v1.0/me/messages/mail%2Bid%3D/attachments");
+  let selected=url.query_pairs().find(|(k,_)|k=="$select").unwrap().1.into_owned();
+  assert_eq!(selected,"id,name,contentType,size,isInline,microsoft.graph.fileAttachment/contentId");
+  assert!(!selected.split(',').any(|p|p=="contentId"||p=="contentBytes"));
+  let next=format!("https://graph.microsoft.com/v1.0{root}&%24skip=25");
+  let first=page(&q,true,&mut |path|{
+   assert_eq!(path,root);
+   Ok((200,json!({"value":[{"id":"logo","contentId":"signature","isInline":true},{"id":"item","@odata.type":"#microsoft.graph.itemAttachment"}],"@odata.nextLink":next})))
+  }).unwrap();
+  assert_eq!(first["value"][0]["contentId"],"signature");
+  assert_eq!(first["value"].as_array().unwrap().len(),2);
+  q.next=Some(next);
+  page(&q,true,&mut |path|{assert_eq!(path,format!("{root}&%24skip=25"));Ok((200,json!({"value":[]})))}).unwrap();
+ }
  #[test]fn no_consent_makes_no_request(){let mut n=0;let mut r=|_:&str|{n+=1;Ok((200,json!({"value":[]})))};assert!(page(&query("messages"),false,&mut r).is_err());assert!(attachment("m","a",false,&mut r).is_err());assert_eq!(n,0);}
  #[test]fn routes_are_read_only_and_query_encoded(){let mut q=query("messages");q.search=Some("boss & budget".into());let path=route(&q).unwrap();assert!(path.starts_with("/me/messages?"));assert!(path.contains("%26"));assert!(!path.contains("boss &"));q.collection="send".into();assert!(route(&q).is_err());q=query("message");q.message_id=Some("../token".into());assert!(route(&q).is_err());}
  #[test]fn continuations_stay_on_resource_and_query(){let root=route(&query("messages")).unwrap();let good=format!("https://graph.microsoft.com/v1.0{root}&%24skip=25");assert!(continuation(&root,&good).is_ok());for bad in [good.replace("graph.microsoft.com","evil.test"),good.replace("25","500"),good.replace("https://","http://"),good.replace("/v1.0/","/beta/"),good.replace("https://graph", "https://user@graph"),format!("{good}#fragment")]{assert!(continuation(&root,&bad).is_err());}}

@@ -1,6 +1,7 @@
 mod people;
 mod mail;
 mod mail_send;
+mod mail_read;
 mod away;
 mod away_mail;
 mod membership;
@@ -28,7 +29,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All User.Read.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All Mail.Read Mail.Send";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All User.Read.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All Mail.Read Mail.Send Mail.ReadWrite";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
@@ -436,6 +437,20 @@ fn mail_request(state:&AuthState,path:&str)->Result<(u16,Value),String>{
  Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid mail response")?))
 }
 #[tauri::command]
+async fn mail_write_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Mail.ReadWrite"))).await}
+#[tauri::command]
+async fn mail_set_read(state:State<'_,AuthState>,own_id:String,message_id:String,is_read:bool)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.ReadWrite");
+ let token=get_access_token(&state)?;
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Mail client unavailable")?;
+ mail_read::change(&own_id,&message_id,is_read,permitted,&mut|method,path,body|{
+  let request=if method=="PATCH"{client.patch(format!("https://graph.microsoft.com/v1.0{path}")).json(&body)}else{client.get(format!("https://graph.microsoft.com/v1.0{path}"))};
+  let reply=request.bearer_auth(&token).send().map_err(|_|"Mail read state could not be checked")?;let status=reply.status().as_u16();
+  if method=="PATCH"{return Ok((status,Value::Null));}
+  if status!=200{return Ok((status,Value::Null));}let mut bytes=Vec::new();reply.take(65537).read_to_end(&mut bytes).map_err(|_|"Mail read state unavailable")?;if bytes.len()>65536{return Err("Mail response too large".into());}Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid mail response")?))
+ })
+}).await}
+#[tauri::command]
 async fn mail_send_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Mail.Send"))).await}
 #[tauri::command]
 async fn mail_send_new(state:State<'_,AuthState>,own_id:String,draft:mail_send::Draft)->Result<Value,String>{
@@ -731,7 +746,7 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![mail_write_permission,mail_set_read,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

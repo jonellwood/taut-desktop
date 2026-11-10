@@ -20,3 +20,27 @@ test('reply recipients honor Reply-To, exclude self and deduplicate across To/Cc
  const f=responseDraft(m,'forward',[]);assert.equal(f.to,'');assert.equal(f.subject,'FW: Project');assert.ok(draftError({...f,text:'Forwarding'}));
  const sent=responseDraft({...m,from:a('me@example.test')},'reply',['me@example.test']);assert.equal(sent.to,'peer@example.test');
 });
+
+test('inline mail images use escaped CID markup and preserve draft metadata',()=>{
+ const id='12345678-1234-1234-1234-123456789abc';const file={id,name:'photo"<.png',size:3,contentType:'image/png',inline:true};
+ const d={...draft(),text:`Hello\n[image:${id}]`,attachments:[file]};
+ assert.equal(draftError(d),'');assert.match(mailContent(d),/src="cid:taut-/);assert.match(mailContent(d),/photo&quot;&lt;.png/);assert.deepEqual(restoreDrafts(JSON.stringify([d]))[0].attachments,[file]);
+ assert.ok(draftError({...d,text:'No marker'}));assert.ok(draftError({...d,formatted:true,text:`\`\`\`\n[image:${id}]\n\`\`\``}));
+});
+test('mail attachment staging rejects oversized and excessive files atomically',async()=>{
+ const {validateMailFiles}=await import('../src/lib/mail-attachments.ts');
+ assert.throws(()=>validateMailFiles([], [{name:'large.pdf',size:2097153}]),/2 MB/);
+ assert.throws(()=>validateMailFiles([],Array.from({length:6},()=>({name:'a',size:1}))),/5 files/);
+ assert.throws(()=>validateMailFiles([],[{name:'empty',size:0}]),/nonempty/);
+ assert.doesNotThrow(()=>validateMailFiles([],[{name:'a.pdf',size:2097152}]));
+});
+test('signature content is escaped, separate and survives draft restoration',()=>{
+ const d={...draft(),signature:'**Name**\n<script>no</script>'};assert.equal(d.text,'Hello');assert.match(mailContent(d),/<strong>Name<\/strong>/);assert.ok(!mailContent(d).includes('<script>'));assert.equal(restoreDrafts(JSON.stringify([d]))[0].signature,d.signature);
+});
+test('chat email drafts quote source and loaded replies without copying recipients or files',async()=>{
+ const {chatMailDraft}=await import('../src/lib/chat-mail.ts');const d=chatMailDraft('Group',{id:'one',sender:'them',senderName:'Alex',text:'Original',time:'10:00',attachments:[{name:'report.pdf'}]},[{id:'two',sender:'me',text:'Reply',time:'10:01'}]);assert.equal(d.to,'');assert.equal(d.text,'');assert.match(d.context,/Alex.*10:00/);assert.match(d.context,/Reply/);assert.equal(d.attachments,undefined);assert.ok(draftError(d));
+});
+
+test('chat reference is HTML, escaped and precedes the reply',async()=>{
+ const {chatMailDraft}=await import('../src/lib/chat-mail.ts');const d=chatMailDraft('Alex',{id:'one',sender:'them',text:'<script>original</script>',time:'10:00'},[],'alex@example.com');d.text='My reply';const html=mailContent(d);assert.equal(d.to,'alex@example.com');assert.match(html,/<h3>In reference to<\/h3>/);assert.match(html,/border-left:/);assert.ok(html.indexOf('original')<html.indexOf('My reply'));assert.ok(!html.includes('<script>'));assert.equal(restoreDrafts(JSON.stringify([d]))[0].referenceFirst,true);
+});

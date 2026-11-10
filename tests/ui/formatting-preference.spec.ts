@@ -8,6 +8,6 @@ test('toolbar starts visible and remembers hide/show across composers and restar
 
 test('visible mail toolbar enables formatted sending when a format is chosen',async({page,graph})=>{
  await signIn(page);await page.getByRole('button',{name:'Mail',exact:true}).click();await page.getByRole('button',{name:'New email',exact:true}).click();
- await page.getByRole('textbox',{name:'To',exact:true}).fill('alex@example.test');await page.getByRole('textbox',{name:'Email subject'}).fill('Formatted');await page.getByRole('button',{name:'Bold',exact:true}).click();await expect(page.getByRole('textbox',{name:'Email message'})).toHaveValue('**bold text**');
+ await page.getByRole('combobox',{name:'To',exact:true}).fill('alex@example.test');await page.getByRole('textbox',{name:'Email subject'}).fill('Formatted');await page.getByRole('button',{name:'Bold',exact:true}).click();await expect(page.getByRole('textbox',{name:'Email message'})).toHaveValue('**bold text**');
  await page.getByRole('button',{name:'Review & send'}).click();await page.getByRole('button',{name:'Send email',exact:true}).click();await expect(page.getByRole('status')).toContainText('Accepted for sending');const send=graph.calls.find(c=>c.command==='mail_send_new');expect(send?.args.draft.contentType).toBe('HTML');expect(send?.args.draft.content).toContain('<strong>bold text</strong>');
 });

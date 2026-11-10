@@ -102,10 +102,12 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['mail_set_read','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
+      case 'mail_write_permission': return true;
+      case 'mail_set_read': {const m=this.mailMessages.find(m=>m.id===args.messageId);if(!m)throw Error('Missing mail');m.isRead=args.isRead;return {id:m.id,isRead:m.isRead};}
       case 'mail_send_permission': return this.mailCanSend;
       case 'mail_send_new': return this.mailSendResult;
       case 'mail_permission':return this.mailPermitted;

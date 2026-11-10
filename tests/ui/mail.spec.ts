@@ -146,3 +146,58 @@ test('unsupported documents offer Save without a misleading Preview in either vi
  await expect(page.getByRole('complementary',{name:'Mail conversation details'}).getByRole('button',{name:'Preview',exact:true})).toHaveCount(0);
  expect(graph.calls.filter(c=>c.command==='mail_attachment')).toHaveLength(0);expect(graph.writes).toEqual([]);
 });
+
+test('explicit read and unread changes reconcile the message and sidebar',async({page,graph})=>{
+ await signIn(page);await openMail(page);await mailRow(page).click();
+ await page.getByRole('button',{name:'Mark read',exact:true}).click();
+ await expect(page.getByLabel('Unread email')).toHaveCount(0);
+ await page.getByRole('button',{name:'Mark unread',exact:true}).click();
+ await expect(page.getByLabel('Unread email')).toBeVisible();
+ expect(graph.calls.filter(c=>c.command==='mail_set_read').map(c=>c.args.isRead)).toEqual([true,false]);
+});
+
+test('inline image approval persists for that attachment and can be revoked',async({page,graph})=>{
+ graph.mailMessages[0].body={contentType:'html',content:'<p>Inline picture</p><a href="https://example.test/signature"><img src="cid:logo" alt="Signature logo" width="120" height="120" style="width:1.25in;height:1.25in"></a><a href="https://example.test/remote"><img src="https://example.test/tracker.png" alt="Remote logo"></a>'};
+ graph.mailFiles=[{id:'logo',name:'logo.png',contentType:'image/png',contentId:'logo',isInline:true,size:68}];
+ graph.mailFile={contentType:'image/png',base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='};
+ await signIn(page);await openMail(page);await mailRow(page).click();
+ const frame=page.frameLocator('iframe[title="Formatted email"]');await expect(frame.locator('img')).toHaveCount(0);
+ expect(graph.calls.filter(c=>c.command==='mail_attachment')).toHaveLength(0);
+ await page.locator('.mail-thread').getByRole('button',{name:'Preview',exact:true}).click();
+ await expect(frame.locator('img')).toHaveCount(1);await expect(page.getByRole('dialog',{name:'Mail attachment preview'})).toHaveCount(0);
+ await expect(frame.locator('img')).toHaveAttribute('src',`data:image/png;base64,${graph.mailFile.base64}`);
+ await expect(frame.locator('img')).toHaveJSProperty('naturalWidth',1);
+ await expect(frame.locator('img')).toHaveCSS('width','120px');
+ await expect(frame.locator('img')).toHaveCSS('height','120px');
+ await expect(frame.locator('.mail-link').first()).toHaveText('');
+ await page.getByText('Email links (2)',{exact:true}).click();
+ await expect(page.getByRole('button',{name:'[1] https://example.test/signature',exact:true})).toBeVisible();
+ await expect(frame.locator('a')).toHaveCount(0);
+ await expect(frame.getByText('[Image blocked: Remote logo]',{exact:true})).toBeVisible();
+ await mailRow(page).click();await expect(frame.locator('img')).toHaveCount(1);
+ await page.getByRole('button',{name:'Block again',exact:true}).click();await expect(frame.locator('img')).toHaveCount(0);
+ expect(graph.writes).toEqual([]);
+});
+
+test('optional viewing delay marks only the open message and manual unread holds',async({page,graph})=>{
+ await page.addInitScript(()=>{localStorage.setItem('taut.mail.read-delay.v1','3');Object.defineProperty(document,'hasFocus',{value:()=>true});});
+ await signIn(page);await openMail(page);await page.clock.runFor(3300);
+ expect(graph.calls.filter(c=>c.command==='mail_set_read')).toHaveLength(0);
+ await mailRow(page).click();await page.locator('.mail-read-marker').scrollIntoViewIfNeeded();await page.clock.runFor(3600);await expect(page.getByRole('button',{name:'Mark unread',exact:true})).toBeVisible({timeout:8000});
+ await page.getByRole('button',{name:'Mark unread',exact:true}).click();await page.clock.runFor(3500);
+ expect(graph.calls.filter(c=>c.command==='mail_set_read').map(c=>c.args.isRead)).toEqual([true,false]);
+});
+
+
+test('high importance uses Graph metadata in the latest message row and individual headers',async({page,graph})=>{
+ graph.mailMessages[0].importance='high';
+ graph.mailMessages.push({...graph.mailMessages[0],id:'normal',conversationId:'normal-thread',subject:'URGENT! high importance',importance:'normal'});
+ graph.mailMessages.push({...graph.mailMessages[0],id:'missing',conversationId:'missing-thread',subject:'Missing importance',importance:undefined});
+ await signIn(page);await openMail(page);
+ await expect(page.locator('.mail-row').getByRole('img',{name:'High importance',exact:true})).toHaveCount(1);
+ await page.locator('.mail-row').filter({has:page.getByText('Project document',{exact:true})}).click();
+ await expect(page.locator('.mail-message-heading').getByText('High importance',{exact:true})).toHaveCount(1);
+ await page.locator('.mail-row').filter({hasText:'URGENT!'}).click();
+ await expect(page.locator('.mail-message-heading').getByText('High importance',{exact:true})).toHaveCount(0);
+ expect(graph.writes).toEqual([]);
+});

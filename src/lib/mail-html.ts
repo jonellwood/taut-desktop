@@ -2,7 +2,23 @@ import {safeMessageLink} from './message-body.ts';
 const allowed=new Set('p div span font br hr strong b em i u s del small sub sup h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code table thead tbody tfoot tr th td caption colgroup col'.split(' '));
 const drop=new Set('script style iframe frame frameset object embed svg math form input button textarea select option video audio canvas link meta base template noscript head title'.split(' '));
 export type RenderedMail={html:string;links:string[];images:number;shortened:boolean;hasContent:boolean};
-export function renderMailHtml(source:string):RenderedMail{
+// Preserve only bounded literal dimensions, never arbitrary email CSS.
+function imageSize(el:Element,img:HTMLImageElement){
+ const style=(el as HTMLElement).style;
+ function pixels(value:string){
+  const match=/^(\d+(?:\.\d+)?)(px|pt|in|cm|mm)?$/i.exec(value.trim());
+  if(!match)return undefined;
+  const scale:Record<string,number>={px:1,pt:96/72,in:96,cm:96/2.54,mm:96/25.4};
+  const n=Number(match[1])*scale[(match[2]||'px').toLowerCase()];
+  return n>0&&n<=4096?n:undefined;
+ }
+ const width=pixels(style.width)||pixels(el.getAttribute('width')||'');
+ const height=pixels(style.height)||pixels(el.getAttribute('height')||'');
+ if(width)img.style.width=`${width}px`;
+ if(width&&height)img.style.aspectRatio=`${width} / ${height}`;
+ else if(height)img.style.height=`${height}px`;
+}
+export function renderMailHtml(source:string,approved:Record<string,string>={}):RenderedMail{
  const template=document.createElement('template');template.innerHTML=source.slice(0,300000);
  const output=document.createElement('div'),links:string[]=[];let images=0,count=0,shortened=source.length>300000;
  function walk(parent:ParentNode,target:Node,depth:number){
@@ -13,11 +29,14 @@ export function renderMailHtml(source:string):RenderedMail{
    if(node.nodeType!==1)continue;
    const el=node as Element,tag=el.localName.toLowerCase();
    if(drop.has(tag))continue;
-   if(tag==='img'){images++;const placeholder=document.createElement('span');placeholder.className='blocked-image';placeholder.textContent=`[Image blocked${el.getAttribute('alt')?`: ${el.getAttribute('alt')!.slice(0,150)}`:''}]`;target.appendChild(placeholder);continue;}
+   if(tag==='img'){const src=el.getAttribute('src')??'';const data=src.startsWith('cid:')?approved[src.slice(4)]:undefined;if(data&&/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(data)){const img=document.createElement('img');img.src=data;img.alt=(el.getAttribute('alt')??'Inline image').slice(0,150);imageSize(el,img);target.appendChild(img);continue;}images++;const placeholder=document.createElement('span');placeholder.className='blocked-image';placeholder.textContent=`[Image blocked${el.getAttribute('alt')?`: ${el.getAttribute('alt')!.slice(0,150)}`:''}]`;target.appendChild(placeholder);continue;}
    if(tag==='a'){
     const url=safeMessageLink(el.getAttribute('href')??'');
-    const label=document.createElement('span');if(url)label.className='mail-link';label.textContent=el.textContent??'';
-    if(url&&links.length<100){let index=links.indexOf(url);if(index<0){links.push(url);index=links.length-1;}label.appendChild(document.createTextNode(` [${index+1}]`));}
+    const label=document.createElement('span');if(url)label.className='mail-link';
+    // Signatures often wrap CID images in links. Sanitize their children too,
+    // so image approval works without making the original link navigable.
+    walk(el,label,depth+1);
+    if(url&&links.length<100){let index=links.indexOf(url);if(index<0){links.push(url);index=links.length-1;}if(!label.querySelector('img')||label.textContent?.trim())label.appendChild(document.createTextNode(` [${index+1}]`));}
     target.appendChild(label);continue;
    }
    if(!allowed.has(tag)){walk(el,target,depth+1);continue;}
@@ -48,7 +67,7 @@ export function renderMailHtml(source:string):RenderedMail{
   }
  }
  walk(template.content,output,0);
- return {html:output.innerHTML,links,images,shortened,hasContent:!!output.textContent?.replace(/[\s\u200b\ufeff]/g,'')};
+ return {html:output.innerHTML,links,images,shortened,hasContent:!!output.querySelector('img')||!!output.textContent?.replace(/[\s\u200b\ufeff]/g,'')};
 }
 // Resolve each element against its effective background. Keep readable sender colors,
 // and supply a black/white fallback for WebKit versions without contrast-color().
@@ -78,8 +97,8 @@ export function mailHtmlDocument(body:string,colors:{text:string;background:stri
  // Colors come from TAUT's own computed theme, not from email content.
  const color=(value:string,fallback:string)=>/^(#[\da-f]{3,8}|rgba?\([\d.,%\s]+\))$/i.test(value)?value:fallback;
  body=readableColors(body,{text:color(colors.text,'#ddd'),background:color(colors.background,'#17232b'),accent:color(colors.accent,'#efbd70')});
- return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><style>
- html{color:${color(colors.text,'#ddd')};background:${color(colors.background,'#17232b')};font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere}body{margin:16px}p{margin:.7em 0}table{border-collapse:collapse;max-width:100%}td,th{padding:0;text-align:left;vertical-align:top}blockquote{margin:12px 0;padding-left:14px;border-left:3px solid ${color(colors.border,'#66717b')}}pre{white-space:pre-wrap}code{font-family:ui-monospace,monospace}.mail-link{color:${color(colors.accent,'#efbd70')};text-decoration:underline}.blocked-image{margin:2px 4px 2px 0;display:inline-block;padding:4px 8px;border:1px dashed ${color(colors.border,'#66717b')};font-size:12px}hr{border:0;border-top:1px solid ${color(colors.border,'#66717b')}}
+ return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><style>
+ html{color:${color(colors.text,'#ddd')};background:${color(colors.background,'#17232b')};font:14px/1.7 system-ui,sans-serif;overflow-wrap:anywhere}body{margin:16px}img{max-width:100%;height:auto}p{margin:.7em 0}table{border-collapse:collapse;max-width:100%}td,th{padding:0;text-align:left;vertical-align:top}blockquote{margin:12px 0;padding-left:14px;border-left:3px solid ${color(colors.border,'#66717b')}}pre{white-space:pre-wrap}code{font-family:ui-monospace,monospace}.mail-link{color:${color(colors.accent,'#efbd70')};text-decoration:underline}.blocked-image{margin:2px 4px 2px 0;display:inline-block;padding:4px 8px;border:1px dashed ${color(colors.border,'#66717b')};font-size:12px}hr{border:0;border-top:1px solid ${color(colors.border,'#66717b')}}
  @supports(color:contrast-color(white)){.mail-contrast-repair{color:contrast-color(var(--mail-background))!important}}
  </style></head><body>${body}</body></html>`;
 }
