@@ -130,3 +130,18 @@ Mark read / Mark unread was user-validated across TAUT, Outlook web and Outlook 
 ## Individual email deletion
 
 Requested by the user after Calendar testing: explicit **Move to Deleted Items** on an expanded email, or the context menu when it represents one loaded email. Uses existing delegated Mail.ReadWrite; no scope expansion. Confirmation explains that only this email moves and restoration is available in Outlook. The backend verifies the signed-in account and makes one POST move with destinationId=deleteditems, requiring 201 plus the returned ID. It never retries a write. A local per-account/message attempt marker prevents repeating uncertain operations across restarts; check Outlook if unconfirmed. Conversations and mailbox search exclude Deleted Items by parentFolderId so subsequent reads do not resurrect moved messages. Permanent deletion, bulk conversation deletion, restoration controls and folder organization remain deferred.
+
+
+## Inbox unread badge and quiet refresh — November 19, 2026
+
+The Mail rail icon displays the server's unreadItemCount for the signed-in user's Inbox (including invitation items). It is independent of partial loaded message pages and the current Mail search/folder. Other folders and subfolders are excluded. Zero hides the badge, while the Mail sidebar shows the full count; display values over 99 use 99+ with the full count in the accessible label/tooltip.
+
+The user authorized background Inbox metadata checks from other workspaces. With existing Mail.Read consent, one account-bound Rust token snapshot verifies /me identity and reads /me/mailFolders/inbox?$select=unreadItemCount. No new permissions, unread-filter scans, message bodies or attachment reads are needed for the counter. No Mail consent means no folder/count requests. Counts are memory-only, account-scoped and cleared on sign-out; late results cannot populate another account.
+
+Checks run about once per minute while TAUT is visible and online, also after explicit read/unread/move/send and manual Mail refresh. Failures keep a visibly stale last-known count and exponentially back off up to five minutes; an unavailable count is never presented as zero. Hidden/offline sessions pause and resume on return. There are no sounds, notifications or live announcements.
+
+When Mail is open, successful checks also refresh the latest page of its current folder/search and the open conversation's summary page. New summaries merge with loaded history, preserve pagination and selection, and anchor list/body scrolling. Cached bodies/images and writing drafts are not replaced; automatic refresh is skipped during composition, preview, reads/writes and pending loads. New conversation items remain collapsed and are not automatically indexed for media. Older paginated summaries are retained, not claimed fully synchronized; manual Refresh replaces the current list page.
+
+Fresh summary isRead values reconcile loaded bodies without replacing their content. An external Outlook mark-unread on an already read open message pauses optional automatic read marking until reopening, so quiet sync does not immediately undo it. These background operations are read-only; existing explicit read-state controls remain separate.
+
+Reference: https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0 (unreadItemCount includes all item types in the folder).

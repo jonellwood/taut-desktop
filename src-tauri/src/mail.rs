@@ -59,6 +59,18 @@ fn continuation(initial:&str,next:&str)->Result<String,String>{
 }
 fn allowed(permitted:bool)->Result<(),String>{if permitted{Ok(())}else{Err("Mail preview needs delegated Mail.Read consent and a fresh sign-in. Chats remain available.".into())}}
 fn status_error(status:u16)->String{match status{401=>"Mail sign-in expired. Reconnect from Account preferences.".into(),403=>"Mailbox access was denied. Check Mail.Read consent and mailbox availability.".into(),429=>"Mail is being throttled. Wait a little, then refresh.".into(),_=>format!("Mail could not be loaded (HTTP {status}). Your mailbox was not changed.")}}
+// Inbox metadata, not a count inferred from a partial message page. The caller
+// binds both GETs to one token snapshot; identity mismatch returns no count.
+pub fn unread(own:&str,permitted:bool,request:&mut dyn FnMut(&str)->Result<(u16,Value),String>)->Result<Value,String>{
+ allowed(permitted)?;
+ if own.is_empty()||own.len()>1024{return Err("Invalid mail account".into());}
+ let(status,identity)=request("/me?$select=id")?;
+ if status!=200||identity["id"].as_str()!=Some(own){return Err("Mail account could not be verified. Reconnect to refresh the Inbox count.".into());}
+ let(status,folder)=request("/me/mailFolders/inbox?$select=unreadItemCount")?;
+ if status!=200{return Err(status_error(status));}
+ let count=folder["unreadItemCount"].as_u64().filter(|n|*n<=i32::MAX as u64).ok_or("Invalid Inbox unread count")?;
+ Ok(json!({"count":count}))
+}
 pub fn page(q:&Query,permitted:bool,request:&mut dyn FnMut(&str)->Result<(u16,Value),String>)->Result<Value,String>{
  allowed(permitted)?;let initial=route(q)?;let path=if let Some(next)=&q.next{if q.collection=="message"{return Err("Messages do not have continuation pages".into());}continuation(&initial,next)?}else{initial};
  let (status,mut body)=request(&path)?;if status!=200{return Err(status_error(status));}
@@ -89,6 +101,9 @@ pub fn attachment(message:&str,attachment:&str,permitted:bool,request:&mut dyn F
 mod tests{
  use super::*;
  fn query(collection:&str)->Query{Query{collection:collection.into(),folder:None,message_id:Some("mail-id".into()),conversation_id:Some("conv-id".into()),search:None,next:None}}
+ #[test]fn unread_reads_only_verified_inbox_metadata(){let mut paths=vec![];let value=unread("own",true,&mut|path|{paths.push(path.to_string());Ok((200,if path=="/me?$select=id"{json!({"id":"own"})}else{json!({"unreadItemCount":1234})}))}).unwrap();assert_eq!(value["count"],1234);assert_eq!(paths,vec!["/me?$select=id","/me/mailFolders/inbox?$select=unreadItemCount"]);}
+ #[test]fn unread_denial_and_account_mismatch_never_read_a_folder(){let mut calls=0;assert!(unread("own",false,&mut|_|{calls+=1;Ok((200,Value::Null))}).is_err());assert_eq!(calls,0);assert!(unread("own",true,&mut|path|{calls+=1;assert_eq!(path,"/me?$select=id");Ok((200,json!({"id":"other"})))}).is_err());assert_eq!(calls,1);}
+ #[test]fn unread_rejects_missing_negative_fractional_and_failed_counts(){for value in [Value::Null,json!(-1),json!(1.5),json!("12"),json!(2147483648u64)]{assert!(unread("own",true,&mut|path|Ok((200,if path.starts_with("/me?"){json!({"id":"own"})}else{json!({"unreadItemCount":value})}))).is_err());}for status in [403,429,503]{assert!(unread("own",true,&mut|path|Ok(if path.starts_with("/me?"){(200,json!({"id":"own"}))}else{(status,Value::Null)})).is_err());}assert_eq!(unread("own",true,&mut|path|Ok((200,if path.starts_with("/me?"){json!({"id":"own"})}else{json!({"unreadItemCount":0})}))).unwrap()["count"],0);}
  #[test]fn message_reads_select_actual_importance(){
   for collection in ["messages","conversation","message"]{
    let path=route(&query(collection)).unwrap();

@@ -24,7 +24,7 @@ test('reaction additions, removals and replacements sync quietly without losing 
  await expect(page.locator('.message-reactions details summary')).toHaveAttribute('aria-label','Heart: 1 reaction');
  original.reactions=[];await page.clock.runFor(5_000);await expect(page.locator('.message-reactions')).toHaveCount(0);
  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('Unsent draft');
- await expect(row(page,alex.displayName)).toContainText('Stable message preview');await expect(page.locator('.unread-total')).toHaveCount(0);
+ await expect(row(page,alex.displayName)).toContainText('Stable message preview');await expect(page.getByRole('button',{name:'Chats',exact:true}).locator('.unread-total')).toHaveCount(0);
  expect(graph.writes).toEqual([]);
 });
 

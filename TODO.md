@@ -22,7 +22,7 @@ The three-item implementation queue is complete; signature sending and the recei
 - [x] High Importance indicator in the list and message header, using actual metadata.
 - [ ] Compact meeting request/update/response cards, including empty-body Sent acceptance responses. Never infer RSVP state from subject text.
 - [x] Mail read state: right-click Mark read / Mark unread and configurable mark-read-after-viewing delay, with focus/visibility guards and server reconciliation. Delegated Mail.ReadWrite approved and Entra admin consent confirmed November 10, 2026; see MAIL.md. Requested scope and implementation added.
-- [ ] Mail unread badge with honest mailbox coverage and quiet background synchronization.
+- [x] Mail Inbox unread badge from server folder metadata, visible/online quiet checks, stale/backoff behavior, and preserved Mail drafts/selection/scroll/paging. Other folders/subfolders excluded.
 - [x] Individual email Move to Deleted Items with confirmation (restore in Outlook); existing Mail.ReadWrite, no new scopes.
 - [ ] Mail folder organization, in-app restore and mailbox-synced drafts: document semantics and obtain explicit feature approval.
 - [x] Explicit per-image approval: Preview renders a received inline/CID image in HTML view, modal preview in plain text; remember approval per account/message/image and provide revocation. Never treat a click as sender-wide trust.
@@ -69,7 +69,7 @@ The three-item implementation queue is complete; signature sending and the recei
 - [ ] Targeted manual edge cases: leave group; private/shared/cross-tenant membership; away-reply recovery. Basic presence/membership/away milestone was user-validated.
 - [ ] Manual Mail away replies: one reply per coworker across chat/mail, thread association, automated-mail suppression. Mail.Send consent is confirmed; this specific test remains outstanding.
 - [ ] Further signature rendering polish and chat-to-email edge cases; basic signature sending and received quote were user-validated, as were attachments and inline image sending.
-- [ ] Manual Mail edge cases: government-tenant policy, long pagination, forwarded original attachment fidelity. New mail sending, replies, draft restart and PDF save were user-validated.
+- [ ] Manual Mail edge cases: Inbox unread count and external Outlook read/unread synchronization, government-tenant policy, long pagination, forwarded original attachment fidelity. New mail sending, replies, draft restart and PDF save were user-validated.
 - [ ] Native macOS notification click routing and OS appearance/contrast changes. Banner delivery was user-validated; automated theme/contrast coverage passes.
 - [ ] Remaining formatted-message round-trip edge cases in channels and quoted replies; long PHP send and IDE copy were user-validated.
 - [ ] Optional accent-matched Dock icon, later.

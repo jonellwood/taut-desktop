@@ -546,6 +546,19 @@ async fn mail_send_new(state:State<'_,AuthState>,own_id:String,draft:mail_send::
  }).await
 }
 #[tauri::command]
+async fn mail_unread(state:State<'_,AuthState>,own_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");
+ let token=get_access_token(&state)?;
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Mail HTTP client unavailable")?;
+ mail::unread(&own_id,permitted,&mut|path|{
+  let reply=mailbox_transport::read(&client,&format!("https://graph.microsoft.com/v1.0{path}"),&token)?;
+  let status=reply.status().as_u16();if status!=200{return Ok((status,Value::Null));}
+  let mut bytes=Vec::new();reply.take(65537).read_to_end(&mut bytes).map_err(|_|"Inbox count unavailable")?;
+  if bytes.len()>65536{return Err("Inbox count response is too large".into());}
+  Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid Inbox count response")?))
+ })
+}).await}
+#[tauri::command]
 async fn mail_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Mail.Read"))).await}
 #[tauri::command]
 async fn mail_page(state:State<'_,AuthState>,query:mail::Query)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");mail::page(&query,permitted,&mut|path|mail_request(&state,path))}).await}
@@ -819,7 +832,7 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![calendar_rooms,calendar_availability,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![mail_unread,calendar_rooms,calendar_availability,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

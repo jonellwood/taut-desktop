@@ -63,6 +63,9 @@ export class MockGraph {
   mailBodyGate?:Promise<void>;mailMoveError='';mailError='';mailGate?:Promise<void>;
   mailCanSend=true;
   mailSendResult={status:'accepted',error:''};
+  mailUnreadCount?:number;
+  mailUnreadError='';
+  mailUnreadGate?:Promise<void>;
   mailMessages:any[]=[{id:'mail-1',conversationId:'conversation-1',subject:'Project document',from:{emailAddress:{name:'Alex Example',address:'alex@example.test'}},toRecipients:[{emailAddress:{name:'Test User',address:'me@example.test'}}],receivedDateTime:'2026-11-05T14:00:00Z',bodyPreview:'Here is the project document.',isRead:false,hasAttachments:true,webLink:'https://outlook.office.com/mail/id/mail-1',body:{contentType:'text',content:'Here is the project document.\n\nLet me know what you think.'}}];
   mailPages:Record<string,{value:any[];next:string|null}>={};
   mailFilesByMessage:Record<string,any[]>={};
@@ -130,6 +133,7 @@ export class MockGraph {
       case 'calendar_permission':return this.calendarPermitted;
       case 'calendar_page':if(this.calendarError)throw Error(this.calendarError);return {value:this.calendarEvents,next:null};
       case 'mail_permission':return this.mailPermitted;
+      case 'mail_unread':{const count=this.mailUnreadCount??this.mailMessages.filter(m=>m.isRead===false&&(!m.parentFolderId||m.parentFolderId==='inbox')).length;await this.mailUnreadGate;if(!this.mailPermitted)throw Error('Mail consent required');if(this.mailUnreadError)throw Error(this.mailUnreadError);return {count};}
       case 'mail_page':{
         await this.mailGate;if(this.mailError)throw Error(this.mailError);
         const q=args.query;

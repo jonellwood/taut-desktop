@@ -1,9 +1,9 @@
 import {test,expect,signIn,row,alex} from './fixtures';
 const openMail=async(page:import('@playwright/test').Page)=>{await page.getByRole('button',{name:'Mail',exact:true}).click();await expect(page.getByRole('heading',{name:'One conversation at a time.'})).toBeVisible();};
 const mailRow=(page:import('@playwright/test').Page)=>page.locator('.mail-row').first();
-test('mail stays opt-in and reading a conversation preserves chat draft and mailbox unread state',async({page,graph},info)=>{
+test('mail metadata stays read-only and reading a conversation preserves chat draft and mailbox unread state',async({page,graph},info)=>{
  await signIn(page);await page.getByRole('textbox',{name:'Message',exact:true}).fill('Keep my chat draft');
- expect(graph.calls.some(c=>c.command.startsWith('mail_'))).toBe(false);
+ expect(graph.calls.some(c=>c.command==='mail_page'||c.command==='mail_attachment')).toBe(false);
  await openMail(page);expect(graph.calls.filter(c=>c.command==='mail_attachment')).toHaveLength(0);
  await mailRow(page).click();await expect(page.locator('.mail-body')).toContainText('Let me know what you think.');
  await expect(page.getByLabel('Unread email')).toBeVisible();expect(graph.mailMessages[0].isRead).toBe(false);

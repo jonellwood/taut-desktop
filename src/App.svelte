@@ -25,6 +25,8 @@
  import CalendarWorkspace from './lib/CalendarWorkspace.svelte';
  let calendarDetailsAvailable=$state(false);
  import MailWorkspace from './lib/MailWorkspace.svelte';
+ import MailUnread from './lib/MailUnread.svelte';
+ let mailCount=$state<number|null>(null),mailCountStale=$state(false),mailCountRefresh=$state(0),mailSync=$state(0);
  import PeopleWorkspace from './lib/PeopleWorkspace.svelte';
  import {chatMailDraft} from './lib/chat-mail';
  import type {MailDraft} from './lib/mail-drafts';
@@ -982,7 +984,7 @@
   <img class="brand" src="/icon.png" alt="TAUT"/>
   <div class="rail-buttons">
    {#each nav as item}
-    <button class:active={mode===item.id} class="rail-button" title={item.label} aria-label={item.label} onclick={()=>{mode=item.id;if(item.id==='chats'||item.id==='teams'||item.id==='mail'||item.id==='people'||item.id==='calendar')sidebarOpen=true;}}><item.icon size={20} strokeWidth={1.8}/>{#if item.id==='chats'&&unreadChats}<span class="unread-total" aria-label={`${unreadChats} unread conversations`}>{unreadChats}</span>{/if}</button>
+    <button class:active={mode===item.id} class="rail-button" title={item.label} aria-label={item.label} onclick={()=>{mode=item.id;if(item.id==='chats'||item.id==='teams'||item.id==='mail'||item.id==='people'||item.id==='calendar')sidebarOpen=true;}}><item.icon size={20} strokeWidth={1.8}/>{#if item.id==='mail'&&isLive&&ownId}{#key ownId}<MailUnread {ownId} refreshKey={mailCountRefresh} onChecked={()=>mailSync++} onStatus={(count,stale)=>{mailCount=count;mailCountStale=stale;}}/>{/key}{/if}{#if item.id==='chats'&&unreadChats}<span class="unread-total" aria-label={`${unreadChats} unread conversations`}>{unreadChats}</span>{/if}</button>
    {/each}
   </div>
   <div class="rail-bottom">
@@ -1009,7 +1011,7 @@
  <main class="main">
   {#if mode==='teams'}{#key ownId}<TeamsWorkspace presencePermitted={collaboration.readPresence} onCloseDetails={()=>detailsOpen=false} drafts={channelDrafts} sendBusy={sendBusy} onSendBusy={(busy)=>sendBusy=busy} {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
   {:else if mode==='calendar'}{#key `${ownId}:${isLive}`}<CalendarWorkspace initialEvent={calendarTarget?.ownId===ownId?calendarTarget.event:null} onNavigationHandled={()=>calendarTarget=null} {ownId} {isLive} {sidebarOpen} {detailsOpen} onOpenDetails={()=>detailsOpen=true} onDetailsAvailable={value=>calendarDetailsAvailable=value} onCloseDetails={()=>detailsOpen=false} onSignIn={signIn}/>{/key}
-  {:else if mode==='mail'}{#key `${ownId}:${isLive}:${mailNavigation}`}<MailWorkspace onOpenCalendar={event=>{calendarTarget={ownId,event};sidebarOpen=true;detailsOpen=true;mode='calendar';}} readDelay={mailReadDelay} {detailsOpen} onDetails={open=>detailsOpen=open} onDetailsAvailable={value=>mailDetailsAvailable=value} {ownId} {ownMailAddresses} defaultPresentation={mailPresentation} initialDraft={chatEmailDraft} onRecipientHandled={()=>{mailRecipient='';chatEmailDraft=null;}} initialRecipient={mailRecipient} initialMessage={mailOpen} {isLive} {sidebarOpen} {authBusy} onSidebar={open=>sidebarOpen=open} onSignIn={signIn}/>{/key}
+  {:else if mode==='mail'}{#key `${ownId}:${isLive}:${mailNavigation}`}<MailWorkspace inboxUnread={mailCount} unreadStale={mailCountStale} syncRevision={mailSync} onMailboxChanged={()=>mailCountRefresh++} onOpenCalendar={event=>{calendarTarget={ownId,event};sidebarOpen=true;detailsOpen=true;mode='calendar';}} readDelay={mailReadDelay} {detailsOpen} onDetails={open=>detailsOpen=open} onDetailsAvailable={value=>mailDetailsAvailable=value} {ownId} {ownMailAddresses} defaultPresentation={mailPresentation} initialDraft={chatEmailDraft} onRecipientHandled={()=>{mailRecipient='';chatEmailDraft=null;}} initialRecipient={mailRecipient} initialMessage={mailOpen} {isLive} {sidebarOpen} {authBusy} onSidebar={open=>sidebarOpen=open} onSignIn={signIn}/>{/key}
   {:else if mode==='people'}{#key `${ownId}:${isLive}`}<PeopleWorkspace {isLive} {ownId} {sidebarOpen} {detailsOpen} connections={chats} members={Object.fromEntries(knownChats.map(chat=>[chat.id,(chat.members??[]).map(member=>member.userId??'')]))} onOpenChat={id=>{mode='chats';void discoverChat(id,'');}} onOpenMail={discoverMail} presencePermitted={collaboration.readPresence} onChat={peopleChat} onEmail={peopleEmail} onSignIn={signIn}/>{/key}
   {:else if mode==='chats'}
    {#if selected.id==='empty'}
