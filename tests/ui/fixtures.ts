@@ -49,8 +49,15 @@ export class MockGraph {
   teamMemberGate?:Promise<void>;
   teamPages:Record<string,{value:any[];next:string|null}>={};
   teamData:Record<string,any[]>={members:[{id:'member-alex',userId:alex.id,displayName:alex.displayName,roles:['owner']},{id:'member-me',userId:me.id,displayName:me.displayName,roles:[]}],joined:[{id:'team-dev',displayName:'IT Development',description:'A shared space for building better things.'}],associated:[{id:'team-dev',displayName:'IT Development'}],channels:[{id:'general',displayName:'General',membershipType:'standard',hostTeamId:'team-dev'}],shared:[],posts:[{id:'post-1',subject:'Welcome to the channel',createdDateTime:'2026-11-03T12:00:00Z',from:{user:{displayName:'Alex Example'}},body:{contentType:'html',content:'<p>Today’s project updates.</p><p>Keep the conversation focused.</p>'}}],replies:[{id:'reply-1',createdDateTime:'2026-11-03T12:01:00Z',from:{user:{displayName:'Blair Example'}},body:{contentType:'text',content:'Ready for the next step.'}}]};
+  meetingResult:any=null;
+  meetingRooms:any[]=[{emailAddress:'room@example.test',displayName:'River room',building:'Main',capacity:8}];
+  calendarResponseResult={status:'accepted',error:''};
+  calendarPermitted=true;
+  calendarError='';
+  calendarEventError='';
+  calendarEvents:any[]=[{id:'event-1',subject:'Project planning',start:{dateTime:'2026-11-12T15:00:00',timeZone:'UTC'},end:{dateTime:'2026-11-12T16:00:00',timeZone:'UTC'},responseStatus:{response:'accepted'},organizer:{emailAddress:{name:'Alex Example',address:'alex@example.test'}},bodyPreview:'Review the plan.',attendees:[]}];
   mailPermitted=true;
-  mailError='';mailGate?:Promise<void>;
+  mailBodyGate?:Promise<void>;mailMoveError='';mailError='';mailGate?:Promise<void>;
   mailCanSend=true;
   mailSendResult={status:'accepted',error:''};
   mailMessages:any[]=[{id:'mail-1',conversationId:'conversation-1',subject:'Project document',from:{emailAddress:{name:'Alex Example',address:'alex@example.test'}},toRecipients:[{emailAddress:{name:'Test User',address:'me@example.test'}}],receivedDateTime:'2026-11-05T14:00:00Z',bodyPreview:'Here is the project document.',isRead:false,hasAttachments:true,webLink:'https://outlook.office.com/mail/id/mail-1',body:{contentType:'text',content:'Here is the project document.\n\nLet me know what you think.'}}];
@@ -102,20 +109,30 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['mail_set_read','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['calendar_create','calendar_response','mail_set_read','mail_move_deleted','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
       case 'mail_write_permission': return true;
+      case 'mail_move_deleted': {if(this.mailMoveError)throw Error(this.mailMoveError);this.mailMessages=this.mailMessages.filter(m=>m.id!==args.messageId);return {id:'moved-'+args.messageId};}
       case 'mail_set_read': {const m=this.mailMessages.find(m=>m.id===args.messageId);if(!m)throw Error('Missing mail');m.isRead=args.isRead;return {id:m.id,isRead:m.isRead};}
       case 'mail_send_permission': return this.mailCanSend;
       case 'mail_send_new': return this.mailSendResult;
+      case 'calendar_rooms':return {value:this.meetingRooms,next:null};
+      case 'calendar_availability':return args.addresses.map((scheduleId:string)=>({scheduleId,availabilityView:'0000'}));
+      case 'calendar_create':{if(this.meetingResult)return this.meetingResult;const event={...this.calendarEvents[0],id:'created-meeting',subject:args.draft.subject,isOrganizer:true,attendees:[{type:'resource',emailAddress:{address:'room@example.test'},status:{response:'none'}}]};this.calendarEvents.unshift(event);return {status:'created',event};}
+      case 'calendar_response_permission':return true;
+      case 'calendar_event':if(this.calendarEventError)throw Error(this.calendarEventError);return {event:this.calendarEvents.find(e=>e.id===args.eventId)??this.calendarEvents[0]};
+      case 'calendar_response':return this.calendarResponseResult;
+      case 'calendar_permission':return this.calendarPermitted;
+      case 'calendar_page':if(this.calendarError)throw Error(this.calendarError);return {value:this.calendarEvents,next:null};
       case 'mail_permission':return this.mailPermitted;
       case 'mail_page':{
         await this.mailGate;if(this.mailError)throw Error(this.mailError);
         const q=args.query;
         if(!this.mailPermitted)throw Error('Mail.Read consent is required');
         if(q.next&&this.mailPages[q.next])return this.mailPages[q.next];
+        if(q.collection==='message')await this.mailBodyGate;
         if(q.collection==='message')return this.mailMessages.find(m=>m.id===q.messageId);
         if(q.collection==='attachments')return {value:this.mailFilesByMessage[q.messageId]??this.mailFiles,next:null};
         if(q.collection==='conversation')return {value:this.mailMessages.filter(m=>m.conversationId===q.conversationId),next:null};

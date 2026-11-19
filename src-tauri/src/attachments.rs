@@ -266,18 +266,35 @@ pub fn prepare(
     let permissions = grants["value"]
         .as_array()
         .ok_or("File uploaded, but sharing was not confirmed. Your draft is saved.")?;
-    if permissions.len() < recipients.len()
-        || permissions
-            .iter()
-            .any(|p| p.get("error").is_some() || p["id"].as_str().is_none())
-    {
-        return Err(
-            "File uploaded, but some sharing permissions were not confirmed. Your draft is saved."
-                .into(),
-        );
+    if permissions.iter().any(|p| p.get("error").is_some()) {
+        return Err("File uploaded, but sharing failed for a recipient. Your draft is saved.".into());
+    }
+    if !confirms_recipients(permissions, &recipients) {
+        // Some invite responses omit identities. Read permissions once to verify
+        // access; never repeat the write or send based only on a record count.
+        let confirmed = ok(request(Method::GET,
+            &format!("/me/drive/items/{}/permissions", enc(item_id)), None, None)?)?;
+        if !confirmed["value"].as_array().is_some_and(|rows| confirms_recipients(rows, &recipients)) {
+            return Err("File uploaded, but access for every chat member could not be verified. No message was sent. Your draft is saved; check OneDrive sharing before retrying.".into());
+        }
     }
     upload.ready = true;
     Ok(())
+}
+// Match Entra user identities, never SharePoint siteUser IDs or permission counts.
+fn confirms_recipients(permissions: &[Value], recipients: &[String]) -> bool {
+    recipients.iter().all(|recipient| permissions.iter().any(|permission| {
+        if permission.get("error").is_some()
+            || permission["id"].as_str().filter(|id| !id.is_empty()).is_none()
+            || !permission["roles"].as_array().is_some_and(|roles|
+                roles.iter().any(|role| matches!(role.as_str(), Some("read" | "write" | "owner"))))
+        { return false; }
+        ["grantedToV2", "grantedTo"].iter().any(|key|
+            permission[*key]["user"]["id"].as_str().is_some_and(|id| id.eq_ignore_ascii_case(recipient)))
+        || ["grantedToIdentitiesV2", "grantedToIdentities"].iter().any(|key|
+            permission[*key].as_array().is_some_and(|identities| identities.iter().any(|identity|
+                identity["user"]["id"].as_str().is_some_and(|id| id.eq_ignore_ascii_case(recipient)))))
+    }))
 }
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -321,7 +338,10 @@ pub fn send_formatted(
         let item = upload.item.as_ref().ok_or("Missing uploaded attachment")?;
         let (_, url) = item_fields(item)?;
         total += item["size"].as_u64().unwrap_or(u64::MAX);
-        content.push_str(&format!("<attachment id=\"{id}\"></attachment>"));
+        content.push_str(&format!(
+            "<attachment id=\"{id}\"></attachment><p><a href=\"{}\">Open original: {}</a></p>",
+            escape(url), escape(&upload.name)
+        ));
         attachments
             .push(json!({"id":id,"contentType":"reference","contentUrl":url,"name":upload.name}));
     }
@@ -349,6 +369,16 @@ mod tests {
     const ME: &str = "11111111-1111-1111-1111-111111111111";
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
     const ID: &str = "33333333-3333-3333-3333-333333333333";
+    #[test]
+    fn sharing_requires_each_recipient_identity_and_read_access() {
+        let recipients = vec![OTHER.to_owned(), ID.to_owned()];
+        let grant = json!({"id":"p", "roles":["read"], "grantedToV2":{"user":{"id":OTHER}}});
+        assert!(!confirms_recipients(&[grant.clone(), grant.clone()], &recipients));
+        assert!(!confirms_recipients(&[json!({"id":"p"})], &recipients[..1]));
+        assert!(!confirms_recipients(&[json!({"id":"p","roles":["read"],"grantedToV2":{"siteUser":{"id":OTHER}}})], &recipients[..1]));
+        assert!(confirms_recipients(&[grant, json!({"id":"q","roles":["read"],"grantedTo":{"user":{"id":ID}}})], &recipients));
+        assert!(confirms_recipients(&[json!({"id":"p","roles":["read"],"grantedToIdentitiesV2":[{"user":{"id":OTHER}},{"user":{"id":ID}}]})], &recipients));
+    }
     #[derive(Default)]
     struct Graph {
         calls: Vec<(Method, String, Option<Value>)>,
@@ -359,6 +389,8 @@ mod tests {
         fail_send: bool,
         changed: bool,
         partial: bool,
+        missing_grant_identity: bool,
+        wrong_grant_recipient: bool,
         paged: bool,
         incomplete_response: bool,
         size_mismatch: bool,
@@ -423,15 +455,20 @@ mod tests {
                     || path.starts_with("/me/drive/items/remote?"))
             {
                 self.item.clone().unwrap()
+            } else if path.ends_with("/permissions") {
+                let recipient = if self.wrong_grant_recipient { ID } else { OTHER };
+                json!({"value":[{"id":"permission","roles":["read"],"grantedToV2":{"user":{"id":recipient}}}]})
             } else if path.ends_with("/invite") {
                 if self.fail_share {
                     self.fail_share = false;
                     return Err("sharing timeout".into());
                 }
-                if self.partial {
+                if self.missing_grant_identity {
+                    json!({"value":[{"id":"permission"}]})
+                } else if self.partial {
                     json!({"value":[{"error":{"code":"denied"}}]})
                 } else {
-                    json!({"value":[{"id":"permission"}]})
+                    json!({"value":[{"id":"permission","roles":["read"],"grantedToV2":{"user":{"id":OTHER}}}]})
                 }
             } else if path.ends_with("/messages") {
                 if self.fail_send {
@@ -521,7 +558,24 @@ mod tests {
             .starts_with("&lt;script&gt; &amp; hi"));
         assert_eq!(payload["attachments"][0]["contentType"], "reference");
         assert_eq!(payload["attachments"][0]["name"], "notes & report.txt");
+        assert!(payload["body"]["content"].as_str().unwrap().contains(
+            "<a href=\"https://example.sharepoint.com/file\">Open original: notes &amp; report.txt</a>"));
         assert_eq!(graph.puts, 1);
+    }
+    #[test]
+    fn original_links_escape_urls_and_labels_and_preserve_file_only_sends() {
+        let mut store = HashMap::new();
+        let mut graph = Graph::default();
+        prepare_file(&mut store, &mut graph).unwrap();
+        let upload = store.get_mut(ID).unwrap();
+        upload.item.as_mut().unwrap()["webUrl"] = json!("https://example.sharepoint.com/file?a=1&b=2");
+        upload.name = "report & 'image'.png".into();
+        send(&store, "chat", "", &[ID.into()], &mut |m,p,b,d| graph.request(m,p,b,d)).unwrap();
+        let payload = graph.calls.last().unwrap().2.as_ref().unwrap();
+        let content = payload["body"]["content"].as_str().unwrap();
+        assert!(content.contains("href=\"https://example.sharepoint.com/file?a=1&amp;b=2\""));
+        assert!(content.contains("Open original: report &amp; &#39;image&#39;.png"));
+        assert_eq!(payload["attachments"][0]["contentUrl"], "https://example.sharepoint.com/file?a=1&b=2");
     }
     #[test]
     fn uncertain_upload_is_recovered_by_read_on_explicit_retry() {
@@ -574,6 +628,22 @@ mod tests {
             .is_err()
         );
         assert!(!graph.calls.iter().any(|c| c.1.ends_with("/messages")));
+    }
+    #[test]
+    fn incomplete_grant_is_verified_by_read_without_repeating_upload_or_invite() {
+        for wrong in [false, true] {
+            let mut store = HashMap::new();
+            let mut graph = Graph { missing_grant_identity: true, wrong_grant_recipient: wrong, ..Default::default() };
+            assert_eq!(prepare_file(&mut store, &mut graph).is_ok(), !wrong);
+            assert_eq!(store[ID].ready, !wrong);
+            assert_eq!(graph.puts, 1);
+            assert_eq!(graph.calls.iter().filter(|c| c.1.ends_with("/invite")).count(), 1);
+            assert_eq!(graph.calls.iter().filter(|c| c.1.ends_with("/permissions")).count(), 1);
+            if wrong {
+                assert!(send(&store, "chat", "Hi", &[ID.into()], &mut |m,p,b,d| graph.request(m,p,b,d)).is_err());
+                assert!(!graph.calls.iter().any(|c| c.1.ends_with("/messages")));
+            }
+        }
     }
     #[test]
     fn delivery_timeout_retains_file_without_automatic_retry() {

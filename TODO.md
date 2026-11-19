@@ -1,10 +1,10 @@
 # TAUT Desktop roadmap
 
-Updated November 10, 2026. Work in the numbered queue in order. Keep new ideas in the later backlog unless we explicitly reprioritize them.
+Updated November 19, 2026. Work in the numbered queue in order. Keep new ideas in the later backlog unless we explicitly reprioritize them.
 
 ## Current checkpoint
 
-People v1 is accepted. Chats, channels, presence/membership, away replies, appearance, unified search and Mail reading/composing/replying/forwarding are implemented. Mail drafts are local to this Mac. The checkpoint is `5ac97f9` on `feat/message-deletion`; the end-of-day Mail checkpoint follows it on the same branch.
+People v1 and the Mail milestone are accepted. Calendar agenda/details, RSVP, meeting composition and room discovery are implemented, along with individual Mail Move to Deleted Items and stronger Teams attachment access verification. On November 19 the user rebuilt and confirmed Mail/Calendar work after the reported Microsoft outage. Actual room booking remains a manual follow-up. Active branch: `feat/message-deletion`; this checkpoint follows `e67c920`. Mail and meeting drafts remain local to this Mac.
 
 Completed milestones and their original validation notes are preserved in [ROADMAP_COMPLETED.md](ROADMAP_COMPLETED.md). Feature documents and current source define behavior. Automated testing always uses mocks; manual tenant testing is performed by the user.
 
@@ -23,7 +23,8 @@ The three-item implementation queue is complete; signature sending and the recei
 - [ ] Compact meeting request/update/response cards, including empty-body Sent acceptance responses. Never infer RSVP state from subject text.
 - [x] Mail read state: right-click Mark read / Mark unread and configurable mark-read-after-viewing delay, with focus/visibility guards and server reconciliation. Delegated Mail.ReadWrite approved and Entra admin consent confirmed November 10, 2026; see MAIL.md. Requested scope and implementation added.
 - [ ] Mail unread badge with honest mailbox coverage and quiet background synchronization.
-- [ ] Mail deletion/organization and mailbox-synced drafts: document semantics and obtain explicit feature approval; existing Mail.ReadWrite approval covers read-state changes only.
+- [x] Individual email Move to Deleted Items with confirmation (restore in Outlook); existing Mail.ReadWrite, no new scopes.
+- [ ] Mail folder organization, in-app restore and mailbox-synced drafts: document semantics and obtain explicit feature approval.
 - [x] Explicit per-image approval: Preview renders a received inline/CID image in HTML view, modal preview in plain text; remember approval per account/message/image and provide revocation. Never treat a click as sender-wide trust.
 - [ ] Optional trusted-sender image controls; preserve remote-image privacy protections and improve signature layout fidelity.
 - [ ] Unified search: channel provider, sender/date filters and broader chat history. Verify Teams server-search support/scopes first; current Chats search covers loaded messages.
@@ -45,9 +46,14 @@ The three-item implementation queue is complete; signature sending and the recei
 - [ ] Typing indicators, subject to supported API availability.
 - [ ] Administrative shared-thread deletion stays deferred; requires separate approval and supported admin role.
 
-## Calendar, Files and calls — future milestones
+## Calendar, Files and calls
 
-- [ ] Calendar: reconcile invitations, updates and RSVP state across Mail/Teams/calendar. Show confirmed response with Change response; only prompt again when the latest update requires it. Unread mail is not an unanswered invitation. Avoid duplicate attention alerts.
+- [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
+- [ ] Calendar follow-ups: recurring meetings, organizer edits/cancellation and Teams meeting links.
+
+- [x] Calendar v1: read-only date/agenda/details workspace, recurring occurrences, attendee and recorded response status. Delegated Calendars.Read approved; user validated successfully.
+- [x] Calendar/Mail: resolve invitations to current calendar status; reviewed Accept/Tentative/Decline and Change response with approved Calendars.ReadWrite.
+- [ ] Calendar: finish cross-surface update/attention reconciliation across Mail/Teams/calendar. Show confirmed response with Change response; only prompt again when the latest update requires it. Unread mail is not an unanswered invitation. Avoid duplicate attention alerts.
 - [ ] Files: lightweight OneDrive browser and shared discovery across communication sources.
 - [ ] Calls: research supported native integration and permissions before defining scope.
 - [ ] Decide whether Activity adds useful signal before implementing a feed.

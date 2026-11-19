@@ -108,3 +108,25 @@ Automated coverage uses synthetic clipboard/drag events with actual File/DataTra
 Verification: full Chromium/WebKit suite 356 passed; Node tests 67 passed; Rust tests 118 passed. UI TypeScript, Svelte/Vite build, cargo check and git diff --check passed. Three pre-existing Svelte accessibility warnings remain. Browser events, Graph calls and clipboard content were mocked; no real Microsoft 365 data or system clipboard was changed.
 
 Manual acceptance — 2026-11-05: user confirms both clipboard images and drag-and-drop work perfectly in the native app after rebuilding.
+
+## Recipient access verification — 2026-11-12
+
+Sharing confirmation now requires a readable permission tied to every intended
+Entra user ID, using current or legacy Graph identity facets. Permission counts
+alone are insufficient. When the invite response omits identities, one read of
+the uploaded item's permissions verifies access without repeating the write.
+Unverified access blocks message sending and retains the draft/upload record.
+No permissions were broadened. This hardens confirmation; the reported direct-chat
+image download failure still needs the recipient error to establish its cause.
+Read access does not promise permission to grant access to additional people.
+
+## Teams attachment controls — 2026-11-12
+
+User clarified the report: no access error; Teams offered no download/share
+controls for an image sent in a direct chat. This does not establish a failed
+permission grant. Each outgoing reference attachment now also has a visible
+“Open original: filename” HTTPS link in the message body. It opens the same
+recipient-restricted OneDrive original and does not broaden access. Native Teams
+controls and onward sharing remain client/policy dependent. Existing messages
+are unchanged. Graph also supports hosted inline images, but this change retains
+the existing original-file upload and recovery workflow.

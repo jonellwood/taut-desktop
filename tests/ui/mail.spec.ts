@@ -201,3 +201,51 @@ test('high importance uses Graph metadata in the latest message row and individu
  await expect(page.locator('.mail-message-heading').getByText('High importance',{exact:true})).toHaveCount(0);
  expect(graph.writes).toEqual([]);
 });
+
+test('moving one email requires confirmation and removes only that message',async({page,graph})=>{
+ graph.mailMessages.push({...graph.mailMessages[0],id:'mail-other',subject:'Keep this email'});
+ await signIn(page);await openMail(page);await mailRow(page).click();
+ await page.locator('.mail-response-actions').getByRole('button',{name:'Move to Deleted Items',exact:true}).click();
+ await expect(page.getByRole('dialog')).toContainText('Other messages');
+ await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+ expect(graph.calls.filter(c=>c.command==='mail_move_deleted')).toHaveLength(0);
+ await page.locator('.mail-response-actions').getByRole('button',{name:'Move to Deleted Items',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Move to Deleted Items',exact:true}).click();
+ await expect(page.locator('.mail-message')).toHaveCount(1);
+ expect(graph.calls.filter(c=>c.command==='mail_move_deleted')).toHaveLength(1);
+ expect(graph.mailMessages).toHaveLength(1);
+});
+
+test('mail row actions remain available with stale selected text',async({page,graph})=>{
+ await signIn(page);await openMail(page);
+ await page.locator('.mail-subject').first().evaluate(node=>{const range=document.createRange();range.selectNodeContents(node);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);});
+ await mailRow(page).click({button:'right'});
+ await expect(page.getByRole('menu',{name:'Mail read state'})).toBeVisible();
+});
+
+test('failed move preserves the email and does not repeat the mutation',async({page,graph})=>{
+ graph.mailMoveError='Move not confirmed. Check Deleted Items in Outlook before another attempt.';
+ await signIn(page);await openMail(page);await mailRow(page).click();
+ await page.locator('.mail-response-actions').getByRole('button',{name:'Move to Deleted Items',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Move to Deleted Items',exact:true}).click();
+ await expect(page.getByText(graph.mailMoveError,{exact:false})).toBeVisible();
+ await expect(page.locator('.mail-message')).toHaveCount(1);
+ await expect(page.getByText('Loading message…',{exact:true})).toHaveCount(0);
+ expect(graph.calls.filter(c=>c.command==='mail_move_deleted')).toHaveLength(1);
+ expect(graph.mailMessages).toHaveLength(1);
+});
+
+test('move during a pending body read releases loading state after failure',async({page,graph})=>{
+ let release!:()=>void;graph.mailBodyGate=new Promise<void>(resolve=>release=resolve);
+ graph.mailMoveError='Move not confirmed. Check Outlook.';
+ await signIn(page);await openMail(page);await mailRow(page).click();
+ await expect(page.getByText('Loading message…',{exact:true})).toBeVisible();
+ await mailRow(page).click({button:'right'});
+ await page.getByRole('menu').getByRole('menuitem',{name:'Move to Deleted Items',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Move to Deleted Items',exact:true}).click();
+ await expect(page.getByText(graph.mailMoveError,{exact:false})).toBeVisible();
+ release();
+ await expect(page.getByText('Loading message…',{exact:true})).toHaveCount(0);
+ await expect(page.locator('.mail-response-actions')).toBeVisible();
+ expect(graph.calls.filter(c=>c.command==='mail_move_deleted')).toHaveLength(1);
+});

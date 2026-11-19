@@ -16,7 +16,7 @@ pub struct Query {
 }
 fn id(value:Option<&str>)->Result<&str,String>{value.filter(|s|!s.is_empty()&&s.len()<=1024&&!s.chars().any(|c|c.is_control()||"/\\?#".contains(c))&&*s!="."&&*s!="..").ok_or("Invalid mail identifier".into())}
 fn enc(s:&str)->String{percent_encoding::utf8_percent_encode(s,percent_encoding::NON_ALPHANUMERIC).to_string()}
-const SUMMARY:&str="id,conversationId,subject,from,toRecipients,receivedDateTime,sentDateTime,bodyPreview,isRead,hasAttachments,importance,webLink";
+const SUMMARY:&str="id,parentFolderId,conversationId,subject,from,toRecipients,receivedDateTime,sentDateTime,bodyPreview,isRead,hasAttachments,importance,webLink";
 fn route(q:&Query)->Result<String,String>{
  let mut pairs:Vec<(&str,String)>=vec![];
  let path=match q.collection.as_str(){
@@ -64,6 +64,13 @@ pub fn page(q:&Query,permitted:bool,request:&mut dyn FnMut(&str)->Result<(u16,Va
  let (status,mut body)=request(&path)?;if status!=200{return Err(status_error(status));}
  if q.collection=="message" {if !body.is_object()||body.get("id").and_then(Value::as_str).is_none(){return Err("Invalid mail response".into());}return Ok(body);}
  let rows=body.get_mut("value").and_then(Value::as_array_mut).ok_or("Invalid mail collection")?;if rows.len()>100{return Err("Mail page exceeded its limit".into());}
+ // Conversations span Inbox and Sent, but must not resurrect deleted mail.
+ if q.collection=="conversation"||q.search.as_deref().is_some_and(|s|!s.is_empty()){
+  let(status,folder)=request("/me/mailFolders/deleteditems?$select=id")?;
+  let deleted=folder["id"].as_str().filter(|id|!id.is_empty());
+  if status!=200||deleted.is_none(){return Err("Deleted Items could not be checked. Refresh mail.".into());}
+  body["value"].as_array_mut().unwrap().retain(|m|m["parentFolderId"].as_str()!=deleted);
+ }
  let next=body.get("@odata.nextLink").and_then(Value::as_str).map(str::to_owned);
  if let Some(next)=&next {continuation(&route(q)?,next)?;}
  Ok(json!({"value":body["value"],"next":next}))
@@ -108,6 +115,7 @@ mod tests{
   q.next=Some(next);
   page(&q,true,&mut |path|{assert_eq!(path,format!("{root}&%24skip=25"));Ok((200,json!({"value":[]})))}).unwrap();
  }
+ #[test]fn conversation_excludes_deleted_items(){let result=page(&query("conversation"),true,&mut|path|Ok((200,if path.starts_with("/me/mailFolders/deleteditems"){json!({"id":"trash"})}else{json!({"value":[{"id":"keep","parentFolderId":"inbox"},{"id":"gone","parentFolderId":"trash"}]})}))).unwrap();assert_eq!(result["value"].as_array().unwrap().len(),1);assert_eq!(result["value"][0]["id"],"keep");}
  #[test]fn no_consent_makes_no_request(){let mut n=0;let mut r=|_:&str|{n+=1;Ok((200,json!({"value":[]})))};assert!(page(&query("messages"),false,&mut r).is_err());assert!(attachment("m","a",false,&mut r).is_err());assert_eq!(n,0);}
  #[test]fn routes_are_read_only_and_query_encoded(){let mut q=query("messages");q.search=Some("boss & budget".into());let path=route(&q).unwrap();assert!(path.starts_with("/me/messages?"));assert!(path.contains("%26"));assert!(!path.contains("boss &"));q.collection="send".into();assert!(route(&q).is_err());q=query("message");q.message_id=Some("../token".into());assert!(route(&q).is_err());}
  #[test]fn continuations_stay_on_resource_and_query(){let root=route(&query("messages")).unwrap();let good=format!("https://graph.microsoft.com/v1.0{root}&%24skip=25");assert!(continuation(&root,&good).is_ok());for bad in [good.replace("graph.microsoft.com","evil.test"),good.replace("25","500"),good.replace("https://","http://"),good.replace("/v1.0/","/beta/"),good.replace("https://graph", "https://user@graph"),format!("{good}#fragment")]{assert!(continuation(&root,&bad).is_err());}}

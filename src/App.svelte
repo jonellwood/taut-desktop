@@ -1,6 +1,6 @@
 <script lang="ts">
  import { tick, onMount } from 'svelte';
- import { MessageCircle, Bell, Users, Phone, Files, Settings, Search, Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Send, SquarePen, Paperclip, Smile, MoreHorizontal, Video, X, Check, UserPlus, UserMinus, PencilLine, LogIn, Trash2, Undo2, EyeOff, Eye, ChevronRight, Moon, Sun, LayoutPanelTop, LogOut, PanelLeft, PanelRight, Scan, Pin, PinOff, Building2, MessagesSquare, Mail } from 'lucide-svelte';
+ import { MessageCircle, Bell, Users, Phone, Files, Settings, Search, Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Send, SquarePen, Paperclip, Smile, MoreHorizontal, Video, X, Check, UserPlus, UserMinus, PencilLine, LogIn, Trash2, Undo2, EyeOff, Eye, ChevronRight, Moon, Sun, LayoutPanelTop, LogOut, PanelLeft, PanelRight, Scan, Pin, PinOff, Building2, MessagesSquare, Mail, CalendarDays } from 'lucide-svelte';
  import { existingChat, pendingConversation, pendingGroupConversation, submitMessage, isUserMessage } from './lib/pending';
  import {attachmentInput} from './lib/attachment-input';
  import { validateFiles, fileBase64, fileSize, type StagedFile } from './lib/attachments';
@@ -20,6 +20,10 @@
  import type {MailMessage} from './lib/mail';
  let mailDetailsAvailable=$state(false);
  import MailSignatureSettings from './lib/MailSignatureSettings.svelte';
+ import type {CalendarEvent} from './lib/calendar';
+ let calendarTarget=$state<{ownId:string;event:CalendarEvent}|null>(null);
+ import CalendarWorkspace from './lib/CalendarWorkspace.svelte';
+ let calendarDetailsAvailable=$state(false);
  import MailWorkspace from './lib/MailWorkspace.svelte';
  import PeopleWorkspace from './lib/PeopleWorkspace.svelte';
  import {chatMailDraft} from './lib/chat-mail';
@@ -283,13 +287,14 @@
  }
  function closePinMenu(event:MouseEvent){if(event.target instanceof Element&&!event.target.closest('.conversation-options,.pin-menu'))pinMenuId=null;}
  let filtered=$derived(chats.filter(c=>Boolean(c.hidden)===showHidden&&c.name.toLowerCase().includes(search.toLowerCase())));
- const nav=[{id:'chats',icon:MessageCircle,label:'Chats'},{id:'teams',icon:Building2,label:'Teams and Channels'},{id:'mail',icon:Mail,label:'Mail'},{id:'activity',icon:Bell,label:'Activity'},{id:'people',icon:Users,label:'People'},{id:'calls',icon:Phone,label:'Calls'},{id:'files',icon:Files,label:'Files'}] as const;
+ const nav=[{id:'chats',icon:MessageCircle,label:'Chats'},{id:'teams',icon:Building2,label:'Teams and Channels'},{id:'mail',icon:Mail,label:'Mail'},{id:'calendar',icon:CalendarDays,label:'Calendar'},{id:'activity',icon:Bell,label:'Activity'},{id:'people',icon:Users,label:'People'},{id:'calls',icon:Phone,label:'Calls'},{id:'files',icon:Files,label:'Files'}] as const;
  const commands=[
  {label:'Search chats and mail',hint:'Discovery',run:()=>discoveryOpen=true},
  {label:'Go to Chats',hint:'Workspace',run:()=>mode='chats'},
  {label:'Go to Teams and Channels',hint:'Workspace',run:()=>mode='teams'},
  {label:'New conversation',hint:'Messaging',run:()=>openNewChat()},
  {label:'Go to Mail',hint:'Workspace',run:()=>{mode='mail';sidebarOpen=true}},
+ {label:'Go to Calendar',hint:'Workspace',run:()=>{mode='calendar';sidebarOpen=true}},
  {label:'Go to Activity',hint:'Workspace',run:()=>mode='activity'},
  {label:'Toggle conversation sidebar',hint:'Layout',run:()=>sidebarOpen=!sidebarOpen},
  {label:'Toggle details panel',hint:'Layout',run:()=>detailsOpen=!detailsOpen},
@@ -968,7 +973,7 @@
 <div use:attachmentInput={{enabled:canStageFiles,onFiles:files=>{void stageFiles(files)},onError:message=>attachmentInputNotice=message,onDrag:active=>fileDragActive=active}} class="app" class:dense style={`--sidebar-width:${sidebarWidth}px`}>
  <div class="layout-bar"><span class="layout-caption">TAUT <span>/ YOUR WORKSPACE</span></span><button type="button" class="unified-search-launch" disabled={!isLive} aria-label="Search chats and mail" onclick={()=>discoveryOpen=true}><Search size={16}/><span>Search chats and mail</span></button><div class="layout-controls" role="toolbar" aria-label="Workspace layout">
   <button type="button" aria-label="Toggle conversation sidebar" aria-pressed={sidebarOpen} title="Conversation sidebar" onclick={()=>sidebarOpen=!sidebarOpen}><PanelLeft size={17}/></button>
-  <button type="button" aria-label="Toggle details panel" aria-pressed={detailsOpen&&(mode==='mail'&&mailDetailsAvailable||mode==='teams'||mode==='people'||mode==='chats'&&selected.id!=='empty')} disabled={mode==='mail'?!mailDetailsAvailable:mode!=='teams'&&mode!=='people'&&(mode!=='chats'||selected.id==='empty')} title={mode==='mail'?'Mail conversation details and shared media':mode==='people'?'Coworker shared connections':mode==='teams'?'Channel details or reply thread':mode==='chats'&&selected.id!=='empty'?'Conversation details':'Choose a conversation to show details'} onclick={()=>detailsOpen=!detailsOpen}><PanelRight size={17}/></button>
+  <button type="button" aria-label="Toggle details panel" aria-pressed={detailsOpen&&(mode==='calendar'&&calendarDetailsAvailable||mode==='mail'&&mailDetailsAvailable||mode==='teams'||mode==='people'||mode==='chats'&&selected.id!=='empty')} disabled={mode==='calendar'?!calendarDetailsAvailable:mode==='mail'?!mailDetailsAvailable:mode!=='teams'&&mode!=='people'&&(mode!=='chats'||selected.id==='empty')} title={mode==='calendar'?'Calendar event details':mode==='mail'?'Mail conversation details and shared media':mode==='people'?'Coworker shared connections':mode==='teams'?'Channel details or reply thread':mode==='chats'&&selected.id!=='empty'?'Conversation details':'Choose a conversation to show details'} onclick={()=>detailsOpen=!detailsOpen}><PanelRight size={17}/></button>
   <span class="layout-divider"></span>
   <button type="button" aria-label="Focus mode" aria-pressed={focusMode} title={focusMode?'Exit focus mode · restore panels':'Focus mode · hide both panels'} onclick={toggleFocus}><Scan size={17}/></button>
  </div></div>
@@ -977,7 +982,7 @@
   <img class="brand" src="/icon.png" alt="TAUT"/>
   <div class="rail-buttons">
    {#each nav as item}
-    <button class:active={mode===item.id} class="rail-button" title={item.label} aria-label={item.label} onclick={()=>{mode=item.id;if(item.id==='chats'||item.id==='teams'||item.id==='mail'||item.id==='people')sidebarOpen=true;}}><item.icon size={20} strokeWidth={1.8}/>{#if item.id==='chats'&&unreadChats}<span class="unread-total" aria-label={`${unreadChats} unread conversations`}>{unreadChats}</span>{/if}</button>
+    <button class:active={mode===item.id} class="rail-button" title={item.label} aria-label={item.label} onclick={()=>{mode=item.id;if(item.id==='chats'||item.id==='teams'||item.id==='mail'||item.id==='people'||item.id==='calendar')sidebarOpen=true;}}><item.icon size={20} strokeWidth={1.8}/>{#if item.id==='chats'&&unreadChats}<span class="unread-total" aria-label={`${unreadChats} unread conversations`}>{unreadChats}</span>{/if}</button>
    {/each}
   </div>
   <div class="rail-bottom">
@@ -986,7 +991,7 @@
    <button class="my-avatar" aria-label="Your status and preferences" disabled={!isLive} onclick={()=>{settingsPage='Presence & status';settingsOpen=true}} title={signedInName?`${signedInName} · ${userPresence(ownId).label}`:"Not signed in"}>{signedInName? signedInName[0]:"—"}{#if isLive}<i class="own-presence-dot" style:background={userPresence(ownId).color} aria-hidden="true"></i>{/if}</button>
   </div>
  </aside>
- {#if sidebarOpen&&mode!=='teams'&&mode!=='mail'&&mode!=='people'}
+ {#if sidebarOpen&&mode!=='calendar'&&mode!=='teams'&&mode!=='mail'&&mode!=='people'}
  <aside class="sidebar" aria-label="Conversations">
   <div class="sidebar-head"><div><div class="eyebrow">WORKSPACE</div><h1>{mode==='chats'?'Messages':nav.find(n=>n.id===mode)?.label}</h1></div><div class="sidebar-head-actions">{#if mode==='chats'}<button class="small-button" title="New conversation" aria-label="New conversation" disabled={!isLive||authBusy} onclick={openNewChat}><SquarePen size={18}/></button>{/if}<button class="small-button" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={()=>sidebarOpen=false}><PanelLeftClose size={18}/></button></div></div>
   {#if mode==='chats'}
@@ -1003,7 +1008,8 @@
  {/if}
  <main class="main">
   {#if mode==='teams'}{#key ownId}<TeamsWorkspace presencePermitted={collaboration.readPresence} onCloseDetails={()=>detailsOpen=false} drafts={channelDrafts} sendBusy={sendBusy} onSendBusy={(busy)=>sendBusy=busy} {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
-  {:else if mode==='mail'}{#key `${ownId}:${isLive}:${mailNavigation}`}<MailWorkspace readDelay={mailReadDelay} {detailsOpen} onDetails={open=>detailsOpen=open} onDetailsAvailable={value=>mailDetailsAvailable=value} {ownId} {ownMailAddresses} defaultPresentation={mailPresentation} initialDraft={chatEmailDraft} onRecipientHandled={()=>{mailRecipient='';chatEmailDraft=null;}} initialRecipient={mailRecipient} initialMessage={mailOpen} {isLive} {sidebarOpen} {authBusy} onSidebar={open=>sidebarOpen=open} onSignIn={signIn}/>{/key}
+  {:else if mode==='calendar'}{#key `${ownId}:${isLive}`}<CalendarWorkspace initialEvent={calendarTarget?.ownId===ownId?calendarTarget.event:null} onNavigationHandled={()=>calendarTarget=null} {ownId} {isLive} {sidebarOpen} {detailsOpen} onOpenDetails={()=>detailsOpen=true} onDetailsAvailable={value=>calendarDetailsAvailable=value} onCloseDetails={()=>detailsOpen=false} onSignIn={signIn}/>{/key}
+  {:else if mode==='mail'}{#key `${ownId}:${isLive}:${mailNavigation}`}<MailWorkspace onOpenCalendar={event=>{calendarTarget={ownId,event};sidebarOpen=true;detailsOpen=true;mode='calendar';}} readDelay={mailReadDelay} {detailsOpen} onDetails={open=>detailsOpen=open} onDetailsAvailable={value=>mailDetailsAvailable=value} {ownId} {ownMailAddresses} defaultPresentation={mailPresentation} initialDraft={chatEmailDraft} onRecipientHandled={()=>{mailRecipient='';chatEmailDraft=null;}} initialRecipient={mailRecipient} initialMessage={mailOpen} {isLive} {sidebarOpen} {authBusy} onSidebar={open=>sidebarOpen=open} onSignIn={signIn}/>{/key}
   {:else if mode==='people'}{#key `${ownId}:${isLive}`}<PeopleWorkspace {isLive} {ownId} {sidebarOpen} {detailsOpen} connections={chats} members={Object.fromEntries(knownChats.map(chat=>[chat.id,(chat.members??[]).map(member=>member.userId??'')]))} onOpenChat={id=>{mode='chats';void discoverChat(id,'');}} onOpenMail={discoverMail} presencePermitted={collaboration.readPresence} onChat={peopleChat} onEmail={peopleEmail} onSignIn={signIn}/>{/key}
   {:else if mode==='chats'}
    {#if selected.id==='empty'}

@@ -1,7 +1,11 @@
+mod mailbox_transport;
+mod meeting;
+mod calendar;
 mod people;
 mod mail;
 mod mail_send;
 mod mail_read;
+mod mail_delete;
 mod away;
 mod away_mail;
 mod membership;
@@ -29,7 +33,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All User.Read.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All Mail.Read Mail.Send Mail.ReadWrite";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All User.Read.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All Mail.Read Mail.Send Mail.ReadWrite Calendars.Read Calendars.ReadWrite Place.Read.All";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
@@ -430,12 +434,71 @@ async fn graph_teams_page(state:State<'_,AuthState>,query:teams::Query)->Result<
 // Mail access is opt-in and read-only. Even search uses GET and no mailbox write endpoints.
 fn mail_request(state:&AuthState,path:&str)->Result<(u16,Value),String>{
  let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Mail HTTP client unavailable")?;
- let response=client.get(format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(state)?).header("Prefer","outlook.body-content-type=\"html\"").send().map_err(|_|"Mail could not connect. Refresh to try again.")?;
+ let token=get_access_token(state)?;
+ let response=mailbox_transport::read(&client,&format!("https://graph.microsoft.com/v1.0{path}"),&token)?;
  let status=response.status().as_u16();if status!=200{return Ok((status,Value::Null));}
  let mut bytes=Vec::new();response.take(24*1024*1024+1).read_to_end(&mut bytes).map_err(|_|"Mail response could not be read")?;
  if bytes.len()>24*1024*1024{return Err("Mail response is too large. Open this item in Outlook.".into());}
  Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid mail response")?))
 }
+// Calendar composer commands use one account-bound token and never retry writes.
+fn meeting_request(token:&str,method:&str,path:&str,body:Value)->Result<(u16,Value),String>{
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Calendar client unavailable")?;
+ let req=if method=="POST"{client.post(format!("https://graph.microsoft.com/v1.0{path}")).json(&body)}else{client.get(format!("https://graph.microsoft.com/v1.0{path}"))};
+ let reply=req.bearer_auth(token).send().map_err(|_|"Calendar request unavailable")?;let status=reply.status().as_u16();if !matches!(status,200|201){return Ok((status,Value::Null));}
+ let mut bytes=vec![];reply.take(2*1024*1024+1).read_to_end(&mut bytes).map_err(|_|"Calendar response unavailable")?;if bytes.len()>2*1024*1024{return Err("Calendar response too large".into());}Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid calendar response")?))
+}
+#[tauri::command]
+async fn calendar_rooms(state:State<'_,AuthState>,next:Option<String>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{if !scope_has(&collaboration_scopes(&state)?,"Place.Read.All"){return Err("Reconnect with Place.Read.All to browse rooms.".into());}let token=get_access_token(&state)?;meeting::rooms(next.as_deref(),&mut|path|meeting_request(&token,"GET",path,Value::Null))}).await}
+#[tauri::command]
+async fn calendar_availability(state:State<'_,AuthState>,addresses:Vec<String>,start:String,end:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;if !scope_has(&scopes,"Calendars.Read")&&!scope_has(&scopes,"Calendars.ReadWrite"){return Err("Reconnect to check availability.".into());}let token=get_access_token(&state)?;meeting::schedule(&addresses,&start,&end,&mut|path,body|meeting_request(&token,"POST",path,body))}).await}
+#[tauri::command]
+async fn calendar_create(state:State<'_,AuthState>,own_id:String,draft:meeting::Draft)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let permitted=scope_has(&collaboration_scopes(&state)?,"Calendars.ReadWrite");if !permitted{return Err("Reconnect to create meetings.".into());}meeting::payload(&draft)?;
+ let token=get_access_token(&state)?;let(status,identity)=meeting_request(&token,"GET","/me?$select=id",Value::Null)?;if status!=200||identity["id"].as_str()!=Some(own_id.as_str()){return Err("Account changed. Reopen the meeting composer.".into());}
+ static ATTEMPTS:std::sync::OnceLock<Mutex<std::collections::HashSet<String>>>=std::sync::OnceLock::new();
+ meeting::create(&draft,permitted,&mut|path,body|{let key=format!("{own_id}:{}",draft.transaction_id);let mut attempts=ATTEMPTS.get_or_init(Default::default).lock().map_err(|_|"Meeting state unavailable")?;if attempts.len()>=10000||!attempts.insert(key){return Err("Meeting was already attempted. Check Outlook.".into());}drop(attempts);meeting_request(&token,"POST",path,body)})
+}).await}
+#[tauri::command]
+async fn calendar_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok({let scopes=collaboration_scopes(&state)?;scope_has(&scopes,"Calendars.Read")||scope_has(&scopes,"Calendars.ReadWrite")})).await}
+#[tauri::command]
+async fn calendar_page(state:State<'_,AuthState>,start:String,end:String,next:Option<String>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let scopes=collaboration_scopes(&state)?;let permitted=scope_has(&scopes,"Calendars.Read")||scope_has(&scopes,"Calendars.ReadWrite");
+ calendar::page(&start,&end,next.as_deref(),permitted,&mut|path|mail_request(&state,path))
+}).await}
+#[tauri::command]
+async fn calendar_response_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Calendars.ReadWrite"))).await}
+#[tauri::command]
+async fn calendar_event(state:State<'_,AuthState>,event_id:Option<String>,message_id:Option<String>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let scopes=collaboration_scopes(&state)?;
+ if !scope_has(&scopes,"Calendars.Read")&&!scope_has(&scopes,"Calendars.ReadWrite"){return Err("Reconnect to read calendar status.".into());}
+ if let Some(id)=message_id{if !scope_has(&scopes,"Mail.Read"){return Err("Reconnect to read invitations.".into());}calendar::invitation(&id,&mut|path|mail_request(&state,path))}else{calendar::event(&event_id.ok_or("Select an event")?,&mut|path|mail_request(&state,path)).map(|event|serde_json::json!({"event":event}))}
+}).await}
+#[tauri::command]
+async fn calendar_response(state:State<'_,AuthState>,own_id:String,event_id:String,version:String,action:String,comment:String,send_response:bool)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let permitted=scope_has(&collaboration_scopes(&state)?,"Calendars.ReadWrite");
+ // One token snapshot binds the preflight read and response to the same account.
+ let token=get_access_token(&state)?;
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Calendar client unavailable")?;
+ let identity=client.get("https://graph.microsoft.com/v1.0/me?$select=id").bearer_auth(&token).send().map_err(|_|"Account could not be verified")?;
+ if identity.status().as_u16()!=200{return Err("Account could not be verified".into());}
+ let identity:Value=identity.json().map_err(|_|"Invalid account response")?;
+ if identity["id"].as_str()!=Some(own_id.as_str()){return Err("Account changed. Reopen the event after reconnecting.".into());}
+ static ATTEMPTS:std::sync::OnceLock<Mutex<std::collections::HashSet<String>>>=std::sync::OnceLock::new();
+ calendar::respond(&event_id,&version,&action,&comment,send_response,permitted,&mut|method,path,body|{
+  let req=if method=="POST"{
+   let key=format!("{own_id}:{event_id}:{version}");
+   let mut attempts=ATTEMPTS.get_or_init(Default::default).lock().map_err(|_|"Calendar response state unavailable")?;
+   if attempts.len()>=10000||!attempts.insert(key){return Err("This response was already attempted. Check Outlook.".into());}
+   client.post(format!("https://graph.microsoft.com/v1.0{path}")).json(&body)
+  }else{client.get(format!("https://graph.microsoft.com/v1.0{path}"))};
+  let reply=req.bearer_auth(&token).send().map_err(|_|"Calendar request unconfirmed")?;let status=reply.status().as_u16();
+  if method=="POST"||status!=200{return Ok((status,Value::Null));}
+  let mut bytes=Vec::new();reply.take(1024*1024+1).read_to_end(&mut bytes).map_err(|_|"Calendar response unavailable")?;
+  if bytes.len()>1024*1024{return Err("Calendar response too large".into());}
+  Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid calendar response")?))
+ })
+}).await}
 #[tauri::command]
 async fn mail_write_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Mail.ReadWrite"))).await}
 #[tauri::command]
@@ -448,6 +511,16 @@ async fn mail_set_read(state:State<'_,AuthState>,own_id:String,message_id:String
   let reply=request.bearer_auth(&token).send().map_err(|_|"Mail read state could not be checked")?;let status=reply.status().as_u16();
   if method=="PATCH"{return Ok((status,Value::Null));}
   if status!=200{return Ok((status,Value::Null));}let mut bytes=Vec::new();reply.take(65537).read_to_end(&mut bytes).map_err(|_|"Mail read state unavailable")?;if bytes.len()>65536{return Err("Mail response too large".into());}Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid mail response")?))
+ })
+}).await}
+#[tauri::command]
+async fn mail_move_deleted(state:State<'_,AuthState>,own_id:String,message_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.ReadWrite");let token=get_access_token(&state)?;
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Mail client unavailable")?;
+ mail_delete::move_deleted(&own_id,&message_id,permitted,&mut|method,path,body|{
+ let request=if method=="POST"{client.post(format!("https://graph.microsoft.com/v1.0{path}")).json(&body)}else{client.get(format!("https://graph.microsoft.com/v1.0{path}"))};
+ let reply=request.bearer_auth(&token).send().map_err(|_|"Mail move unconfirmed")?;let status=reply.status().as_u16();
+ if status!=200&&status!=201{return Ok((status,Value::Null));}let mut bytes=Vec::new();reply.take(1024*1024+1).read_to_end(&mut bytes).map_err(|_|"Mail response unavailable")?;if bytes.len()>1024*1024{return Err("Mail response too large".into());}Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid mail response")?))
  })
 }).await}
 #[tauri::command]
@@ -746,7 +819,7 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![mail_write_permission,mail_set_read,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![calendar_rooms,calendar_availability,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

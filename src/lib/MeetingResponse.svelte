@@ -1,0 +1,31 @@
+<script lang="ts">
+ import {onMount,onDestroy} from 'svelte';
+ import {invoke} from '@tauri-apps/api/core';
+ import MailConfirm from './MailConfirm.svelte';
+ import {responseLabel,eventWhen,eventDay,type CalendarEvent,type EventTime,eventDate} from './calendar';
+ let {ownId,eventId,messageId,onOpenCalendar,onUpdated=()=>{}}:{ownId:string;eventId?:string;messageId?:string;onOpenCalendar?:(event:CalendarEvent)=>void;onUpdated?:(event:CalendarEvent)=>void}=$props();
+ let event=$state<CalendarEvent|null>(null),previous=$state<EventTime|null>(null),busy=$state(false),error=$state(''),notice=$state(''),permitted=$state(false),editing=$state(false),review=$state(false),action=$state('accept'),comment=$state(''),sendResponse=$state(true),locked=$state(false);
+ let alive=true;
+ const key=(e:CalendarEvent)=>JSON.stringify(['taut-meeting-response',ownId,e.id,e.changeKey]);
+ const eligible=$derived(event?.isOrganizer===false&&event?.isCancelled===false&&event?.type!=='seriesMaster'&&!!event?.changeKey);
+ const answered=$derived(['accepted','tentativelyAccepted','declined'].includes(event?.responseStatus?.response??''));
+ const label=$derived(action==='accept'?'Accept':action==='decline'?'Decline':'Tentative');
+ onDestroy(()=>alive=false);
+ onMount(()=>{void refresh();if(!messageId)void invoke<boolean>('calendar_response_permission').then(value=>{if(alive)permitted=value;}).catch(()=>{});});
+ async function refresh(){busy=true;error='';try{const result=await invoke<{event:CalendarEvent;previousStartDateTime?:EventTime}>('calendar_event',{eventId:eventId??null,messageId:messageId??null});if(!alive)return;event=result.event;previous=result.previousStartDateTime??null;locked=localStorage.getItem(key(event))!==null;onUpdated(event);}catch(e){if(alive)error=String(e);}finally{if(alive)busy=false;}}
+ async function send(){if(busy||!event||locked)return;const selected=event;review=false;editing=false;busy=true;error='';
+ // Save the attempt before IPC, including across app restarts. Status checks are reads only.
+ try{localStorage.setItem(key(selected),action);locked=true;}catch{error='Response could not be saved safely. Nothing was sent.';busy=false;return;}
+ try{const result=await invoke<{status:string;error?:string}>('calendar_response',{ownId,eventId:selected.id,version:selected.changeKey,action,comment,sendResponse});if(!alive)return;notice=result.status==='accepted'?'Microsoft 365 accepted your response. Refresh status to check the recorded result.':result.error??'Response unconfirmed. Check Outlook before trying again.';await refresh();}catch(e){if(alive)error=String(e);}finally{if(alive)busy=false;}}
+</script>
+<section class="meeting" aria-label="Meeting response">
+ {#if event}<div class="eyebrow">CALENDAR STATUS</div><strong>{responseLabel(event)}</strong><p>{eventDay(event)} · {eventWhen(event)}</p>{#if previous?.dateTime}<p class="update">Meeting time updated · previously {eventDate(previous)?.toLocaleString()??previous.dateTime}</p>{/if}<small>Current calendar status. Reading this email or event does not send a response.</small>{/if}
+ {#if error}<p role="alert">{error}</p>{/if}{#if notice}<p role="status">{notice}</p>{/if}
+ <div class="actions"><button disabled={busy} onclick={refresh}>{busy?'Checking…':'Refresh meeting status'}</button>{#if messageId&&event&&onOpenCalendar}<button disabled={busy} onclick={()=>{if(event)onOpenCalendar?.(event);}}>{eligible?'Respond in Calendar':'View in Calendar'}</button>{:else if !messageId&&eligible&&permitted&&!editing&&!locked}<button disabled={busy} onclick={()=>editing=true}>{answered?'Change response':'Respond to invitation'}</button>{/if}</div>
+ {#if !messageId&&event&&!permitted}<small>Reconnect for Calendars.ReadWrite to answer in TAUT.</small>{/if}{#if !messageId&&locked}<p class="update">A response was already attempted for this event version. Check its status or Outlook; TAUT will not repeat it.</p>{/if}
+ {#if editing}<fieldset><legend>Your response</legend>{#each [['accept','Accept'],['tentativelyAccept','Tentative'],['decline','Decline']] as [value,text]}<label><input type="radio" name={'rsvp-'+event?.id} bind:group={action} {value}/>{text}</label>{/each}</fieldset><label class="comment">Optional note<textarea maxlength="4000" bind:value={comment}></textarea></label><label><input type="checkbox" bind:checked={sendResponse}/>Email the organizer my response</label><div class="actions"><button onclick={()=>editing=false}>Cancel</button><button onclick={()=>review=true}>Review response</button></div>{/if}
+</section>
+{#if review&&event}<MailConfirm title="Review meeting response" confirmLabel="Send response" onClose={()=>review=false} onConfirm={send}><p><strong>{event.subject||'Untitled event'}</strong></p><p>{eventDay(event)} · {eventWhen(event)}</p><p>Response: <strong>{label}</strong></p><p>{sendResponse?'The organizer will receive an email response.':'Your calendar response changes without emailing the organizer.'}</p>{#if event.type==='occurrence'||event.type==='exception'}<p>Applies to this occurrence only.</p>{/if}{#if comment}<blockquote>{comment}</blockquote>{/if}</MailConfirm>{/if}
+<style>
+.meeting{padding:18px;margin:16px 0;border:1px solid var(--accent-border);border-left:3px solid var(--accent);border-radius:10px;background:var(--accent-soft);font-size:13px;line-height:1.7}.eyebrow{color:var(--accent);font-size:10px;letter-spacing:1.5px;margin-bottom:8px}.meeting strong{display:block}.meeting p{margin:8px 0}.meeting small{display:block;color:var(--text-secondary)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}button,textarea{font:inherit;color:var(--text-primary);background:var(--surface-panel);border:1px solid var(--border-strong);border-radius:7px;padding:8px 12px}button{cursor:pointer}button:disabled{opacity:.5;cursor:default}fieldset{border:0;padding:0;margin:16px 0;display:flex;flex-wrap:wrap;gap:12px}label{display:flex;align-items:center;gap:6px}.comment{display:block}textarea{display:block;box-sizing:border-box;width:100%;min-height:80px;margin:6px 0 12px}.update{color:var(--text-secondary)}[role=alert]{color:var(--danger-text,#e88d7d)}button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>

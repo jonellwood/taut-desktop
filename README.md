@@ -1,6 +1,6 @@
 # TAUT Desktop
 
-A native macOS Microsoft Teams and Mail client built with Tauri 2, Rust, Svelte 5 and Microsoft Graph. Current features include chats and channels, People directory, presence, unified search, Mail reading/composing/replies/forwards, local drafts and signatures, attachments, and individually approved inline images. See [TODO.md](TODO.md) for the roadmap and [TAUT_HANDOFF.md](TAUT_HANDOFF.md) for development context; current source is authoritative.
+A native macOS Microsoft Teams and Mail client built with Tauri 2, Rust, Svelte 5 and Microsoft Graph. Current features include chats and channels, People directory, presence, unified search, Mail reading/composing/replies/forwards, local drafts and signatures, attachments, individually approved inline images, and Calendar agenda/meeting responses/composition with room discovery. See [TODO.md](TODO.md) for the roadmap and [TAUT_HANDOFF.md](TAUT_HANDOFF.md) for development context; current source is authoritative.
 
 ## Set up on another Mac
 
@@ -24,7 +24,7 @@ Your laptop starts with its own local state. Keychain sign-in credentials, local
 ## Authentication and safety
 
 - OAuth uses the system browser, PKCE and a loopback callback. Access tokens stay in Rust; persistent credentials use macOS Keychain, never frontend storage or URLs.
-- This is a tenant-specific public desktop application with no client secret. Requested delegated scopes are defined by `SCOPES` in `src-tauri/src/lib.rs`; feature permission rationale is documented in [MAIL.md](MAIL.md), [PEOPLE.md](PEOPLE.md), and related feature documents.
+- This is a tenant-specific public desktop application with no client secret. Requested delegated scopes are defined by `SCOPES` in `src-tauri/src/lib.rs`; feature permission rationale is documented in [MAIL.md](MAIL.md), [PEOPLE.md](PEOPLE.md), [CALENDAR.md](CALENDAR.md), and related feature documents.
 - Selecting a new contact stages a local conversation. Chat creation and sending require explicit Send with nonempty content. Mail sends require review and explicit confirmation; uncertain sends must be checked in Outlook before retrying.
 - Mail read/unread controls update Microsoft 365. Optional timed read marking is off by default. Mail refresh currently picks up external Outlook changes when returning to Mail or using Refresh.
 - Received remote images remain blocked. Inline/CID images require individual preview approval; approval can be revoked with Block again.

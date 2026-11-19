@@ -211,3 +211,135 @@ User explicitly approved delegated Mail.ReadWrite and confirmed Entra tenant adm
 - README now contains current Mac clone/run instructions and explains that local drafts, signatures, image approvals, preferences, caches and Keychain credentials do not transfer through Git. Active development branch: feat/message-deletion.
 
 End-of-day validation: 85 Node tests and 162 offline locked Rust library tests passed; offline locked cargo check, UI TypeScript, production build and diff whitespace checks passed. Browser suite: 504 passed in the full run; the two new importance cases initially used an ambiguous subject selector, corrected to match the exact subject, and both passed in the targeted Chromium/WebKit rerun (506 cases covered). Build retains three existing App accessibility warnings. No native app launch or real Microsoft 365 operations during automated checks. Checkpoint includes the accumulated November 10 Mail work and README laptop setup; push destination is origin/feat/message-deletion.
+
+
+## 2026-11-12 — Attachment recipient verification
+
+Investigated reported Teams recipient image download/share failure in a direct
+chat. Existing upload path grants read access using driveItem invite; prior
+confirmation counted records without matching recipients. Now matches readable
+permissions to every Entra recipient (modern/legacy identity facets), with one
+read-only permissions lookup if invite identities are incomplete. Unverified
+access blocks sending and preserves draft. Mock regressions cover duplicate/wrong
+identities, siteUser confusion and incomplete responses. No live Microsoft365
+operations or scope changes. Original recipient error remains unknown; do not
+claim the reported download failure is conclusively fixed. Calendar is a future
+milestone in TODO.md, after this attachment investigation.
+
+User clarified image report: no error, only missing Teams download/share UI.
+Added explicit escaped Open original filename links beside outgoing reference
+attachments, preserving original URLs/access grants and upload recovery. This is
+a fallback route to OneDrive, not a guarantee of native Teams controls or onward
+sharing. Mock tests verify escaped labels/query strings and file-only sends.
+
+
+## 2026-11-12 — Calendar read-only first pass
+
+User explicitly approved delegated Calendars.Read; added to requested scopes and
+documented in CALENDAR.md. Entra consent plus fresh sign-in required for Calendar.
+New three-pane Calendar workspace has date/range navigation (day/week/30 days),
+chronological agenda, selected event details, description preview, organizer,
+attendees and recorded RSVP/cancellation state. Selection opens details; closing
+it and selecting an event opens it again. Navigation and refresh are explicit.
+Uses /me/calendarView for occurrences/exceptions; validated Graph-only continuation,
+bounded date range, scope gate, stale-result guards. No event writes or meeting
+responses. Mail invitation reconciliation/change-response remain future work.
+Existing attachment changes in this working tree precede Calendar; preserve them.
+Calendar automated tests use mocked IPC/Graph only. No signed-in native app or
+real Microsoft365 data accessed during testing.
+Validation: Rust 169/169; Node helpers 88/88; Calendar browser cases 6/6
+(Chromium + WebKit), plus 88/88 Mail/Teams/layout/welcome regressions.
+Production build and UI TypeScript check pass; three existing App accessibility
+warnings remain. git diff --check passes. Tenant calendar validation is pending.
+
+## 2026-11-12 Calendar invitation responses
+User validated Calendar v1 successfully, then explicitly approved delegated
+Calendars.ReadWrite and confirmed Entra admin consent. Scope now requested;
+fresh interactive sign-in required. CALENDAR.md records rationale and controls.
+Shared MeetingResponse component in Calendar details and expanded Mail event
+messages: resolves Graph event relationship, reads current calendar status,
+shows Change response for answered invitations, and previous start time when
+available. No subject guessing or conflating unread mail with unanswered RSVP.
+Review modal for Accept/Tentative/Decline, optional note and organizer email.
+Rust verifies account with same token snapshot and fresh changeKey before one
+POST. Blocks organizer/cancelled/series-master actions. HTTP202 is accepted for
+processing; status refresh remains read-only. Local persistent event-version
+markers plus Rust process ledger prevent repeated uncertain responses.
+No automated tenant access or mutations. Rust174/174, helper88/88, build and
+UI type checks pass (3 existing App accessibility warnings). Browser regression
+suite100/100 passed across Chromium/WebKit before final uncertain-state case.
+
+### Mail invitations use Calendar for responses
+
+User confirmed Calendar RSVP and cross-surface status updates work, but Mail RSVP
+returned HTTP 400. Mail now keeps status/refresh and navigates to the exact meeting
+in Calendar with date and details open. Calendar owns RSVP review/send. Read-only
+missing-event retry preserves the target; selected events survive omission from an
+agenda page (e.g. declined events). No new scopes or real tenant automated writes.
+Validation: 88 Node tests and 58 mocked Calendar/Mail browser regressions passed;
+final Calendar retry coverage and production build checked separately.
+
+## 2026-11-12 — Approved room discovery scope
+
+User confirmed Entra consent and explicitly approved delegated Place.Read.All.
+Added to requested Rust OAuth scopes; rationale and planned room booking behavior
+are documented in CALENDAR.md. Fresh sign-in required. Room picker and meeting
+creation remain to be implemented; this change only prepares authorization.
+
+### 2026-11-12 — meeting composer / room picker
+
+Added Calendar New meeting: account-specific local drafts, subject/date/time,
+attendee addresses, description, searchable/paginated Graph rooms, advisory
+availability and explicit review/create. Uses approved Calendars.ReadWrite and
+Place.Read.All. Selection/drafting never creates an event. UTC payloads invite
+rooms as resource attendees; Exchange controls acceptance/approval. Persistent
+attempt markers plus Rust transaction/process guards prevent automatic repeats
+on uncertain results. Single meetings and one room for this pass. See CALENDAR.md.
+Validation: 180 Rust tests, 88 Node tests, 20 Calendar/composer browser tests
+(Chromium + WebKit), UI TypeScript check and production build pass. Three existing
+App.svelte accessibility warnings remain. No real Microsoft365 writes were tested.
+
+### 2026-11-12 — meeting summary and attendee autocomplete
+
+Moved composer availability into a live right-panel summary with time, people and
+room details, connected to the workspace panel controls. Attendees reuse cached
+People autocomplete from Mail. Selection changes invalidate old availability.
+User confirmed availability and meeting creation without a room; actual room
+booking is still awaiting a real meeting. Validation: 22 mocked Calendar/meeting
+browser checks across Chromium/WebKit, UI TypeScript check and production build
+pass; three existing App accessibility warnings remain. No automated tenant writes.
+
+### 2026-11-12 — composer spacing and attendee status polish
+
+Meeting composer now uses a dedicated class instead of inheriting the global chat
+composer flex layout, which placed its header beside the form and left a large
+blank area. Added browser geometry coverage for the header/form flow. Attendee
+response values use readable labels (Not Responded, Tentatively Accepted, None,
+Accepted, Declined); pending room wording remains explicit.
+Validation: 89 Node tests, 22 mocked Calendar/meeting browser tests, UI TypeScript
+check and production build pass. Three existing App accessibility warnings remain.
+No automated Microsoft365 writes.
+
+### Individual mail deletion
+
+Added explicit Move to Deleted Items with MailConfirm, existing Mail.ReadWrite, account verification, one Graph move request and durable local attempt lock. Only individual emails; no permanent or bulk deletion. Restore via Outlook. Conversation/search pages exclude Deleted Items. Automated tests use mocked transport/IPC only.
+
+### 2026-11-12 — Mail/Calendar gateway diagnostics
+
+Mail and Calendar GET reads share mailbox_transport. Retry only HTTP 502/503/504,
+at most three attempts with bounded waits. Persistent failures expose only a
+validated Graph machine error code and request-id, never response message text,
+mail content or tokens. Write transports remain unchanged and are not retried.
+The reported live persistent 502 cause is not yet established; the improved
+error is needed to distinguish an Exchange/service problem from a request issue.
+Validation: 187 Rust tests and 89 Node tests pass, including loopback mocked HTTP
+recovery, persistent safe diagnostics, and no retry for 403. No live M365 testing.
+
+
+## 2026-11-19 — Mail/Calendar recovery and checkpoint
+
+User reported that the earlier 502 errors coincided with a nationwide Microsoft outage lasting almost a full day. After rebuilding today, the user confirmed Mail and Calendar are working again. This strongly supports a service outage as the cause; no request-level cause was independently established. Keep the bounded read-only gateway retry and safe diagnostics for future service interruptions; mutations are never retried by that transport.
+
+This checkpoint preserves the accumulated November 12 Calendar workspace, reviewed RSVP and meeting composer, room discovery/advisory availability, Mail invitation navigation, individual Move to Deleted Items, and Teams attachment recipient verification/original-file links. Room booking remains pending a deliberate manual test; today's confirmation does not imply new meeting invitations or deletion tests were performed.
+
+November 19 checkpoint validation: all 536 mocked Chromium/WebKit browser tests, 89 Node tests and 187 Rust library tests passed. Three local HTTP transport tests initially could not bind localhost inside the sandbox; their targeted rerun with localhost access passed. Offline locked cargo check, UI TypeScript, production build and whitespace checks passed. Build retains three existing App accessibility warnings. No native app launch or real Microsoft 365 calls during automated checks.

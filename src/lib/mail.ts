@@ -1,6 +1,6 @@
 import {receivedText} from './message-body.ts';
 export type Address={emailAddress?:{name?:string;address?:string}};
-export type MailMessage={importance?:'low'|'normal'|'high';id:string;conversationId?:string;subject?:string;from?:Address;toRecipients?:Address[];ccRecipients?:Address[];replyTo?:Address[];receivedDateTime?:string;sentDateTime?:string;bodyPreview?:string;body?:{contentType?:string;content?:string};isRead?:boolean;hasAttachments?:boolean;webLink?:string};
+export type MailMessage={"@odata.type"?:string;importance?:'low'|'normal'|'high';id:string;conversationId?:string;subject?:string;from?:Address;toRecipients?:Address[];ccRecipients?:Address[];replyTo?:Address[];receivedDateTime?:string;sentDateTime?:string;bodyPreview?:string;body?:{contentType?:string;content?:string};isRead?:boolean;hasAttachments?:boolean;webLink?:string};
 export type MailAttachment={id:string;name?:string;contentType?:string;size?:number;isInline?:boolean;contentId?:string};
 export type MailPage<T>={value:T[];next:string|null};
 export function addressLabel(value?:Address){return value?.emailAddress?.name||value?.emailAddress?.address||'Unknown sender';}
