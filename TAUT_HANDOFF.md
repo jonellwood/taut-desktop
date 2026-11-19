@@ -343,3 +343,7 @@ User reported that the earlier 502 errors coincided with a nationwide Microsoft 
 This checkpoint preserves the accumulated November 12 Calendar workspace, reviewed RSVP and meeting composer, room discovery/advisory availability, Mail invitation navigation, individual Move to Deleted Items, and Teams attachment recipient verification/original-file links. Room booking remains pending a deliberate manual test; today's confirmation does not imply new meeting invitations or deletion tests were performed.
 
 November 19 checkpoint validation: all 536 mocked Chromium/WebKit browser tests, 89 Node tests and 187 Rust library tests passed. Three local HTTP transport tests initially could not bind localhost inside the sandbox; their targeted rerun with localhost access passed. Offline locked cargo check, UI TypeScript, production build and whitespace checks passed. Build retains three existing App accessibility warnings. No native app launch or real Microsoft 365 calls during automated checks.
+
+### 2026-11-19 — Room booking accepted
+
+User explicitly confirmed that the manual room-booking test passed as expected. Calendar creation with a room is now user-validated alongside the earlier availability and meeting-without-room checks. This was a user-performed tenant test; no automated real Microsoft 365 calls were made. Documentation-only update, checked with git diff --check; no code changes or test rerun.

@@ -119,6 +119,6 @@ autocomplete against the account's cached People directory; manual addresses
 remain supported. Changing time, attendees or room invalidates old availability.
 
 User verified free/busy checks and creation without a room against their tenant.
-Actual room booking remains pending a real meeting. Automated follow-up validation:
+Actual room booking was manually tested and confirmed successful by the user on November 19, 2026. Automated follow-up validation:
 22 mocked Calendar/meeting browser checks in Chromium and WebKit, UI TypeScript
 check and production build passed (three existing App accessibility warnings).

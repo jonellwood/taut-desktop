@@ -4,7 +4,7 @@ Updated November 19, 2026. Work in the numbered queue in order. Keep new ideas i
 
 ## Current checkpoint
 
-People v1 and the Mail milestone are accepted. Calendar agenda/details, RSVP, meeting composition and room discovery are implemented, along with individual Mail Move to Deleted Items and stronger Teams attachment access verification. On November 19 the user rebuilt and confirmed Mail/Calendar work after the reported Microsoft outage. Actual room booking remains a manual follow-up. Active branch: `feat/message-deletion`; this checkpoint follows `e67c920`. Mail and meeting drafts remain local to this Mac.
+People v1 and the Mail milestone are accepted. Calendar agenda/details, RSVP, meeting composition and room discovery are implemented, along with individual Mail Move to Deleted Items and stronger Teams attachment access verification. On November 19 the user rebuilt and confirmed Mail/Calendar work after the reported Microsoft outage. The user also confirmed successful manual room booking on November 19. Active branch: `feat/message-deletion`; this checkpoint follows `e67c920`. Mail and meeting drafts remain local to this Mac.
 
 Completed milestones and their original validation notes are preserved in [ROADMAP_COMPLETED.md](ROADMAP_COMPLETED.md). Feature documents and current source define behavior. Automated testing always uses mocks; manual tenant testing is performed by the user.
 
