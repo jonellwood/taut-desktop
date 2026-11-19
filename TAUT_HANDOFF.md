@@ -347,3 +347,12 @@ November 19 checkpoint validation: all 536 mocked Chromium/WebKit browser tests,
 ### 2026-11-19 — Room booking accepted
 
 User explicitly confirmed that the manual room-booking test passed as expected. Calendar creation with a room is now user-validated alongside the earlier availability and meeting-without-room checks. This was a user-performed tenant test; no automated real Microsoft 365 calls were made. Documentation-only update, checked with git diff --check; no code changes or test rerun.
+
+
+### November 19 — Mail/Calendar invitation reconciliation
+
+Current calendar RSVP now drives response controls. Answered mail offers View in Calendar; eligible answered events offer Change response. Only current meeting-request mail with a notResponded event and requested response offers Respond in Calendar. Graph isOutOfDate, responseRequested and previous time/location metadata are preserved separately from current event state. Response receipts and missing/removed associated events never fabricate the user's RSVP. Neither unread mail nor changeKey triggers attention.
+
+List refresh and return to visible/focused cards refresh their status; stale failed reads cannot send. Accepted responses receive bounded read-only reconciliation (immediate, then up to 2/5/10 seconds), stopped by confirmation, navigation/unmount or hiding. Uncertain writes are never repeated and persistent version locks remain. No OAuth changes or real Microsoft 365 requests during automated work. Teams calendar association/unified attention remains explicitly deferred; current scope is Mail and Calendar.
+
+Reconciliation validation: 90 Node tests, 11 targeted Calendar Rust tests, offline locked cargo check, UI TypeScript and production build pass (three existing App accessibility warnings). 88 unique mocked Mail/Calendar/meeting browser cases are covered across Chromium/WebKit: 86 initially passed, the failed-refresh pair had an assertion missing the mock Error prefix and passed after correction; all 30 Calendar cases then passed again including focus-return reconciliation. WebKit Calendar screenshot inspected. No native app launch, new scopes or real Microsoft 365 operations. Manual tenant validation of this reconciliation follow-up is pending.

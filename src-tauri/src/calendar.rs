@@ -1,6 +1,6 @@
 //! Calendar reads and explicitly reviewed meeting responses. Writes are never retried.
 use serde_json::{json, Value};
-const SELECT: &str = "id,subject,start,end,isAllDay,isCancelled,isOrganizer,organizer,location,responseStatus,showAs,attendees,bodyPreview,webLink,type,changeKey";
+const SELECT: &str = "id,subject,start,end,isAllDay,isCancelled,isOrganizer,organizer,location,responseStatus,responseRequested,showAs,attendees,bodyPreview,webLink,type,changeKey";
 fn route(start: &str, end: &str, next: Option<&str>) -> Result<String,String> {
     let a=chrono::DateTime::parse_from_rfc3339(start).map_err(|_|"Invalid calendar start")?;
     let b=chrono::DateTime::parse_from_rfc3339(end).map_err(|_|"Invalid calendar end")?;
@@ -48,9 +48,10 @@ pub fn event(id:&str,request:&mut dyn FnMut(&str)->Result<(u16,Value),String>)->
 pub fn invitation(id:&str,request:&mut dyn FnMut(&str)->Result<(u16,Value),String>)->Result<Value,String>{
  let(status,value)=request(&format!("/me/messages/{}?$expand=microsoft.graph.eventMessage/event",encoded_id(id)?))?;
  if status!=200{return Err(format!("Meeting invitation unavailable (HTTP {status})"));}
- let event_id=value["event"]["id"].as_str().ok_or("This invitation has no associated calendar event. Open it in Outlook.")?;
- let current=event(event_id,request)?;
- Ok(json!({"event":current,"previousStartDateTime":value["previousStartDateTime"],"previousEndDateTime":value["previousEndDateTime"],"meetingMessageType":value["meetingMessageType"]}))
+ // Request/response messages carry historical context, never the current RSVP.
+ // Keep that context even if a declined/cancelled event is no longer available.
+ let current=match value["event"]["id"].as_str(){Some(id)=>event(id,request).ok(),None=>None};
+ Ok(json!({"event":current,"calendarUnavailable":current.is_none(),"previousStartDateTime":value["previousStartDateTime"],"previousEndDateTime":value["previousEndDateTime"],"previousLocation":value["previousLocation"],"meetingMessageType":value["meetingMessageType"],"isOutOfDate":value["isOutOfDate"],"responseRequested":value["responseRequested"]}))
 }
 pub fn respond(id:&str,version:&str,action:&str,comment:&str,send_response:bool,permitted:bool,request:&mut dyn FnMut(&str,&str,Value)->Result<(u16,Value),String>)->Result<Value,String>{
  if !permitted{return Err("Meeting responses need Calendars.ReadWrite consent and a fresh sign-in.".into());}
@@ -71,4 +72,11 @@ pub fn respond(id:&str,version:&str,action:&str,comment:&str,send_response:bool,
  #[test]fn denied_and_invalid_make_no_requests(){for (scope,action,id) in [(false,"accept","event"),(true,"delete","event"),(true,"accept","../event")]{assert!(respond(id,"v1",action,"",true,scope,&mut|_,_,_|panic!("unexpected request")).is_err());}}
  #[test]fn network_failure_is_uncertain_without_retry(){let mut posts=0;let result=respond("event","v1","tentativelyAccept","",false,true,&mut|method,_,_|{if method=="GET"{Ok((200,current()))}else{posts+=1;Err("timeout".into())}}).unwrap();assert_eq!(posts,1);assert_eq!(result["status"],"uncertain");}
  #[test]fn invitation_uses_relationship_then_current_calendar_status(){let mut paths=vec![];let result=invitation("mail",&mut|path|{paths.push(path.to_string());Ok((200,if path.contains("messages"){json!({"event":{"id":"event"},"previousStartDateTime":{"dateTime":"old"}})}else{current()}))}).unwrap();assert_eq!(paths.len(),2);assert!(paths[0].contains("$expand=microsoft.graph.eventMessage/event"));assert_eq!(result["event"]["changeKey"],"v1");}
+ #[test]fn invitation_keeps_history_separate_from_current_response(){
+  let result=invitation("old-mail",&mut|path|Ok((200,if path.contains("messages"){json!({"event":{"id":"event"},"meetingMessageType":"meetingRequest","isOutOfDate":true,"responseRequested":false,"previousEndDateTime":{"dateTime":"old-end"},"previousLocation":{"displayName":"Old room"}})}else{current()}))).unwrap();
+  assert_eq!(result["isOutOfDate"],true);assert_eq!(result["responseRequested"],false);assert_eq!(result["previousLocation"]["displayName"],"Old room");assert_eq!(result["event"]["responseStatus"]["response"],"notResponded");assert_eq!(result["calendarUnavailable"],false);
+ }
+ #[test]fn response_message_without_current_event_does_not_invent_a_response(){
+  for associated in [false,true]{let result=invitation("mail",&mut|path|if path.contains("messages"){Ok((200,json!({"meetingMessageType":"meetingAccepted","event":if associated{json!({"id":"event"})}else{Value::Null}})))}else{Ok((404,Value::Null))}).unwrap();assert!(result["event"].is_null());assert_eq!(result["calendarUnavailable"],true);assert_eq!(result["meetingMessageType"],"meetingAccepted");}
+ }
 }

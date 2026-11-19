@@ -122,3 +122,16 @@ User verified free/busy checks and creation without a room against their tenant.
 Actual room booking was manually tested and confirmed successful by the user on November 19, 2026. Automated follow-up validation:
 22 mocked Calendar/meeting browser checks in Chromium and WebKit, UI TypeScript
 check and production build passed (three existing App accessibility warnings).
+
+
+## Mail/Calendar response reconciliation — November 19, 2026
+
+Expanded meeting mail now classifies invitation/update, cancellation and response messages using Graph metadata. Historical request details (outdated flag, previous start/end/location and response-request flag) are kept separate from the freshly read calendar event. Superseded mail, response receipts, answered events and events without a requested response do not offer a new-response prompt. Mail offers View in Calendar for those events; Calendar retains explicit Change response for answered, eligible events. No subject matching, unread-state inference, changeKey-based attention, notification feed or sender-wide state is added.
+
+Mail Refresh and Calendar Refresh now refresh their open response cards as well as lists. Returning focus/visibility to an open card checks its current status unless a response is being edited or sent. Failed reads leave old status non-actionable until a successful refresh. Event version/account mutation guards remain in Rust.
+
+After an accepted RSVP request, TAUT immediately reads calendar status and makes at most three follow-up reads after 2, 5 and 10 seconds, stopping on the requested recorded status. Navigation/unmount cancels scheduled checks; hidden pages do not continue them. HTTP 202 is still submission acceptance, not delivery. If confirmation does not appear, TAUT says so and offers manual status refresh; it never repeats the write. Existing attempt locks survive uncertain outcomes.
+
+Meeting response/cancellation mail can retain its classified card even if its associated event is absent or unavailable; TAUT does not infer the user's RSVP from an acceptance email. Teams meeting association and a future unified attention feed remain separate work.
+
+References: https://learn.microsoft.com/en-us/graph/api/resources/eventmessagerequest?view=graph-rest-1.0 and https://learn.microsoft.com/en-us/graph/api/resources/event?view=graph-rest-1.0.

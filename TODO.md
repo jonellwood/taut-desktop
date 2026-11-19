@@ -53,7 +53,8 @@ The three-item implementation queue is complete; signature sending and the recei
 
 - [x] Calendar v1: read-only date/agenda/details workspace, recurring occurrences, attendee and recorded response status. Delegated Calendars.Read approved; user validated successfully.
 - [x] Calendar/Mail: resolve invitations to current calendar status; reviewed Accept/Tentative/Decline and Change response with approved Calendars.ReadWrite.
-- [ ] Calendar: finish cross-surface update/attention reconciliation across Mail/Teams/calendar. Show confirmed response with Change response; only prompt again when the latest update requires it. Unread mail is not an unanswered invitation. Avoid duplicate attention alerts.
+- [x] Calendar/Mail response reconciliation: current recorded RSVP, explicit superseded-request metadata, Change response for answered events, read-only refresh on return and bounded post-response confirmation. Unread mail and event version changes never imply a new response is required.
+- [ ] Teams meeting association and unified attention reconciliation: use verified calendar links/identities and avoid duplicate alerts across future surfaces.
 - [ ] Files: lightweight OneDrive browser and shared discovery across communication sources.
 - [ ] Calls: research supported native integration and permissions before defining scope.
 - [ ] Decide whether Activity adds useful signal before implementing a feed.

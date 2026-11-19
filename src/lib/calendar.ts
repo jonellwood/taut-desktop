@@ -1,5 +1,5 @@
 export type EventTime={dateTime:string;timeZone:string};
-export type CalendarEvent={id:string;changeKey?:string;subject?:string;start:EventTime;end:EventTime;isAllDay?:boolean;isCancelled?:boolean;isOrganizer?:boolean;organizer?:{emailAddress?:{name?:string;address?:string}};location?:{displayName?:string};responseStatus?:{response?:string};showAs?:string;attendees?:{type?:string;emailAddress?:{name?:string;address?:string};status?:{response?:string}}[];bodyPreview?:string;webLink?:string;type?:string};
+export type CalendarEvent={id:string;changeKey?:string;subject?:string;start:EventTime;end:EventTime;isAllDay?:boolean;isCancelled?:boolean;isOrganizer?:boolean;responseRequested?:boolean;organizer?:{emailAddress?:{name?:string;address?:string}};location?:{displayName?:string};responseStatus?:{response?:string};showAs?:string;attendees?:{type?:string;emailAddress?:{name?:string;address?:string};status?:{response?:string}}[];bodyPreview?:string;webLink?:string;type?:string};
 export function localDate(date:Date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;}
 export function calendarRange(day:string,days:number){const start=new Date(day+'T00:00:00');const end=new Date(start);end.setDate(end.getDate()+days);return {start:start.toISOString(),end:end.toISOString()};}
 export function eventDate(time:EventTime){const raw=time?.dateTime;if(!raw)return null;const explicit=/([zZ]|[+-]\d\d:\d\d)$/.test(raw);if(!explicit&&time.timeZone!=='UTC')return null;const date=new Date(raw+(explicit?'':'Z'));return Number.isNaN(date.getTime())?null:date;}
@@ -9,3 +9,13 @@ export function eventDay(event:CalendarEvent){if(event.isAllDay)return event.sta
 export function calendarLink(value:string|undefined){try{const u=new URL(value??'');return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&['outlook.office.com','outlook.office365.com','outlook.live.com'].includes(u.hostname)?u.href:null;}catch{return null;}}
 
 export function attendeeResponseLabel(response?:string){return ({notResponded:'Not Responded',tentativelyAccepted:'Tentatively Accepted',none:'None',accepted:'Accepted',declined:'Declined',organizer:'Organizer'} as Record<string,string>)[response??'']??'Response unavailable';}
+
+export type MeetingStatus={event:CalendarEvent|null;calendarUnavailable?:boolean;isOutOfDate?:boolean;responseRequested?:boolean;meetingMessageType?:string;previousStartDateTime?:EventTime;previousEndDateTime?:EventTime;previousLocation?:{displayName?:string}};
+export function meetingResponseState(event:CalendarEvent|null,mail?:MeetingStatus){
+ const answered=['accepted','tentativelyAccepted','declined'].includes(event?.responseStatus?.response??'');
+ const eligible=event?.isOrganizer===false&&event?.isCancelled===false&&event?.type!=='seriesMaster'&&!!event?.changeKey;
+ const request=mail===undefined||mail.meetingMessageType==='meetingRequest';
+ const needsResponse=eligible&&request&&mail?.isOutOfDate!==true&&mail?.responseRequested!==false&&event?.responseRequested!==false&&event?.responseStatus?.response==='notResponded';
+ return {answered,eligible,needsResponse};
+}
+export function meetingMessageLabel(type?:string){return ({meetingRequest:'Meeting invitation or update',meetingCancelled:'Meeting cancellation',meetingAccepted:'Meeting acceptance',meetingTentativelyAccepted:'Tentative meeting response',meetingTenativelyAccepted:'Tentative meeting response',meetingDeclined:'Meeting decline'} as Record<string,string>)[type??'']??'Meeting message';}

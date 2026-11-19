@@ -55,6 +55,9 @@ export class MockGraph {
   calendarPermitted=true;
   calendarError='';
   calendarEventError='';
+  calendarInvitations:Record<string,any>={};
+  calendarEventResults:any[]=[];
+  calendarEventGate?:Promise<void>;
   calendarEvents:any[]=[{id:'event-1',subject:'Project planning',start:{dateTime:'2026-11-12T15:00:00',timeZone:'UTC'},end:{dateTime:'2026-11-12T16:00:00',timeZone:'UTC'},responseStatus:{response:'accepted'},organizer:{emailAddress:{name:'Alex Example',address:'alex@example.test'}},bodyPreview:'Review the plan.',attendees:[]}];
   mailPermitted=true;
   mailBodyGate?:Promise<void>;mailMoveError='';mailError='';mailGate?:Promise<void>;
@@ -122,7 +125,7 @@ export class MockGraph {
       case 'calendar_availability':return args.addresses.map((scheduleId:string)=>({scheduleId,availabilityView:'0000'}));
       case 'calendar_create':{if(this.meetingResult)return this.meetingResult;const event={...this.calendarEvents[0],id:'created-meeting',subject:args.draft.subject,isOrganizer:true,attendees:[{type:'resource',emailAddress:{address:'room@example.test'},status:{response:'none'}}]};this.calendarEvents.unshift(event);return {status:'created',event};}
       case 'calendar_response_permission':return true;
-      case 'calendar_event':if(this.calendarEventError)throw Error(this.calendarEventError);return {event:this.calendarEvents.find(e=>e.id===args.eventId)??this.calendarEvents[0]};
+      case 'calendar_event':{await this.calendarEventGate;if(this.calendarEventError)throw Error(this.calendarEventError);if(this.calendarEventResults.length)return this.calendarEventResults.shift();const meta=this.calendarInvitations[args.messageId]??{};return {...meta,event:this.calendarEvents.find(e=>e.id===(args.eventId??meta.eventId))??this.calendarEvents[0]};}
       case 'calendar_response':return this.calendarResponseResult;
       case 'calendar_permission':return this.calendarPermitted;
       case 'calendar_page':if(this.calendarError)throw Error(this.calendarError);return {value:this.calendarEvents,next:null};
