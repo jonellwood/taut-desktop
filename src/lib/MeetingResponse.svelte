@@ -2,6 +2,7 @@
  import {onMount,onDestroy,untrack} from 'svelte';
  import {invoke} from '@tauri-apps/api/core';
  import MailConfirm from './MailConfirm.svelte';
+ import {TriangleAlert} from 'lucide-svelte';
  import {responseLabel,eventWhen,eventDay,eventDate,meetingResponseState,meetingMessageLabel,type CalendarEvent,type MeetingStatus} from './calendar';
  let {ownId,eventId,messageId,refreshKey=0,onOpenCalendar,onUpdated=()=>{}}:{ownId:string;eventId?:string;messageId?:string;refreshKey?:number;onOpenCalendar?:(event:CalendarEvent)=>void;onUpdated?:(event:CalendarEvent)=>void}=$props();
  let event=$state<CalendarEvent|null>(null),mail=$state<MeetingStatus|undefined>(),busy=$state(false),writing=$state(false),verified=$state(false),error=$state(''),notice=$state(''),permitted=$state(false),editing=$state(false),review=$state(false),action=$state('accept'),comment=$state(''),sendResponse=$state(true),locked=$state(false);
@@ -50,7 +51,7 @@
 <svelte:window onfocus={refreshOnReturn}/>
 <svelte:document onvisibilitychange={refreshOnReturn}/>
 <section class="meeting" aria-label="Meeting response" aria-busy={busy||writing}>
- {#if messageId}<div class="eyebrow">{meetingMessageLabel(mail?.meetingMessageType)}</div>{/if}
+ {#if messageId}<h3 class="message-kind" class:declined={mail?.meetingMessageType==='meetingDeclined'}>{#if mail?.meetingMessageType==='meetingDeclined'}<TriangleAlert size={22} aria-hidden="true"/>{/if}{meetingMessageLabel(mail?.meetingMessageType)}</h3>{/if}
  {#if event}<div class="eyebrow">CALENDAR STATUS</div><strong>{responseLabel(event)}</strong><p>{eventDay(event)} · {eventWhen(event)}</p>{/if}
  {#if mail?.isOutOfDate}<p class="update">This email was superseded by a newer invitation. Use the current calendar event for responses.</p>{/if}
  {#if mail?.previousStartDateTime?.dateTime}<p class="update">Meeting time updated · previously {eventDate(mail.previousStartDateTime)?.toLocaleString()??mail.previousStartDateTime.dateTime}</p>{/if}
@@ -66,5 +67,7 @@
 </section>
 {#if review&&event}<MailConfirm title="Review meeting response" confirmLabel="Send response" onClose={()=>review=false} onConfirm={send}><p><strong>{event.subject||'Untitled event'}</strong></p><p>{eventDay(event)} · {eventWhen(event)}</p><p>Response: <strong>{label}</strong></p><p>{sendResponse?'The organizer will receive an email response.':'Your calendar response changes without emailing the organizer.'}</p>{#if event.type==='occurrence'||event.type==='exception'}<p>Applies to this occurrence only.</p>{/if}{#if comment}<blockquote>{comment}</blockquote>{/if}</MailConfirm>{/if}
 <style>
+.message-kind{display:flex;align-items:center;gap:10px;font-size:20px;line-height:1.35;font-weight:750;letter-spacing:0;margin:0 0 18px;color:var(--text-primary)}.message-kind :global(svg){flex:none}.message-kind.declined{padding:12px 14px;border:1px solid var(--error-border);border-radius:8px;background:var(--error-surface);color:var(--error)}
+
 .meeting{padding:18px;margin:16px 0;border:1px solid var(--accent-border);border-left:3px solid var(--accent);border-radius:10px;background:var(--accent-soft);font-size:13px;line-height:1.7}.eyebrow{color:var(--accent);font-size:10px;letter-spacing:1.5px;margin-bottom:8px}.meeting strong{display:block}.meeting p{margin:8px 0}.meeting small{display:block;color:var(--text-secondary)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}button,textarea{font:inherit;color:var(--text-primary);background:var(--surface-panel);border:1px solid var(--border-strong);border-radius:7px;padding:8px 12px}button{cursor:pointer}button:disabled{opacity:.5;cursor:default}fieldset{border:0;padding:0;margin:16px 0;display:flex;flex-wrap:wrap;gap:12px}label{display:flex;align-items:center;gap:6px}.comment{display:block}textarea{display:block;box-sizing:border-box;width:100%;min-height:80px;margin:6px 0 12px}.update{color:var(--text-secondary)}[role=alert]{color:var(--danger-text,#e88d7d)}button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>

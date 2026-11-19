@@ -125,3 +125,35 @@ test('failed refresh keeps old status non-actionable until a fresh calendar read
  graph.calendarEventError='Calendar status unavailable';await page.getByRole('button',{name:'Refresh meeting status',exact:true}).click();await expect(page.locator('.meeting [role=alert]')).toContainText('Calendar status unavailable');await expect(page.getByRole('button',{name:'Change response',exact:true})).toHaveCount(0);
  graph.calendarEventError='';await page.getByRole('button',{name:'Refresh meeting status',exact:true}).click();await expect(page.getByRole('button',{name:'Change response',exact:true})).toBeVisible();expect(graph.writes).toEqual([]);
 });
+
+
+for(const theme of ['light','dark'])test(`room booking is above calendar status and highlights only a declined room in ${theme}`,async({page,graph},info)=>{
+ graph.restoredSession=true;
+ await page.addInitScript(theme=>localStorage.setItem('taut.appearance.v1',JSON.stringify({mode:theme,accent:'blue',contrast:'standard'})),theme);
+ Object.assign(graph.calendarEvents[0],{isOrganizer:true,isCancelled:false,changeKey:'v1',attendees:[
+  {type:'required',emailAddress:{name:'Alex Example',address:'alex@example.test'},status:{response:'declined'}},
+  {type:'resource',emailAddress:{name:'River room',address:'room@example.test'},status:{response:'declined'}},
+  {type:'resource',emailAddress:{name:'Lake room'},status:{response:'accepted'}},
+  {type:'resource',emailAddress:{name:'Pending room'},status:{response:'none'}}
+ ]});
+ await page.goto('/');await page.getByRole('button',{name:'Calendar',exact:true}).click();await page.locator('.agenda .event').first().click();
+ await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
+ const booking=page.getByRole('region',{name:'Room booking',exact:true});await expect(booking).toBeVisible();
+ await expect(booking.getByText('Room declined',{exact:true})).toBeVisible();await expect(booking.getByText('This room is not booked for this meeting.',{exact:true})).toBeVisible();
+ await expect(booking.locator('.declined')).toHaveCount(1);await expect(booking).toContainText('Room accepted');await expect(booking).toContainText('Requested — awaiting room response');
+ const roomBox=await booking.boundingBox(),statusBox=await page.locator('.event-details .meeting').boundingBox();expect(roomBox!.y+roomBox!.height).toBeLessThan(statusBox!.y);
+ await expect(page.locator('.event-details').getByText('River room',{exact:true})).toHaveCount(1);
+ await expect(page.locator('.event-details .attendee')).toHaveCount(1);await expect(page.locator('.event-details .attendee')).toContainText('Declined');await expect(page.locator('.event-details .attendee')).not.toHaveClass(/declined/);
+ await page.screenshot({path:info.outputPath(`room-priority-${theme}.png`)});expect(graph.writes).toEqual([]);
+});
+
+for(const theme of ['light','dark'])test(`Mail decline has a prominent warning heading and preserves the subject in ${theme}`,async({page,graph},info)=>{
+ graph.restoredSession=true;await page.addInitScript(theme=>localStorage.setItem('taut.appearance.v1',JSON.stringify({mode:theme,accent:'blue',contrast:'standard'})),theme);
+ Object.assign(graph.mailMessages[0],{subject:'Declined: Room planning','@odata.type':'#microsoft.graph.eventMessageResponse'});
+ graph.calendarInvitations['mail-1']={meetingMessageType:'meetingDeclined'};Object.assign(graph.calendarEvents[0],{isOrganizer:true,isCancelled:false,changeKey:'v1'});
+ await page.goto('/');await page.getByRole('button',{name:'Mail',exact:true}).click();await page.locator('.mail-row').first().click();
+ await expect(page.getByRole('heading',{name:'Declined: Room planning',exact:true})).toBeVisible();
+ await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
+ const heading=page.getByRole('heading',{name:'Meeting decline',exact:true});await expect(heading).toBeVisible();await expect(heading).toHaveClass(/declined/);await expect(heading).toHaveCSS('font-size','20px');
+ await expect(page.locator('.meeting')).toContainText('You organize this event');await page.screenshot({path:info.outputPath(`mail-decline-${theme}.png`)});expect(graph.writes).toEqual([]);
+});
