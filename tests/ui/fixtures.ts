@@ -25,6 +25,8 @@ export function message(id: string, content: string, sender = alex.id): MockMess
 type Call = { command: string; args: Record<string, any> };
 export class MockGraph {
   calls: Call[] = [];
+  messageNext:Record<string,string>={};
+  historyPages:Record<string,{value:MockMessage[];'@odata.nextLink'?:string}>={};
   unexpected: string[] = [];
   chats = [chat('chat-alex', alex), chat('chat-blair', blair)];
   messages: Record<string, MockMessage[]> = { 'chat-alex': [message('hello', 'Hello from Alex')] };
@@ -258,7 +260,8 @@ export class MockGraph {
         await this.messagesGate;
         if(this.messagesError)throw Error(this.messagesError);
         if (args.chatId.startsWith('pending:')) this.unexpected.push('Read of a local pending chat');
-        return { value: this.messages[args.chatId] ?? [] };
+        if(args.next){const result=this.historyPages[JSON.stringify([args.chatId,args.next])];if(!result)throw Error('History page unavailable');return result;}
+        return { value: this.messages[args.chatId] ?? [],'@odata.nextLink':this.messageNext[args.chatId] };
       case 'graph_event_names': return args.people.flatMap((p:{id:string;tenantId?:string})=>{const user=[me,alex,blair,casey].find(u=>u.id===p.id);return user?[{...p,displayName:user.displayName}]:[];});
       case 'graph_hosted_image': await this.imageGate; return image;
       case 'plugin:opener|open_url': return null; // Record only; never launch a browser.

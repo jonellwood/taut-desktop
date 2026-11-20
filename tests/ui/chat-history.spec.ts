@@ -1,0 +1,14 @@
+import {test,expect,signIn,row,alex,blair,message} from './fixtures';
+test('short first page exposes older history and polls preserve loaded pages and edits',async({page,graph})=>{
+ const next='https://graph.microsoft.com/v1.0/chats/chat-alex/messages?$skiptoken=older';
+ const newest={...message('new','Newest only'),createdDateTime:'2026-01-01T12:00:00Z'};
+ const older={...message('old','Older conversation'),createdDateTime:'2025-10-22T12:00:00Z'};
+ graph.messages['chat-alex']=[newest];graph.messageNext['chat-alex']=next;graph.historyPages[JSON.stringify(['chat-alex',next])]={value:[older,newest]};
+ await signIn(page);await page.getByRole('textbox',{name:'Message',exact:true}).fill('Preserve my draft');await expect(page.getByRole('button',{name:'Load older messages',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Load older messages',exact:true}).click();await expect(page.getByRole('region',{name:'Chat messages'})).toContainText('Older conversation');await expect(page.locator('[data-message-id="new"]')).toHaveCount(1);await expect(page.getByRole('button',{name:'Load older messages',exact:true})).toHaveCount(0);
+ graph.messages['chat-alex']=[{...newest,body:{content:'Newest edited',contentType:'text'}}];await page.getByRole('button',{name:'Refresh messages',exact:true}).click();await expect(page.getByRole('region',{name:'Chat messages'})).toContainText('Newest edited');await expect(page.getByRole('region',{name:'Chat messages'})).toContainText('Older conversation');await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('Preserve my draft');
+ await row(page,blair.displayName).click();await expect(page.getByRole('region',{name:'Chat messages'})).not.toContainText('Older conversation');await row(page,alex.displayName).click();await expect(page.getByRole('region',{name:'Chat messages'})).toContainText('Older conversation');expect(graph.writes).toEqual([]);
+});
+test('failed older page preserves timeline and can be explicitly retried',async({page,graph})=>{
+ const next='https://graph.microsoft.com/v1.0/chats/chat-alex/messages?$skiptoken=retry';graph.messages['chat-alex']=[message('new','Current history')];graph.messageNext['chat-alex']=next;await signIn(page);await page.getByRole('button',{name:'Load older messages',exact:true}).click();await expect(page.getByRole('alert')).toContainText('Older messages could not be loaded');await expect(page.getByRole('region',{name:'Chat messages'})).toContainText('Current history');graph.historyPages[JSON.stringify(['chat-alex',next])]={value:[message('old','Recovered history')]};await page.getByRole('button',{name:'Load older messages',exact:true}).click();await expect(page.getByRole('region',{name:'Chat messages'})).toContainText('Recovered history');expect(graph.writes).toEqual([]);
+});

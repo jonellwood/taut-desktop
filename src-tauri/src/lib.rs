@@ -1,6 +1,7 @@
 mod mailbox_transport;
 mod meeting;
 mod meeting_manage;
+mod chat_history;
 mod calendar;
 mod people;
 mod mail;
@@ -254,12 +255,14 @@ async fn graph_search_users(state: State<'_, AuthState>, query: String) -> Resul
     }).await
 }
 #[tauri::command]
-async fn graph_messages(state: State<'_, AuthState>, chat_id: String) -> Result<Value, String> {
+async fn graph_messages(state: State<'_, AuthState>, chat_id: String, next: Option<String>) -> Result<Value, String> {
     let state=AuthState(state.0.clone());
     background_read(move||{
-    if chat_id.len() > 512 || chat_id.is_empty() { return Err("Invalid chat identifier".into()); }
-    let encoded: String = url::form_urlencoded::byte_serialize(chat_id.as_bytes()).collect();
-    graph_get(&state, &format!("/chats/{encoded}/messages?$top=50&$orderby=createdDateTime%20desc"),true)
+    let path=chat_history::path(&chat_id,next.as_deref())?;
+    let value=graph_get(&state,&path,true)?;
+    if !value["value"].is_array(){return Err("Invalid chat history response".into());}
+    if let Some(link)=value["@odata.nextLink"].as_str(){chat_history::path(&chat_id,Some(link))?;}
+    Ok(value)
     }).await
 }
 #[tauri::command]

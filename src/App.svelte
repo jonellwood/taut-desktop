@@ -554,7 +554,7 @@
      const me=await invoke<{id:string;displayName:string;mail?:string;userPrincipalName?:string}>('graph_profile');
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
      if(priorOwn&&!sameAccount){
-       closeReplyThread();drafts={};attachmentDrafts={};attachmentProgress={};attachmentInputNotice='';fileDragActive=false;readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
+       historyExpanded={};historyNext={};historyBusy={};historyError={};closeReplyThread();drafts={};attachmentDrafts={};attachmentProgress={};attachmentInputNotice='';fileDragActive=false;readAttempts.clear();selectedReadEligible=false;readSelection++;readError='';confirmedDeleted.clear();uncertainChanges.clear();uncertainReactions.clear();emojiTarget=null;hiddenOverrides={};
        imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;replyDrafts={};formattedDrafts={};formattedReplies={};replyErrors={};replyUncertain={};channelDrafts={};activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
      }
      ownMailAddresses=[me.mail,me.userPrincipalName].filter((v):v is string=>!!v);ownId=me.id;signedInName=me.displayName;loadPins();
@@ -604,7 +604,7 @@
    awayEnabled=false;presenceCache={};collaboration={readPresence:false,writePresence:false,teamRead:false,teamWrite:false,channelWrite:false};knownChats=[];drafts={};isLive=false;chats=[];selectedId='';draft='';openChatSerial++;
    try{await invoke('sign_out');}catch(e){authError=String(e);}finally{authBusy=false;}
    sendError='';chats=[];
-   selectedId='';draft='';signedInName='';ownId='';syncIssues={messages:false,chats:false};syncStatus='idle';
+   historyExpanded={};historyNext={};historyBusy={};historyError={};selectedId='';draft='';signedInName='';ownId='';syncIssues={messages:false,chats:false};syncStatus='idle';
  }
  async function resolveUnnamedChats(){
    if(!isLive)return;
@@ -690,16 +690,19 @@
        const sender=m.from?.user?.id?(m.from.user.id.toLowerCase()===ownId.toLowerCase()?'me':'them'):(deleted?previous?.sender??'them':'them');
        return {body:activity||deleted?undefined:m.body,id:m.id,replyIds:activity?[]:quotedMessageIds(m.attachments,chatId),deleted,activity,reactions:activity||deleted?[]:groupReactions(m.reactions,activityNames,ownId),reactionSource:activity||deleted?undefined:m.reactions,attachments:activity||deleted?[]:extractAttachments(m),images:activity||deleted?[]:extractImages(m),senderId:m.from?.user?.id,senderName:m.from?.user?.displayName,sender,text:deleted?'Message deleted':activity?.summary??(m.body?.contentType==='text'?m.body.content??'':plainText(m.body?.content??'')),createdDateTime:m.createdDateTime??'',time:m.createdDateTime?new Date(m.createdDateTime).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):''};
  }
- async function loadMessages(chatId:string,reason:'open'|'poll'|'manual'|'sent'='manual'){
+ let historyExpanded=$state<Record<string,boolean>>({});
+ let historyNext=$state<Record<string,string|null>>({}),historyBusy=$state<Record<string,boolean>>({}),historyError=$state<Record<string,string>>({});
+ async function loadMessages(chatId:string,reason:'open'|'poll'|'manual'|'sent'|'older'='manual'){
    if(chatId.startsWith('pending:') || messageInFlight.has(chatId))return;
-   messageInFlight.add(chatId);const session=nameSession;
+   if(reason==='older'&&!historyNext[chatId])return;
+   messageInFlight.add(chatId);historyBusy[chatId]=true;historyError[chatId]='';const session=nameSession;
    const serial=openChatSerial;
    const viewport=messageViewport;
    const atBottom=viewport?isAtBottom(viewport):true;
    const oldScrollHeight=viewport?.scrollHeight??0;
    const oldScrollTop=viewport?.scrollTop??0;
    try {
-     const data=await invoke<{value:ApiMessage[]}>('graph_messages',{chatId});
+     const data=await invoke<{value:ApiMessage[];'@odata.nextLink'?:string}>('graph_messages',{chatId,next:reason==='older'?historyNext[chatId]:null});
      if(!isLive || session!==nameSession || !chats.some(c=>c.id===chatId))return;
      const chat=chats.find(c=>c.id===chatId);if(!chat)return;
      const previousIDs=new Set(chat.messages.map(m=>m.id));
@@ -711,7 +714,12 @@
        const ta=Date.parse(a.createdDateTime??'');const tb=Date.parse(b.createdDateTime??'');
        return (Number.isFinite(ta)?ta:0)-(Number.isFinite(tb)?tb:0) || a.id.localeCompare(b.id);
      });
-     const mapped:Message[]=ordered.map(m=>convertChatMessage(m,chatId));
+     const incoming:Message[]=ordered.map(m=>convertChatMessage(m,chatId));
+     // Pages overlap and polls cover only recent messages. Keep older loaded
+     // records, updating matching IDs with fresh server state.
+     const merged=new Map(chat.messages.map(m=>[m.id,m]));for(const m of incoming)merged.set(m.id,m);
+     const mapped:Message[]=[...merged.values()].sort((a,b)=>{const ta=Date.parse(a.createdDateTime??''),tb=Date.parse(b.createdDateTime??'');return (Number.isFinite(ta)?ta:0)-(Number.isFinite(tb)?tb:0)||a.id.localeCompare(b.id);});
+     if(reason==='older'){historyExpanded[chatId]=true;const next=data['@odata.nextLink']??null;historyNext[chatId]=next===historyNext[chatId]?null:next;}else if(!historyExpanded[chatId])historyNext[chatId]=data['@odata.nextLink']??null;
      clearSyncIssue('messages');
      // Resolve missing historical names in the background; never delay normal messages.
      void resolveActivityNames(identities);
@@ -730,22 +738,22 @@
      if(selectedId!==chatId || serial!==openChatSerial || !messageViewport)return;
      await tick();
      if(!messageViewport || selectedId!==chatId || serial!==openChatSerial)return;
-     if(reason==='open'||reason==='sent'||forceBottomForChat===chatId){
+     if(reason!=='older'&&(reason==='open'||reason==='sent'||forceBottomForChat===chatId)){
        forceBottomForChat='';messageViewport.scrollTop=messageViewport.scrollHeight;
-     }else if(atBottom){
+     }else if(atBottom&&reason!=='older'){
        messageViewport.scrollTop=messageViewport.scrollHeight;
      }else{
        // Keep the viewport anchored if history's height changes above it.
        messageViewport.scrollTop=oldScrollTop+Math.max(0,messageViewport.scrollHeight-oldScrollHeight);
      }
-     if(newlyReceived && !atBottom && reason!=='open')jumpVisible=true;
+     if(newlyReceived && !atBottom && reason!=='open'&&reason!=='older')jumpVisible=true;
      else trackScroll();
      markVisibleRead();
    }catch(e){
      if(session!==nameSession||!isLive)return;
      if(reason==='poll')throw e;
-     authError=`Unable to load messages: ${String(e)}`;
-   }finally{messageInFlight.delete(chatId);}
+     if(reason==='older')historyError[chatId]='Older messages could not be loaded. Try again.';else authError=`Unable to load messages: ${String(e)}`;
+   }finally{messageInFlight.delete(chatId);if(session===nameSession)historyBusy[chatId]=false;}
  }
  function selectChat(id:string,read=false){
    emojiTarget=null;closeReplyThread();
@@ -1020,8 +1028,8 @@
 
    {:else}
    <header class="conversation-header"><div class="header-person">{#if !sidebarOpen}<button class="small-button" title="Expand sidebar" aria-label="Expand sidebar" onclick={()=>sidebarOpen=true}><PanelLeftOpen size={19}/></button>{/if}<span class="avatar header-avatar">{selected.initials}<i aria-hidden="true" style:background={chatPresence(selected).color} title={chatPresence(selected).label}></i></span><div><strong>{selected.name}</strong><small class:presence-muted={chatPresence(selected).label==='Presence unavailable'} style:color={chatPresence(selected).color}>{chatPresence(selected).label}</small></div></div><div class="header-actions">{#if isLive&&selected.id!=='empty'&&!selected.id.startsWith('pending:')}<button type="button" title={chatWritePermission?(selected.hidden?'Return this chat to your list':'Hide only for you; history stays'):'Requires delegated Chat.ReadWrite consent and a fresh sign-in'} aria-label={selected.hidden?'Unhide conversation for me':'Hide conversation for me'} disabled={!chatWritePermission||sendBusy||stagingBusy||groupBusy||operationBusy||authBusy||reauthRequired} onclick={()=>requestChange(selected.hidden?'unhide':'hide')}>{#if selected.hidden}<Eye size={18}/>{:else}<EyeOff size={18}/>{/if}</button>{/if}<button title="Calls require integration" aria-label="Call (not yet implemented)" disabled><Phone size={18}/></button><button title="Meetings require integration" aria-label="Video (not yet implemented)" disabled><Video size={18}/></button><div class="vert-divider"></div>{#if isLive}<button title="Refresh messages" aria-label="Refresh messages" disabled={refreshBusy} onclick={refreshMessages}><span class="refresh-symbol" class:spinning={refreshBusy}>↻</span></button>{/if}<button title="Command Palette" aria-label="Commands" onclick={openPalette}><MoreHorizontal size={19}/></button></div></header>
-   <section class="messages" bind:this={messageViewport} onscroll={trackScroll} aria-label="Chat messages">{#each selected.messages as m,i (m.id)}
-    {#if i===0 || (m.createdDateTime && dateKey(m.createdDateTime)!==dateKey(selected.messages[i-1].createdDateTime??''))}
+   <section class="messages" bind:this={messageViewport} onscroll={trackScroll} aria-label="Chat messages">{#if historyNext[selected.id]}<button class="outline-button" disabled={historyBusy[selected.id]} onclick={()=>loadMessages(selected.id,'older')}>{historyBusy[selected.id]?'Loading older messages…':'Load older messages'}</button>{/if}{#if historyError[selected.id]}<p role="alert">{historyError[selected.id]}</p>{/if}{#each selected.messages as m,i (m.id)}
+    {#if i===0 || (m.createdDateTime && dateKey(m.createdDateTime)!==dateKey(selected.messages[i-1]?.createdDateTime??''))}
       <div class="day-marker"><span>{m.createdDateTime?dayLabel(m.createdDateTime):'History'}</span></div>
     {/if}{#if m.activity}<div class="conversation-activity" role="note" aria-label="Group activity">
       <span class="activity-icon" aria-hidden="true">{#if m.activity.kind==='added'}<UserPlus size={16}/>{:else if m.activity.kind==='removed'}<UserMinus size={16}/>{:else if m.activity.kind==='renamed'}<PencilLine size={16}/>{:else if m.activity.kind==='joined'}<LogIn size={16}/>{:else}<LogOut size={16}/>{/if}</span>

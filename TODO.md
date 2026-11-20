@@ -33,7 +33,7 @@ The three-item implementation queue is complete; signature sending and the recei
 
 ## Teams, chats and people — later
 
-- [ ] Paginate beyond the newest 50 chats; extend Shared Media beyond loaded history.
+- [ ] Paginate beyond the newest 50 chats; extend Shared Media beyond loaded history. Chat message history now has explicit older-page loading and preserves loaded pages during refresh; Vance live recovery pending.
 - [ ] Explicit Mark unread for chats, without immediately marking the same selection read again.
 - [ ] Channel attachments, mentions and activity indicators.
 - [ ] Create teams/channels: research standard/private/shared semantics, role restrictions and least-privilege permissions before implementation. Ordinary membership management already exists.

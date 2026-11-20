@@ -408,3 +408,14 @@ Full restart did not clear the stuck-workspace/missing-history issue. User suppl
 
 
 Duplicate-key validation: regression failed before the fix with the exact supplied UUID/index error in both browsers. After the fix, all 82 targeted chat/media/thread/shared-media/organizer-navigation browser cases passed; the duplicate-history/workspace regression also passed against compiled production assets in Chromium and WebKit. All 97 Node tests, production build, UI TypeScript and whitespace checks passed (existing App accessibility warnings remain). An overlapping preview runner initially cleared active browser artifacts; suites were rerun sequentially to obtain the clean results above. No real Graph calls or native app testing was performed.
+
+
+### Vance history follow-up — November 20
+
+User confirmed duplicate-key fix restored navigation and other chats, but Vance still showed only the newest message. Source inspection found chat messages consumed only the first page, ignored @odata.nextLink and replaced the timeline on each read. Added explicit Load older messages using native chat-bound, HTTPS Graph continuation validation. Pages merge by message identity; overlapping entries update once, older loaded history survives recent-page refresh and sending. Pagination cursors are per account/chat; navigation preserves them, account changes/sign-out clear them. Older-page failures preserve the timeline/cursor for explicit retry, prepending preserves scroll position and does not create unread/Snap-to-Now attention. Previously loaded messages outside refreshed pages are not guaranteed current until reread. No new permissions, automatic unbounded history crawl or real Microsoft 365 automated calls. This closes a confirmed loading limitation, but the exact Vance payload remains uninspected; live recovery is pending.
+
+
+User's latest Console error was the notification plugin's injected startup script calling is_permission_granted without a window capability. Confirmed in installed tauri-plugin-notification 2.8.0 src/init-iife.js. Added only notification:allow-is-permission-granted to the main window capability, enabling the existing read-only OS permission check; no frontend notification send/request permission or Graph scopes added. This is independent of older chat pagination.
+
+
+History validation: 66 mocked history/conversation/media/read-state/thread cases passed, followed by 38 mocked history/deletion/reaction cases after the attention guard adjustment. All 97 Node tests, 2 focused Rust continuation-validation tests, locked offline cargo check (including capability manifest), UI TypeScript and production build passed. No live Graph request or signed-in app launch. Native Vance history recovery and notification console cleanup remain user verification steps.
