@@ -10,6 +10,7 @@
  import Welcome from './lib/Welcome.svelte';
  import MessageBody from './lib/MessageBody.svelte';
  import {receivedText} from './lib/message-body';
+ import {chatAttachments} from './lib/chat-attachments';
  import ChatThread from './lib/ChatThread.svelte';
  import FormattingToolbar from './lib/FormattingToolbar.svelte';
  import {continueList} from './lib/continue-list';
@@ -361,7 +362,7 @@
   try {await openUrl(url);} catch(e){fileOpenError=`Could not open the file: ${String(e)}`;}
  }
  function extractAttachments(m:ApiMessage):Attachment[] {
-   return (m.attachments??[]).filter(a=>a.contentType==='reference' && typeof a.contentUrl==='string' && /^https:\/\//i.test(a.contentUrl)).map(a=>({id:a.id??a.contentUrl!,name:a.name||'Shared file',url:a.contentUrl!,kind:a.contentType??'reference'}));
+   return chatAttachments(m.attachments);
  }
  function extractImages(m:ApiMessage):InlineImage[] {
    if(m.body?.contentType==='text')return [];
