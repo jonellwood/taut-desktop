@@ -395,3 +395,8 @@ User reprioritized installable pilot after Calendar acceptance: two Windows test
 ### Organizer status display follow-up
 
 User confirmed live organizer meeting editing worked as expected and observed no email to themselves. Organizer cancellation initiated in TAUT still awaits confirmation. Calendar attendee rows now identify the organizer by the event's actual organizer email and display Organizer · No RSVP needed even when Graph returns none. No accepted RSVP is fabricated, other people/resource responses remain unchanged, and no write behavior changes.
+
+
+### Organizer cancellation and navigation report
+
+User confirmed cancellation removed their organizer event from TAUT and subsequently Outlook. This matches Graph cancel moving the organizer copy to Deleted Items; attendee cancellation delivery was not independently confirmed. The minute Inbox unread poll does not govern this action. User also reported Chats rail/sidebar activating while Calendar remained in the main panel, preventing conversation access. Added regression cases for returning to a preserved chat draft after cancellation and leaving a selected cancelled event. Both pass in development and production builds in Chromium/WebKit (4 cases per build), without unhandled errors or unexpected writes. The reported native navigation failure has not been reproduced or claimed fixed; asked whether a full restart of the running development app clears it, to distinguish hot-reload state from a persistent defect. Capture exact steps/runtime error if it recurs.

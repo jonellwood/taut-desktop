@@ -162,3 +162,6 @@ Incoming invitation acceptance, organizer cancellation received through Mail/Cal
 
 
 User confirmed organizer meeting edits passed live testing. TAUT-initiated organizer cancellation remains pending live acceptance. Organizer attendee rows display Organizer · No RSVP needed using organizer email identity, rather than interpreting Graph's none status as an unanswered RSVP or manufacturing accepted. See https://learn.microsoft.com/en-us/graph/api/resources/responsestatus?view=graph-rest-1.0.
+
+
+Organizer cancellation live follow-up: user observed the event removed in TAUT and later Outlook, matching the cancel action's Deleted Items behavior. Cancellation delivery to attendees remains unverified. A separate native workspace-switching issue is under investigation; mocked development and production navigation regressions currently pass.

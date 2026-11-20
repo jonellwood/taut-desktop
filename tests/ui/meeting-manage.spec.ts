@@ -1,4 +1,4 @@
-import {test,expect,me} from './fixtures';
+import {test,expect,me,row,alex} from './fixtures';
 function organizer(graph:import('./fixtures').MockGraph){Object.assign(graph.calendarEvents[0],{type:'singleInstance',changeKey:'manage-v1',isOrganizer:true,isCancelled:false,isAllDay:false,isOnlineMeeting:false,body:{contentType:'text',content:'Keep this description'},attendees:[{type:'optional',emailAddress:{name:'Alex Example',address:'alex@example.test'},status:{response:'accepted'}},{type:'resource',emailAddress:{name:'River room',address:'room@example.test'},status:{response:'accepted'}}],location:{displayName:'River room'}});graph.restoredSession=true;}
 async function select(page:import('@playwright/test').Page){await page.getByRole('button',{name:'Calendar',exact:true}).click();await page.locator('.agenda .event').first().click();}
 async function edit(page:import('@playwright/test').Page){await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Project planning');}
@@ -59,4 +59,15 @@ test('unreadable attempt storage leaves management unavailable',async({page,grap
 
 test('pending cancellation cannot be submitted twice or closed from the editor',async({page,graph})=>{
  organizer(graph);let release!:()=>void;graph.meetingManageGate=new Promise<void>(resolve=>release=resolve);await page.goto('/');await select(page);await page.getByRole('button',{name:'Cancel meeting',exact:true}).click();await page.getByRole('button',{name:'Review cancellation',exact:true}).click();await page.getByRole('button',{name:'Cancel meeting & notify attendees',exact:true}).click();await expect(page.getByRole('button',{name:'Review cancellation',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'Save & close',exact:true})).toBeDisabled();expect(graph.writes).toHaveLength(1);release();await expect(page.locator('.agenda')).toContainText('Cancellation submitted');expect(graph.writes).toHaveLength(1);
+});
+
+
+test('returning to Chats after cancellation replaces Calendar and opens a conversation',async({page,graph})=>{
+ organizer(graph);await page.goto('/');await row(page,alex.displayName).click();await page.getByRole('textbox',{name:'Message',exact:true}).fill('Keep my chat draft');await select(page);await page.getByRole('button',{name:'Cancel meeting',exact:true}).click();await page.getByRole('button',{name:'Review cancellation',exact:true}).click();await page.getByRole('button',{name:'Cancel meeting & notify attendees',exact:true}).click();await expect(page.locator('.agenda')).toContainText('Cancellation submitted');
+ await page.getByRole('button',{name:'Chats',exact:true}).click();await expect(page.locator('.calendar-workspace')).toHaveCount(0);await row(page,alex.displayName).click();await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('Keep my chat draft');expect(graph.writes.filter(c=>c.command==='calendar_manage')).toHaveLength(1);
+});
+
+
+test('selected cancelled event unmounts cleanly when returning to Chats',async({page,graph})=>{
+ organizer(graph);graph.calendarEvents[0].isCancelled=true;await page.goto('/');await row(page,alex.displayName).click();await select(page);await expect(page.locator('.event-details')).toBeVisible();await page.getByRole('button',{name:'Chats',exact:true}).click();await expect(page.locator('.calendar-workspace')).toHaveCount(0);await row(page,alex.displayName).click();await expect(page.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();expect(graph.writes).toEqual([]);
 });
