@@ -33,6 +33,7 @@ The three-item implementation queue is complete; signature sending and the recei
 
 ## Teams, chats and people — later
 
+- [ ] Pilot attachment download follow-up: direct-file references now use SharePoint file GUID/webDavUrl (mocked validation complete, queued for next agreed release). Confirm Teams native Download with a fresh TAUT-sent file; investigate existing browser File Not Found using same-file link targets. Keep recipient-only read access; do not claim live resolution yet.
 - [ ] Paginate beyond the newest 50 chats; extend Shared Media beyond loaded history. Chat message history now has explicit older-page loading and preserves loaded pages during refresh; Vance history recovery via older-page loading was user-confirmed November 20.
 - [ ] Explicit Mark unread for chats, without immediately marking the same selection read again.
 - [ ] Channel attachments, mentions and activity indicators.

@@ -118,6 +118,10 @@ fn item_fields(item: &Value) -> Result<(&str, &str), String> {
     let web = item["webUrl"]
         .as_str()
         .ok_or("Upload did not return a file link")?;
+    validate_file_url(web)?;
+    Ok((id, web))
+}
+fn validate_file_url(web: &str) -> Result<(), String> {
     let url = url::Url::parse(web).map_err(|_| "Invalid OneDrive file link")?;
     let host = url.host_str().unwrap_or("");
     if url.scheme() != "https"
@@ -128,7 +132,23 @@ fn item_fields(item: &Value) -> Result<(&str, &str), String> {
     {
         return Err("Unsupported OneDrive file link. Use Teams for this tenant.".into());
     }
-    Ok((id, web))
+    Ok(())
+}
+// Graph's direct-file attachment format uses the SharePoint file GUID from
+// eTag and webDavUrl, not our local draft GUID and the browser's webUrl.
+// https://learn.microsoft.com/graph/api/chatmessage-post (example 4)
+fn file_reference(item: &Value) -> Result<(&str, &str), String> {
+    let error = "OneDrive did not return valid Teams file metadata. The uploaded copy is retained; no message was sent. Retry preparation or use Teams for this file.";
+    let tag = item["eTag"].as_str().ok_or(error)?;
+    let tag = tag.strip_prefix("W/").unwrap_or(tag);
+    let tag = tag.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(tag);
+    let (id, revision) = tag.strip_prefix('{').and_then(|s| s.split_once("},")).ok_or(error)?;
+    if !guid(id) || revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(error.into());
+    }
+    let url = item["webDavUrl"].as_str().ok_or(error)?;
+    validate_file_url(url)?;
+    Ok((id, url))
 }
 // Keep the unpredictable destination prefix and extension, avoiding Unicode/space
 // normalization in OneDrive. The attachment label retains the original filename.
@@ -226,7 +246,7 @@ pub fn prepare(
         &upload.remote_name,
         bytes.len(),
     )
-    .is_err()
+    .is_err() || file_reference(upload.item.as_ref().unwrap()).is_err()
     {
         // A successful PUT may return incomplete metadata. Read the same item once;
         // do not re-upload it or leave an invalid response permanently cached.
@@ -238,11 +258,11 @@ pub fn prepare(
             .as_ref()
             .map(|id| {
                 format!(
-                    "/me/drive/items/{}?$select=id,name,size,file,webUrl",
+                    "/me/drive/items/{}?$select=id,name,size,file,webUrl,webDavUrl,eTag",
                     enc(id)
                 )
             })
-            .unwrap_or_else(|| path.clone());
+            .unwrap_or_else(|| format!("{path}?$select=id,name,size,file,webUrl,webDavUrl,eTag"));
         let refreshed = ok(request(Method::GET, &endpoint, None, None)?)?;
         if let Some(id) = previous_id {
             if refreshed["id"].as_str() != Some(&id) {
@@ -253,6 +273,7 @@ pub fn prepare(
     }
     let item = upload.item.as_ref().unwrap();
     verify_item(item, &upload.remote_name, bytes.len())?;
+    file_reference(item)?;
     let (item_id, _) = item_fields(item)?;
     let grants = ok(request(
         Method::POST,
@@ -319,6 +340,7 @@ pub fn send_formatted(
         return Err("Attach 1–5 files".into());
     }
     let mut unique = std::collections::HashSet::new();
+    let mut file_ids = std::collections::HashSet::new();
     let mut attachments = Vec::new();
     let mut content = if formatted {crate::compose_format::body(text,true,true)?["content"].as_str().unwrap().to_owned()} else {escape(text.trim())};
     crate::compose_format::validate_size(&content)?;
@@ -337,13 +359,17 @@ pub fn send_formatted(
         }
         let item = upload.item.as_ref().ok_or("Missing uploaded attachment")?;
         let (_, url) = item_fields(item)?;
+        let (file_id, file_url) = file_reference(item)?;
+        if !file_ids.insert(file_id.to_ascii_lowercase()) {
+            return Err("Duplicate uploaded file".into());
+        }
         total += item["size"].as_u64().unwrap_or(u64::MAX);
         content.push_str(&format!(
-            "<attachment id=\"{id}\"></attachment><p><a href=\"{}\">Open original: {}</a></p>",
+            "<attachment id=\"{file_id}\"></attachment><p><a href=\"{}\">Open original: {}</a></p>",
             escape(url), escape(&upload.name)
         ));
         attachments
-            .push(json!({"id":id,"contentType":"reference","contentUrl":url,"name":upload.name}));
+            .push(json!({"id":file_id,"contentType":"reference","contentUrl":file_url,"name":upload.name}));
     }
     if total > 25 * 1024 * 1024 {
         return Err("Attachments exceed the 25 MB message limit".into());
@@ -369,6 +395,8 @@ mod tests {
     const ME: &str = "11111111-1111-1111-1111-111111111111";
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
     const ID: &str = "33333333-3333-3333-3333-333333333333";
+    const FILE_ID: &str = "44444444-4444-4444-4444-444444444444";
+    const FILE_URL: &str = "https://example.sharepoint.com/Documents/TAUT-upload.zip";
     #[test]
     fn sharing_requires_each_recipient_identity_and_read_access() {
         let recipients = vec![OTHER.to_owned(), ID.to_owned()];
@@ -431,7 +459,7 @@ mod tests {
                     .1
                     .into_owned();
                 self.item = Some(
-                    json!({"id":"remote","name":name,"size":bytes.unwrap().len(),"file":{},"webUrl":"https://example.sharepoint.com/file"}),
+                    json!({"id":"remote","name":name,"size":bytes.unwrap().len(),"file":{},"webUrl":"https://example.sharepoint.com/file", "webDavUrl":FILE_URL,"eTag":format!("\"{{{FILE_ID}}},1\"")}),
                 );
                 if self.size_mismatch {
                     self.item.as_mut().unwrap()["size"] = json!(999);
@@ -449,7 +477,10 @@ mod tests {
                     self.fail_upload = false;
                     return Err("upload timeout".into());
                 }
-                self.item.clone().unwrap()
+                // webDavUrl is only returned when explicitly selected.
+                let mut response = self.item.clone().unwrap();
+                response.as_object_mut().unwrap().remove("webDavUrl");
+                response
             } else if method == Method::GET
                 && (path.starts_with("/me/drive/root:/")
                     || path.starts_with("/me/drive/items/remote?"))
@@ -557,6 +588,11 @@ mod tests {
             .unwrap()
             .starts_with("&lt;script&gt; &amp; hi"));
         assert_eq!(payload["attachments"][0]["contentType"], "reference");
+        assert_eq!(payload["attachments"][0]["id"], FILE_ID);
+        assert_eq!(payload["attachments"][0]["contentUrl"], FILE_URL);
+        let html = payload["body"]["content"].as_str().unwrap();
+        assert!(html.contains(&format!("<attachment id=\"{FILE_ID}\"></attachment>")));
+        assert!(!html.contains(&format!("<attachment id=\"{ID}\"")));
         assert_eq!(payload["attachments"][0]["name"], "notes & report.txt");
         assert!(payload["body"]["content"].as_str().unwrap().contains(
             "<a href=\"https://example.sharepoint.com/file\">Open original: notes &amp; report.txt</a>"));
@@ -575,7 +611,7 @@ mod tests {
         let content = payload["body"]["content"].as_str().unwrap();
         assert!(content.contains("href=\"https://example.sharepoint.com/file?a=1&amp;b=2\""));
         assert!(content.contains("Open original: report &amp; &#39;image&#39;.png"));
-        assert_eq!(payload["attachments"][0]["contentUrl"], "https://example.sharepoint.com/file?a=1&b=2");
+        assert_eq!(payload["attachments"][0]["contentUrl"], FILE_URL);
     }
     #[test]
     fn uncertain_upload_is_recovered_by_read_on_explicit_retry() {
@@ -762,6 +798,85 @@ mod tests {
             .calls
             .iter()
             .any(|c| c.0 == Method::GET && c.1.starts_with("/me/drive/items/remote?")));
+    }
+    #[test]
+    fn teams_metadata_is_explicitly_selected_before_sharing() {
+        let mut store = HashMap::new();
+        let mut graph = Graph::default();
+        prepare_file(&mut store, &mut graph).unwrap();
+        let read = graph.calls.iter().position(|c| c.1 == "/me/drive/items/remote?$select=id,name,size,file,webUrl,webDavUrl,eTag").unwrap();
+        let share = graph.calls.iter().position(|c| c.1.ends_with("/invite")).unwrap();
+        assert!(read < share);
+        assert_eq!(graph.puts, 1);
+    }
+    #[test]
+    fn missing_upload_identity_recovers_metadata_by_destination() {
+        let mut store = HashMap::new();
+        let mut graph = Graph::default();
+        prepare(&mut store, true, "chat", ID, "notes & report.txt", "aGk=", &mut |m,p,b,d| {
+            let mut response = graph.request(m.clone(),p,b,d)?;
+            if m == Method::PUT { response.body = json!({}); }
+            Ok(response)
+        }).unwrap();
+        assert!(store[ID].ready);
+        assert_eq!(graph.puts, 1);
+        assert!(graph.calls.iter().any(|c| c.0 == Method::GET && c.1.starts_with("/me/drive/root:/") && c.1.ends_with("?$select=id,name,size,file,webUrl,webDavUrl,eTag")));
+    }
+    #[test]
+    fn invalid_file_metadata_blocks_sharing_and_can_be_retried_without_uploading_again() {
+        for (field, bad) in [
+            ("eTag", Value::Null),
+            ("eTag", json!("opaque-etag")),
+            ("eTag", json!(format!("\"{{{FILE_ID}}},oops\""))),
+            ("webDavUrl", Value::Null),
+            ("webDavUrl", json!("https://untrusted.example/file.zip")),
+            ("webDavUrl", json!("https://token@example.sharepoint.com/file.zip")),
+            ("id", json!("different-file")),
+        ] {
+            let mut store = HashMap::new();
+            let mut graph = Graph::default();
+            let result = prepare(&mut store, true, "chat", ID, "notes & report.txt", "aGk=", &mut |m,p,b,d| {
+                let mut response = graph.request(m.clone(),p,b,d)?;
+                if m == Method::GET && p.starts_with("/me/drive/items/remote?") {
+                    response.body[field] = bad.clone();
+                }
+                Ok(response)
+            });
+            assert!(result.is_err(), "accepted invalid {field}: {bad}");
+            assert!(!store[ID].ready);
+            assert!(!graph.calls.iter().any(|c| c.1.ends_with("/invite") || c.1.ends_with("/messages")));
+            // A different identity is deliberately not cached. Retrying rereads
+            // the same uploaded item and never silently sends the message.
+            prepare_file(&mut store, &mut graph).unwrap();
+            assert!(store[ID].ready);
+            assert_eq!(graph.puts, 1);
+            assert!(!graph.calls.iter().any(|c| c.1.ends_with("/messages")));
+        }
+    }
+    #[test]
+    fn file_guid_survives_revision_changes_and_invalid_metadata_cannot_be_sent() {
+        let mut store = HashMap::new();
+        let mut graph = Graph::default();
+        prepare_file(&mut store, &mut graph).unwrap();
+        for tag in [format!("{{{FILE_ID}}},25"), format!("W/\"{{{FILE_ID}}},26\"")] {
+            store.get_mut(ID).unwrap().item.as_mut().unwrap()["eTag"] = json!(tag);
+            send(&store,"chat","",&[ID.into()],&mut |m,p,b,d|graph.request(m,p,b,d)).unwrap();
+            assert_eq!(graph.calls.last().unwrap().2.as_ref().unwrap()["attachments"][0]["id"], FILE_ID);
+        }
+        store.get_mut(ID).unwrap().item.as_mut().unwrap()["eTag"] = Value::Null;
+        let before = graph.calls.iter().filter(|c|c.1.ends_with("/messages")).count();
+        assert!(send(&store,"chat","",&[ID.into()],&mut |m,p,b,d|graph.request(m,p,b,d)).is_err());
+        assert_eq!(graph.calls.iter().filter(|c|c.1.ends_with("/messages")).count(), before);
+    }
+    #[test]
+    fn duplicate_sharepoint_ids_never_send_ambiguous_attachment_markers() {
+        let mut store = HashMap::new();
+        let mut graph = Graph::default();
+        prepare_file(&mut store, &mut graph).unwrap();
+        // Two distinct drafts must not produce duplicate native file markers.
+        prepare(&mut store,true,"chat",OTHER,"another.txt","aGk=",&mut |m,p,b,d|graph.request(m,p,b,d)).unwrap();
+        assert_eq!(send(&store,"chat","",&[ID.into(),OTHER.into()],&mut |m,p,b,d|graph.request(m,p,b,d)).unwrap_err(), "Duplicate uploaded file");
+        assert!(!graph.calls.iter().any(|c|c.1.ends_with("/messages")));
     }
     #[test]
     fn metadata_mismatch_stops_sharing_and_retry_refreshes_the_same_upload() {
