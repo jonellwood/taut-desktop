@@ -419,3 +419,5 @@ User's latest Console error was the notification plugin's injected startup scrip
 
 
 History validation: 66 mocked history/conversation/media/read-state/thread cases passed, followed by 38 mocked history/deletion/reaction cases after the attention guard adjustment. All 97 Node tests, 2 focused Rust continuation-validation tests, locked offline cargo check (including capability manifest), UI TypeScript and production build passed. No live Graph request or signed-in app launch. Native Vance history recovery and notification console cleanup remain user verification steps.
+
+User confirmed Load older messages recovered Vance’s missing history. Earlier duplicate-attachment rendering/navigation fix was also confirmed working. This verifies history continuation as the remaining cause of Vance’s missing older display; no server history restoration was needed. Notification permission-error cleanup remains unconfirmed on the native app.
