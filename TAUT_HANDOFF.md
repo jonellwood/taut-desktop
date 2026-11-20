@@ -433,3 +433,12 @@ The new Windows vault and rfd dialog code compiled for aarch64-pc-windows-msvc i
 
 
 Windows preparation local validation: all 178 targeted mocked auth/notification/appearance/Mail/meeting browser cases passed in Chromium/WebKit after adjusting two notification-copy assertions; all 97 Node tests, 204 backend tests, UI TypeScript and production build passed (existing App accessibility warnings remain). YAML parsed, release versions agree, and the Windows-only secure-vault/dialog code including test code compile-checks for ARM64. Full native Windows Tauri CI/installer and clean-machine acceptance remain distinct pending checks. Platform-neutral local-draft/signature labels were updated alongside session/settings wording.
+
+GitHub connector GET of Actions runs is available even though the local gh CLI is unauthenticated. Both CI and Windows ARM64 candidate jobs started for 9f1dd7e. Repository metadata confirms it is public; Actions artifacts inherit repository access rather than being restricted to pilot testers. No separate public Release is published.
+
+
+First native Windows CI compiled successfully on ARM64 and x64, then six away-storage tests failed because directory File::open/sync_all is Unix-specific. Replaced only the ledger commit operation with durable_file: flushed/closed temp file, MoveFileExW REPLACE_EXISTING|WRITE_THROUGH on Windows, rename plus parent directory sync on Unix. Added an overwrite/restart file test, kept failure gating rather than skipping durability. ARM64 helper compile-check and all 205 local backend tests pass; native rerun pending.
+
+User selected GitHub Issues for feedback. Added Settings → Feedback with current app version and an explicit prefilled issue-draft link to the existing enabled public repository. It discloses public visibility, requires review/submit on GitHub, and attaches no chat/email/account data. No issues or messages created automatically. Build/types and 98 Node tests pass; focused browser check pending.
+
+Follow-up validation: 205 local Rust tests passed after the durable-file fix; ARM64 vault/dialog/durable-file code compiled including tests. Build/type checks, 98 Node tests, and 38 focused mocked feedback/auth/notification browser cases passed. The feedback test JSON import was corrected to a Node-compatible explicit JSON import; no production behavior was affected. Native Windows rerun/installer remain pending at this checkpoint.

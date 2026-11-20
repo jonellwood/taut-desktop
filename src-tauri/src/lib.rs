@@ -9,6 +9,7 @@ mod mail_send;
 mod mail_read;
 mod mail_delete;
 mod away;
+mod durable_file;
 mod away_mail;
 mod membership;
 mod presence;

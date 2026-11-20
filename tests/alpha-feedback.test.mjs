@@ -1,0 +1,2 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {alphaFeedbackUrl} from '../src/lib/alpha-feedback.ts';
+test('feedback opens a draft in the fixed repository with a safely encoded version',()=>{const u=new URL(alphaFeedbackUrl('1.4.4-alpha.1&unsafe=extra'));assert.equal(u.origin,'https://github.com');assert.equal(u.pathname,'/jonellwood/taut-desktop/issues/new');assert.equal(u.searchParams.get('unsafe'),null);assert.ok(u.searchParams.get('body').includes('1.4.4-alpha.1&unsafe=extra'));assert.ok(!u.searchParams.has('labels'));});

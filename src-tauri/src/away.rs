@@ -85,10 +85,8 @@ impl Manager {
             )
             .map_err(|_| "Cannot save away settings")?;
             file.sync_all().map_err(|_| "Cannot sync away settings")?;
-            std::fs::rename(&temp, &path).map_err(|_| "Cannot replace away settings")?;
-            std::fs::File::open(parent)
-                .and_then(|f| f.sync_all())
-                .map_err(|_| "Cannot confirm away storage")?;
+            drop(file);
+            crate::durable_file::replace(&temp,&path).map_err(|_| "Cannot confirm away storage")?;
             Ok(())
         })();
         if result.is_err() {

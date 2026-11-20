@@ -1,0 +1,6 @@
+import {test,expect} from './fixtures';
+import release from '../../package.json' with {type:'json'};
+const {version}=release;
+test('feedback is an explicit external draft and includes only release metadata',async({page,graph})=>{
+ graph.restoredSession=true;await page.goto('/');await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Feedback',exact:true}).click();await expect(page.getByRole('region',{name:'Alpha feedback',exact:true})).toContainText(version);await expect(page.getByRole('region',{name:'Alpha feedback',exact:true})).toContainText('public');expect(graph.calls.filter(c=>c.command==='plugin:opener|open_url')).toEqual([]);await page.getByRole('button',{name:'Send feedback on GitHub ↗',exact:true}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='plugin:opener|open_url').length).toBe(1);const u=new URL(graph.calls.find(c=>c.command==='plugin:opener|open_url')!.args.url);expect(u.pathname).toBe('/jonellwood/taut-desktop/issues/new');expect(u.searchParams.get('body')).toContain(`App version: ${version}`);expect(u.searchParams.get('body')).not.toContain('Test User');expect(graph.writes).toEqual([]);
+});
