@@ -448,3 +448,6 @@ Windows ARM64 candidate succeeded for 1f8a91d in Actions run 44772991818; upload
 
 
 User downloaded ARM64 candidate and is waiting for Hannah to test. User's own Windows device is an 11th-generation Intel Core i7, so added a native x64 installer job alongside ARM64 in the candidate workflow. Architecture-specific runners/targets, PE checks, checksums and artifact names prevent mix-ups. No application/runtime changes or version bump; Windows x64 backend tests already passed previously, and installer build is pending.
+
+
+Dual-architecture Windows candidate workflow succeeded in run 44781436701 for 35f59e4, both jobs green. x64 artifact 14652344060 contains TAUT_1.4.4-alpha.1_x64-setup.exe (3,859,730 bytes), independently checksum-verified after download: b7b0e0c69dc47f89d7070e17b2304c3279322047c9fe4743fb15d17f41991849. Refreshed ARM64 artifact 14651733273 also available. Runtime app source unchanged from the previously verified candidate, only workflow matrix changed. Previous full CI for 3852599 was green. Use the Actions run page and architecture-specific artifact names in user instructions, as their direct artifact URL previously redirected to a confusing suites route. No executable run or real Microsoft 365 testing. User's Intel-PC and Hannah's ARM-PC manual acceptance remain pending.
