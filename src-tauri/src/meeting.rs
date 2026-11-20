@@ -7,8 +7,8 @@ pub struct Draft {pub transaction_id:String,pub subject:String,pub description:S
 #[derive(Clone,Deserialize,Serialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Room {pub email_address:String,pub display_name:String}
-fn address(s:&str)->bool{s.len()<=254&&!s.chars().any(|c|c.is_whitespace()||c.is_control()||"<>;,".contains(c))&&s.split('@').count()==2&&s.split('@').all(|p|!p.is_empty())}
-fn times(start:&str,end:&str)->Result<(String,String),String>{let a=chrono::DateTime::parse_from_rfc3339(start).map_err(|_|"Invalid start time")?;let b=chrono::DateTime::parse_from_rfc3339(end).map_err(|_|"Invalid end time")?;if b<=a||(b-a).num_seconds()>31*86400{return Err("End must follow start, within 31 days.".into());}Ok((a.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%S").to_string(),b.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%S").to_string()))}
+pub(super) fn address(s:&str)->bool{s.len()<=254&&!s.chars().any(|c|c.is_whitespace()||c.is_control()||"<>;,".contains(c))&&s.split('@').count()==2&&s.split('@').all(|p|!p.is_empty())}
+pub(super) fn times(start:&str,end:&str)->Result<(String,String),String>{let a=chrono::DateTime::parse_from_rfc3339(start).map_err(|_|"Invalid start time")?;let b=chrono::DateTime::parse_from_rfc3339(end).map_err(|_|"Invalid end time")?;if b<=a||(b-a).num_seconds()>31*86400{return Err("End must follow start, within 31 days.".into());}Ok((a.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%S").to_string(),b.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%S").to_string()))}
 pub fn payload(d:&Draft)->Result<Value,String>{
  if d.transaction_id.len()<16||d.transaction_id.len()>100||!d.transaction_id.chars().all(|c|c.is_ascii_alphanumeric()||c=='-')||d.subject.trim().is_empty()||d.subject.chars().count()>255||d.description.len()>64000||d.attendees.len()>20{return Err("Check the meeting subject, description and attendees (maximum 20).".into());}
  let(a,b)=times(&d.start,&d.end)?;let mut seen=std::collections::HashSet::new();let mut attendees=vec![];

@@ -50,6 +50,9 @@ export class MockGraph {
   teamPages:Record<string,{value:any[];next:string|null}>={};
   teamData:Record<string,any[]>={members:[{id:'member-alex',userId:alex.id,displayName:alex.displayName,roles:['owner']},{id:'member-me',userId:me.id,displayName:me.displayName,roles:[]}],joined:[{id:'team-dev',displayName:'IT Development',description:'A shared space for building better things.'}],associated:[{id:'team-dev',displayName:'IT Development'}],channels:[{id:'general',displayName:'General',membershipType:'standard',hostTeamId:'team-dev'}],shared:[],posts:[{id:'post-1',subject:'Welcome to the channel',createdDateTime:'2026-11-03T12:00:00Z',from:{user:{displayName:'Alex Example'}},body:{contentType:'html',content:'<p>Today’s project updates.</p><p>Keep the conversation focused.</p>'}}],replies:[{id:'reply-1',createdDateTime:'2026-11-03T12:01:00Z',from:{user:{displayName:'Blair Example'}},body:{contentType:'text',content:'Ready for the next step.'}}]};
   meetingResult:any=null;
+  meetingManageResult:any=null;
+  meetingManageError='';
+  meetingManageGate?:Promise<void>;
   meetingRooms:any[]=[{emailAddress:'room@example.test',displayName:'River room',building:'Main',capacity:8}];
   calendarResponseResult={status:'accepted',error:''};
   calendarPermitted=true;
@@ -115,7 +118,7 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['calendar_create','calendar_response','mail_set_read','mail_move_deleted','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['calendar_manage','calendar_create','calendar_response','mail_set_read','mail_move_deleted','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
@@ -124,6 +127,8 @@ export class MockGraph {
       case 'mail_set_read': {const m=this.mailMessages.find(m=>m.id===args.messageId);if(!m)throw Error('Missing mail');m.isRead=args.isRead;return {id:m.id,isRead:m.isRead};}
       case 'mail_send_permission': return this.mailCanSend;
       case 'mail_send_new': return this.mailSendResult;
+      case 'calendar_manage_read':{const event=this.calendarEvents.find(e=>e.id===args.eventId);if(!event)throw Error('Meeting unavailable');return event;}
+      case 'calendar_manage':{await this.meetingManageGate;if(this.meetingManageError)throw Error(this.meetingManageError);if(this.meetingManageResult)return this.meetingManageResult;const event=this.calendarEvents.find(e=>e.id===args.eventId);if(!event||event.changeKey!==args.version)return {status:'notSent',error:'This meeting changed. Reopen it.'};if(args.action==='cancel'){this.calendarEvents=this.calendarEvents.filter(e=>e.id!==args.eventId);return {status:'accepted'};}const c=args.changes??{};if(c.subject!==undefined)event.subject=c.subject;if(c.start){event.start={dateTime:c.start,timeZone:'UTC'};event.end={dateTime:c.end,timeZone:'UTC'};}if(c.description!==undefined)event.body={contentType:'text',content:c.description};if(c.descriptionNote)event.body={...event.body,content:event.body.content+'\n'+c.descriptionNote};if(c.people)event.attendees=[...c.people.map((p:any)=>({type:p.kind,emailAddress:{address:p.address}})),...event.attendees.filter((a:any)=>a.type==='resource')];if(c.changeRoom){event.attendees=event.attendees.filter((a:any)=>a.type!=='resource');if(c.room)event.attendees.push({type:'resource',emailAddress:{address:c.room.emailAddress,name:c.room.displayName},status:{response:'none'}});event.location={displayName:c.room?.displayName??''};}event.changeKey='updated-'+event.changeKey;return {status:'updated',event};}
       case 'calendar_rooms':return {value:this.meetingRooms,next:null};
       case 'calendar_availability':return args.addresses.map((scheduleId:string)=>({scheduleId,availabilityView:'0000'}));
       case 'calendar_create':{if(this.meetingResult)return this.meetingResult;const event={...this.calendarEvents[0],id:'created-meeting',subject:args.draft.subject,isOrganizer:true,attendees:[{type:'resource',emailAddress:{address:'room@example.test'},status:{response:'none'}}]};this.calendarEvents.unshift(event);return {status:'created',event};}

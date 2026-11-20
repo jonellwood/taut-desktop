@@ -107,7 +107,7 @@ Exchange returns their response; room delegate approval remains with Exchange.
 
 First pass: single-occurrence meetings, one room, up to 20 person addresses;
 availability checks cover at most 20 addresses including the room. No recurrence,
-meeting edits/cancellations, Teams meeting links or calendar attachments yet.
+Teams meeting links or calendar attachments yet. Organizer edits/cancellation were added in the follow-up below.
 All automated creation/discovery tests use mocked requests, never the live tenant.
 
 ### Composer layout follow-up
@@ -135,3 +135,27 @@ After an accepted RSVP request, TAUT immediately reads calendar status and makes
 Meeting response/cancellation mail can retain its classified card even if its associated event is absent or unavailable; TAUT does not infer the user's RSVP from an acceptance email. Teams meeting association and a future unified attention feed remain separate work.
 
 References: https://learn.microsoft.com/en-us/graph/api/resources/eventmessagerequest?view=graph-rest-1.0 and https://learn.microsoft.com/en-us/graph/api/resources/event?view=graph-rest-1.0.
+
+
+## Organizer editing and cancellation — November 20, 2026
+
+Calendar details offer Edit meeting and Cancel meeting for active single meetings the signed-in user organizes. Recurring events remain in Outlook. Local drafts survive closing/reopening; a review is required before sending updates or cancellation, including an optional cancellation note. Only changed fields are patched. Existing optional attendees, resource attendees, names and untouched descriptions are preserved. Formatted/online descriptions support an appended note instead of replacement, preserving the original meeting content. A room change is explicit; keeping the same room sends no room change. Multiple rooms/locations and all-day time changes stay in Outlook.
+
+Rust uses the existing approved Calendars.ReadWrite permission, rereads identity and the event, checks organizer eligibility and changeKey, and forwards an available ETag for updates. This preflight does not make cancellation atomic with concurrent Outlook edits. Cancellation uses POST /me/events/{id}/cancel, never DELETE; 202 means submitted, not confirmed delivery. Neither mutation is automatically retried. Account/event/version attempt locks persist locally, with an additional native process guard; uncertain outcomes require checking Outlook. Preflight rejection preserves the draft and sends nothing. These locks are local safety guards, not server idempotency guarantees.
+
+User confirmed incoming invitations from another person can be accepted successfully, and organizer cancellation appeared in both the email subject/status and Calendar. New organizer editing/cancellation awaits deliberate manual testing. Automated tests use mocked IPC/Graph only.
+
+References: https://learn.microsoft.com/en-us/graph/api/event-update?view=graph-rest-1.0 and https://learn.microsoft.com/en-us/graph/api/event-cancel?view=graph-rest-1.0.
+
+
+## Calendar alpha acceptance
+
+Automated checks use mocked Graph/IPC. The user performs the following deliberate live checks on a disposable single meeting they organize:
+
+1. Create a test meeting with a room; confirm Outlook receives the invitation and the room reports accepted or declined correctly.
+2. Edit its subject and time, review the changes, then send. Confirm the same event changes in Outlook and the room's new response appears after refreshing meeting status. A changed room/time still needs its own booking response.
+3. Add an optional attendee or change the room; confirm the review and resulting Outlook attendee types/location. Keep an existing Teams/formatted description intact; an appended note must preserve its original join content.
+4. Start another edit, choose Save & close, then reopen: the draft should return without sending. Choose Keep editing in the review to verify no update is submitted.
+5. Cancel the disposable meeting with a note, review, and confirm once. Check Outlook and the attendee/room cancellation. TAUT reports submission until Microsoft 365 reconciles; use Refresh calendar if needed.
+
+Incoming invitation acceptance, organizer cancellation received through Mail/Calendar, and initial room booking have already been user-validated. New organizer edits/cancellation remain pending live acceptance. Recurring events can be viewed/responded to where eligible, but creating/editing/cancelling recurring meetings remains in Outlook. Creating Teams meeting links is deferred; existing online meeting descriptions are protected. These limitations do not block the focused desktop alpha.

@@ -1,6 +1,6 @@
 # TAUT Desktop roadmap
 
-Updated November 19, 2026. Work in the numbered queue in order. Keep new ideas in the later backlog unless we explicitly reprioritize them.
+Updated November 20, 2026. Work in the numbered queue in order. Keep new ideas in the later backlog unless we explicitly reprioritize them.
 
 ## Current checkpoint
 
@@ -49,7 +49,7 @@ The three-item implementation queue is complete; signature sending and the recei
 ## Calendar, Files and calls
 
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
-- [ ] Calendar follow-ups: recurring meetings, organizer edits/cancellation and Teams meeting links.
+- [ ] Calendar follow-ups: recurring meetings and Teams meeting links. Organizer edits/cancellation implemented for single meetings; live verification pending.
 
 - [x] Calendar v1: read-only date/agenda/details workspace, recurring occurrences, attendee and recorded response status. Delegated Calendars.Read approved; user validated successfully.
 - [x] Calendar/Mail: resolve invitations to current calendar status; reviewed Accept/Tentative/Decline and Change response with approved Calendars.ReadWrite.
@@ -74,4 +74,4 @@ The three-item implementation queue is complete; signature sending and the recei
 - [ ] Remaining formatted-message round-trip edge cases in channels and quoted replies; long PHP send and IDE copy were user-validated.
 - [ ] Optional accent-matched Dock icon, later.
 - [ ] Looping feature showcase after core workflows settle.
-- [ ] Installable alpha packaging is deferred until the prospective tester has her MacBook.
+- [ ] Desktop alpha after Calendar acceptance: Windows first (two testers), macOS second (one tester), Linux deferred (tentative tester). Check Windows credential storage, attachment saving, OAuth and notifications; installer/clean-machine verification and Settings feedback link to an internal form. Recurring editing and new Teams meeting links remain documented alpha limitations.

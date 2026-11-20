@@ -1,5 +1,6 @@
 mod mailbox_transport;
 mod meeting;
+mod meeting_manage;
 mod calendar;
 mod people;
 mod mail;
@@ -441,6 +442,30 @@ fn mail_request(state:&AuthState,path:&str)->Result<(u16,Value),String>{
  if bytes.len()>24*1024*1024{return Err("Mail response is too large. Open this item in Outlook.".into());}
  Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid mail response")?))
 }
+// Organizer mutations have their own transport: no read-retry helper is used.
+fn meeting_manage_request(token:&str,method:&str,path:&str,body:Value,etag:Option<String>)->Result<(u16,Value),String>{
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Calendar client unavailable")?;
+ let mut request=match method{"GET"=>client.get(format!("https://graph.microsoft.com/v1.0{path}")),"PATCH"=>client.patch(format!("https://graph.microsoft.com/v1.0{path}")).json(&body),"POST"=>client.post(format!("https://graph.microsoft.com/v1.0{path}")).json(&body),_=>return Err("Unsupported meeting operation".into())};
+ if let Some(etag)=etag{request=request.header("If-Match",etag);}
+ let reply=request.bearer_auth(token).header("Prefer","outlook.timezone=\"UTC\"").send().map_err(|_|"Meeting request unconfirmed")?;let status=reply.status().as_u16();
+ if !matches!(status,200|201){return Ok((status,Value::Null));}
+ let mut bytes=vec![];reply.take(2*1024*1024+1).read_to_end(&mut bytes).map_err(|_|"Meeting response unavailable")?;if bytes.len()>2*1024*1024{return Err("Meeting response too large".into());}
+ Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid meeting response")?))
+}
+#[tauri::command]
+async fn calendar_manage_read(state:State<'_,AuthState>,event_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ if !scope_has(&collaboration_scopes(&state)?,"Calendars.ReadWrite"){return Err("Reconnect to manage meetings.".into());}let token=get_access_token(&state)?;
+ meeting_manage::read(&event_id,&mut|m,p,b,e|meeting_manage_request(&token,m,p,b,e))
+}).await}
+#[tauri::command]
+async fn calendar_manage(state:State<'_,AuthState>,own_id:String,event_id:String,version:String,action:String,changes:Option<meeting_manage::Changes>,comment:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{
+ let permitted=scope_has(&collaboration_scopes(&state)?,"Calendars.ReadWrite");let token=get_access_token(&state)?;
+ static ATTEMPTS:std::sync::OnceLock<Mutex<std::collections::HashSet<String>>>=std::sync::OnceLock::new();
+ meeting_manage::change(&own_id,&event_id,&version,&action,changes.as_ref(),&comment,permitted,&mut|method,path,body,etag|{
+  if method!="GET"{let key=serde_json::to_string(&(&own_id,&event_id,&version)).map_err(|_|"Invalid meeting attempt")?;let mut attempts=ATTEMPTS.get_or_init(Default::default).lock().map_err(|_|"Meeting state unavailable")?;if attempts.len()>=10000||!attempts.insert(key){return Err("A change was already attempted for this meeting version. Check Outlook.".into());}}
+  meeting_manage_request(&token,method,path,body,etag)
+ }).or_else(|error|Ok(serde_json::json!({"status":"notSent","error":error})))
+}).await}
 // Calendar composer commands use one account-bound token and never retry writes.
 fn meeting_request(token:&str,method:&str,path:&str,body:Value)->Result<(u16,Value),String>{
  let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Calendar client unavailable")?;
@@ -832,7 +857,7 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![mail_unread,calendar_rooms,calendar_availability,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
