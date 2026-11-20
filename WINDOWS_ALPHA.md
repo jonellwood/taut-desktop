@@ -58,3 +58,8 @@ The first native Windows test runs uncovered a Unix-only directory sync in the a
 - The full remote browser run passed 620 cases; four room-status cases used contradictory organizer/attendee fixture identity. The fixture was corrected (no application change), and all four cases passed again in Chromium/WebKit.
 
 This unsigned artifact is ready for a deliberate clean-PC acceptance test, not an assertion that installation, OAuth persistence, native notification identity or upgrade/uninstall have been verified. No installer was executed during this work.
+
+
+## Intel/AMD x64 test machine
+
+The user's own Windows PC has an 11th-generation Intel Core i7 and needs the **x64** installer. The candidate workflow now builds separate ARM64 and x64 artifacts on matching Windows runners, verifies the expected PE architecture for each, and generates independent checksums. App source/version remains the same; no ARM64 installer should be used on the Intel machine. The x64 candidate is pending its first build at this update.
