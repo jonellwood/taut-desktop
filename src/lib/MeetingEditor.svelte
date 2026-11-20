@@ -22,7 +22,7 @@
   const stored=localStorage.getItem(draftKey);if(stored){try{if(stored.length>=100000)throw Error('Draft too large');const parsed=JSON.parse(stored);const candidate=parsed.form;if(!candidate||!Object.keys(form).every(k=>typeof candidate[k]===typeof form![k as keyof EditForm]))throw Error('Invalid draft');form=candidate;if(typeof parsed.comment==='string'&&parsed.comment.length<=4000)comment=parsed.comment;}catch{error='Saved draft could not be restored. The current meeting is shown; review your changes again.';}}ready=true;
  }catch(e){if(alive){event=null;form=null;error=String(e);}}finally{if(alive)loading=false;}})();});
  onDestroy(()=>{alive=false;});
- $effect(()=>{const saved=JSON.stringify(snapshot());if(ready&&draftKey){try{localStorage.setItem(draftKey,saved);}catch{error='Draft could not be saved on this Mac.';}}});
+ $effect(()=>{const saved=JSON.stringify(snapshot());if(ready&&draftKey){try{localStorage.setItem(draftKey,saved);}catch{error='Draft could not be saved on this device.';}}});
  async function loadRooms(more=false){if(roomBusy)return;roomBusy=true;roomError='';try{const result=await invoke<{value:typeof rooms;next:string|null}>('calendar_rooms',{next:more?roomNext:null});if(alive){rooms=[...new Map([...(more?rooms:[]),...result.value.filter(r=>r.emailAddress)].map(r=>[r.emailAddress,r])).values()];roomNext=result.next;}}catch(e){if(alive)roomError=String(e);}finally{if(alive)roomBusy=false;}}
  async function send(){if(!event||!form||busy||attempted||reason)return;review=false;busy=true;error='';const source=event,patch:MeetingChanges=mode==='edit'?meetingChanges(source,form):{};
   const attempt=manageAttemptKey(ownId,eventId,source.changeKey!);

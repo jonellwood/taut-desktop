@@ -8,7 +8,7 @@
  function save(){try{localStorage.setItem(signatureKey(account),JSON.stringify(signature));notice='Signature defaults saved. Existing drafts keep their signature.';}catch{notice='Signature could not be saved.';}}
 </script>
 <section class="signature-preferences" aria-label="Signature preferences">
- <h3>Signature</h3><p>Your sign-off, saved for this account on this Mac.</p>
+ <h3>Signature</h3><p>Your sign-off, saved for this account on this device.</p>
  <label>Signature text<textarea aria-label="Saved signature" maxlength="10000" rows="5" bind:value={signature.text} placeholder="Your name, role and contact details"></textarea></label>
  <small>Supports bold, links and other message formatting.</small>
  <div class="defaults">{#each [{key:'newMail',label:'New emails'},{key:'replies',label:'Replies'},{key:'forwards',label:'Forwards'}] as item}<div class="default-row"><strong>{item.label}</strong><div class="choices" role="group" aria-label={`${item.label} signature`}><button aria-pressed={signature[item.key as 'newMail'|'replies'|'forwards']} onclick={()=>signature[item.key as 'newMail'|'replies'|'forwards']=true}>Include</button><button aria-pressed={!signature[item.key as 'newMail'|'replies'|'forwards']} onclick={()=>signature[item.key as 'newMail'|'replies'|'forwards']=false}>Omit</button></div></div>{/each}</div>

@@ -14,6 +14,10 @@ mod membership;
 mod presence;
 mod compose_format;
 mod auth;
+#[cfg(target_os="windows")]
+mod windows_vault;
+#[cfg(any(target_os="windows",test))]
+mod save_attachment;
 mod teams;
 mod channel_send;
 mod chat_threads;
@@ -28,9 +32,10 @@ use rand::{rngs::OsRng, RngCore};
 use reqwest::blocking::Client;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{io::{Read, Write}, net::TcpListener, process::Command, sync::Mutex, thread, time::{Duration, Instant}};
+use std::{io::{Read, Write}, net::TcpListener, sync::Mutex, thread, time::{Duration, Instant}};
 use tauri::{State,Manager};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
@@ -74,12 +79,12 @@ fn store_token(state:&AuthState,value:Value)->Result<(),String>{
 }
 fn get_access_token(state: &AuthState) -> Result<String, String> {
     // Serialize refresh, Keychain updates and logout to prevent stale saves after sign-out.
-    state.0.lock().map_err(|_|"Authentication state unavailable")?.access(&mut auth::Keychain,&mut refresh_exchange)
+    state.0.lock().map_err(|_|"Authentication state unavailable")?.access(&mut auth::SecureVault,&mut refresh_exchange)
 }
 #[tauri::command]
 async fn restore_session(state:State<'_,AuthState>)->Result<auth::Status,String>{
     let state=AuthState(state.0.clone());
-    tauri::async_runtime::spawn_blocking(move ||state.0.lock().map_err(|_|"Authentication state unavailable")?.restore(&mut auth::Keychain,&mut refresh_exchange)).await.map_err(|_|"Saved sign-in restoration stopped")?
+    tauri::async_runtime::spawn_blocking(move ||state.0.lock().map_err(|_|"Authentication state unavailable")?.restore(&mut auth::SecureVault,&mut refresh_exchange)).await.map_err(|_|"Saved sign-in restoration stopped")?
 }
 #[tauri::command]
 async fn auth_persistence_status(state:State<'_,AuthState>)->Result<auth::Status,String>{
@@ -88,7 +93,7 @@ async fn auth_persistence_status(state:State<'_,AuthState>)->Result<auth::Status
 }
 
 #[tauri::command]
-async fn sign_in(state: State<'_, AuthState>, notifications:State<'_,notifications::State>,away:State<'_,AwayState>) -> Result<(), String> {
+async fn sign_in(app:tauri::AppHandle,state: State<'_, AuthState>, notifications:State<'_,notifications::State>,away:State<'_,AwayState>) -> Result<(), String> {
     away.0.lock().map_err(|_|"Away state unavailable")?.suspend();
     notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.reset();
     let epoch=state.0.lock().map_err(|_|"Authentication state unavailable")?.begin_login();
@@ -109,9 +114,8 @@ async fn sign_in(state: State<'_, AuthState>, notifications:State<'_,notificatio
         .append_pair("state", &expected_state)
         .append_pair("code_challenge", &challenge)
         .append_pair("code_challenge_method", "S256");
-    // macOS system browser. No embedded credentials or custom protocol hijacking.
-    let launched = Command::new("open").arg(url.as_str()).status().map_err(|_| "Unable to launch system browser")?;
-    if !launched.success() { return Err("Unable to launch system browser".into()); }
+    // Use the OS default browser on each desktop platform. OAuth stays in Rust.
+    app.opener().open_url(url.as_str(),None::<&str>).map_err(|_|"Unable to launch system browser")?;
     let callback = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         let started = Instant::now();
         loop {
@@ -146,7 +150,7 @@ async fn sign_in(state: State<'_, AuthState>, notifications:State<'_,notificatio
         ("code", &callback), ("redirect_uri", &redirect), ("code_verifier", &verifier), ("scope", SCOPES),
     ])).await.map_err(|_| "Token request failed")?.map_err(|e|e.message().to_owned())?;
     let state=AuthState(state.0.clone());
-    tauri::async_runtime::spawn_blocking(move ||state.0.lock().map_err(|_|"Authentication state unavailable")?.accept_login(epoch,result,&mut auth::Keychain)).await.map_err(|_|"Sign-in session storage stopped")?
+    tauri::async_runtime::spawn_blocking(move ||state.0.lock().map_err(|_|"Authentication state unavailable")?.accept_login(epoch,result,&mut auth::SecureVault)).await.map_err(|_|"Sign-in session storage stopped")?
 }
 
 // Blocking Graph HTTP must never run on the macOS UI thread.
@@ -599,13 +603,19 @@ async fn mail_save_attachment(state:State<'_,AuthState>,message_id:String,attach
  #[cfg(target_os="macos")]{
   let name=file["name"].as_str().unwrap_or("attachment").chars().filter(|c|!c.is_control()&&!"/:\\".contains(*c)).take(180).collect::<String>();
   let script="on run argv\ntry\nset destination to choose file name with prompt \"Save mail attachment\" default name (item 1 of argv)\nreturn POSIX path of destination\non error number -128\nreturn \"\"\nend try\nend run";
-  let output=Command::new("osascript").args(["-e",script,"--",if name.is_empty(){"attachment"}else{&name}]).output().map_err(|_|"Save dialog unavailable")?;
+  let output=std::process::Command::new("osascript").args(["-e",script,"--",if name.is_empty(){"attachment"}else{&name}]).output().map_err(|_|"Save dialog unavailable")?;
   if !output.status.success(){return Err("Save dialog could not complete".into());}
   let path=String::from_utf8(output.stdout).map_err(|_|"Save destination unavailable")?;let path=path.trim_end_matches(['\r','\n']);if path.is_empty(){return Ok(false);}
   let bytes=base64::engine::general_purpose::STANDARD.decode(file["base64"].as_str().ok_or("Attachment unavailable")?).map_err(|_|"Attachment could not be decoded")?;
   std::fs::write(path,bytes).map_err(|_|"Attachment could not be saved to that location")?;Ok(true)
  }
- #[cfg(not(target_os="macos"))]{let _=file;Err("Saving mail attachments is currently supported on macOS. Open the message in Outlook.".into())}
+ #[cfg(target_os="windows")]{
+  let name=save_attachment::suggested_name(file["name"].as_str().unwrap_or("attachment"));
+  let Some(path)=rfd::FileDialog::new().set_title("Save mail attachment").set_file_name(&name).save_file() else{return Ok(false);};
+  let bytes=base64::engine::general_purpose::STANDARD.decode(file["base64"].as_str().ok_or("Attachment unavailable")?).map_err(|_|"Attachment could not be decoded")?;
+  std::fs::write(path,bytes).map_err(|_|"Attachment could not be saved to that location")?;Ok(true)
+ }
+ #[cfg(not(any(target_os="macos",target_os="windows"))) ]{let _=file;Err("Saving mail attachments is not supported on this platform yet. Open the message in Outlook.".into())}
  }).await}
 // Graph action POSTs without payloads still need explicit HTTP message framing.
 fn graph_operation_payload(request:reqwest::blocking::RequestBuilder,method:&reqwest::Method,body:Option<Value>)->reqwest::blocking::RequestBuilder {
@@ -784,7 +794,7 @@ async fn sign_out(state: State<'_, AuthState>, uploads: State<'_, attachments::A
     away.0.lock().map_err(|_|"Away state unavailable")?.suspend();
     let state=AuthState(state.0.clone());let uploads=uploads.0.clone();let notifications=notifications.0.clone();let away=away.inner().clone();
     tauri::async_runtime::spawn_blocking(move ||{
-        let result=state.0.lock().map_err(|_|"Authentication state unavailable")?.logout(&mut auth::Keychain);
+        let result=state.0.lock().map_err(|_|"Authentication state unavailable")?.logout(&mut auth::SecureVault);
         notifications.lock().map_err(|_|"Notification state unavailable")?.tracker.reset();
         away.0.lock().map_err(|_|"Away state unavailable")?.suspend();
         uploads.lock().map_err(|_|"Attachment state unavailable")?.clear();
@@ -798,7 +808,7 @@ fn notify_snapshot(app:&tauri::AppHandle,state:&notifications::State,value:&Valu
     for notice in notices{
         if !state.0.lock().map(|manager|manager.settings.enabled&&manager.tracker.session==session).unwrap_or(false){break;}
         if app.notification().builder().id(notice.id).title("TAUT").body(&notice.body).extra("tautSession",&session).show().is_err(){
-            if let Ok(mut manager)=state.0.lock(){manager.error=Some("A notification could not be requested. Check macOS Notifications and Focus settings.".into());}
+            if let Ok(mut manager)=state.0.lock(){manager.error=Some("A notification could not be requested. Check system notification and Focus settings.".into());}
         }
     }
 }

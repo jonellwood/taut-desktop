@@ -30,7 +30,7 @@ test('test notification is explicit and reports a request rather than promising 
  await expect(settings(page).getByRole('status')).toContainText('#1');
  await settings(page).getByRole('button',{name:'Send test notification',exact:true}).click();
  await expect(settings(page).getByRole('status')).toContainText('#2');
- await expect(settings(page)).toContainText('Terminal');expect(graph.notificationTests).toBe(2);expect(graph.writes).toEqual([]);
+ await expect(settings(page)).toContainText('terminal’s app identity');expect(graph.notificationTests).toBe(2);expect(graph.writes).toEqual([]);
 });
 
 test('settings failure keeps notifications off and displays the actual error',async({page,graph})=>{

@@ -47,7 +47,7 @@ test('retrying saved sign-in after a transient failure restores without interact
  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Account',exact:true}).click();
  graph.restoredSession=true;graph.persistenceNotice=null;
  await page.getByRole('button',{name:'Retry saved sign-in',exact:true}).click();
- await expect(page.getByRole('dialog')).toContainText('Sign-in saved in macOS Keychain');
+ await expect(page.getByRole('dialog')).toContainText('Sign-in saved securely on this device');
  expect(graph.calls.filter(c=>c.command==='restore_session')).toHaveLength(2);
  expect(graph.calls.some(c=>c.command==='sign_in')).toBe(false);expect(graph.writes).toEqual([]);
 });

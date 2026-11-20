@@ -98,7 +98,7 @@ impl Session {
                 .and_then(|t| t.refresh.as_ref())
                 .is_some();
         self.notice = if result.is_err() {
-            Some("Connected for this session, but Keychain could not save or update your sign-in. A previously saved sign-in may still remain. Unlock or allow access to Keychain; another sign-in may be needed after restarting.".into())
+            Some("Connected for this session, but secure credential storage could not save or update your sign-in. A previously saved sign-in may still remain. Unlock or allow access to your system credential store; another sign-in may be needed after restarting.".into())
         } else if !self.saved {
             Some("Connected for this session. Microsoft did not provide a refresh token, so another sign-in is needed after restarting.".into())
         } else {
@@ -150,7 +150,7 @@ impl Session {
                 self.notice = Some(if removed {
                     ExchangeError::Reauthenticate.message().into()
                 } else {
-                    "Microsoft requires a fresh sign-in. Keychain cleanup failed; unlock Keychain and clear the saved sign-in in Preferences.".into()
+                    "Microsoft requires a fresh sign-in. Credential cleanup failed; unlock your system credential store and clear the saved sign-in in Preferences.".into()
                 });
                 Err(self.notice.clone().unwrap())
             }
@@ -178,7 +178,7 @@ impl Session {
                 return Ok(self.status());
             }
             Err(()) => {
-                self.notice=Some("Saved sign-in could not be read from Keychain. Unlock or allow Keychain access, or sign in for this session.".into());
+                self.notice=Some("Saved sign-in could not be read from secure credential storage. Unlock or allow access, or sign in for this session.".into());
                 return Ok(self.status());
             }
         };
@@ -212,17 +212,17 @@ impl Session {
         self.token = None;
         self.saved = false;
         self.notice = None;
-        vault.delete().map_err(|()|"Signed out of this session, but the saved sign-in could not be removed from Keychain. It may restore on next launch. Unlock Keychain and use Clear saved sign-in in Preferences to retry.".into())
+        vault.delete().map_err(|()|"Signed out of this session, but the saved sign-in could not be removed from secure credential storage. It may restore on next launch. Unlock your system credential store and use Clear saved sign-in in Preferences to retry.".into())
     }
 }
 
-pub struct Keychain;
+pub struct SecureVault;
 const SERVICE: &str = "app.taut.desktop.microsoft365";
 fn account() -> String {
     format!("{}:{}", crate::TENANT, crate::CLIENT_ID)
 }
 #[cfg(target_os = "macos")]
-impl Vault for Keychain {
+impl Vault for SecureVault {
     fn load(&mut self) -> Result<Option<String>, ()> {
         match security_framework::passwords::get_generic_password(SERVICE, &account()) {
             Ok(bytes) => String::from_utf8(bytes).map(Some).map_err(|_| ()),
@@ -242,8 +242,14 @@ impl Vault for Keychain {
         }
     }
 }
-#[cfg(not(target_os = "macos"))]
-impl Vault for Keychain {
+#[cfg(target_os = "windows")]
+impl Vault for SecureVault {
+    fn load(&mut self) -> Result<Option<String>, ()> { crate::windows_vault::load(&format!("{SERVICE}:{}",account())) }
+    fn save(&mut self, refresh: &str) -> Result<(), ()> { crate::windows_vault::save(&format!("{SERVICE}:{}",account()),refresh) }
+    fn delete(&mut self) -> Result<(), ()> { crate::windows_vault::delete(&format!("{SERVICE}:{}",account())) }
+}
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+impl Vault for SecureVault {
     fn load(&mut self) -> Result<Option<String>, ()> {
         Err(())
     }
@@ -432,7 +438,7 @@ mod tests {
             .accept_login(epoch, token(Some("private-refresh")), &mut vault)
             .unwrap();
         assert!(session.status().restored && !session.status().saved);
-        assert!(session.status().notice.unwrap().contains("Keychain"));
+        assert!(session.status().notice.unwrap().contains("credential"));
         assert!(vault.value.is_none());
     }
     #[test]

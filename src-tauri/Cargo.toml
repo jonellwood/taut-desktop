@@ -1,6 +1,6 @@
 [package]
 name = "taut_desktop"
-version = "1.0.0-alpha.4"
+version = "1.4.4-alpha.1"
 description = "TAUT Desktop"
 authors = ["TAUT"]
 edition = "2021"
@@ -29,3 +29,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+rfd = { version = "0.15.4", default-features = false }

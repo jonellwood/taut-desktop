@@ -1,0 +1,62 @@
+name: Windows alpha candidate
+
+on:
+  push:
+    branches: [feat/message-deletion]
+    paths:
+      - 'src-tauri/**'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/windows-alpha.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-alpha-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    name: Internal Windows 11 ARM64 candidate
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:ui
+      - name: Test backend with mocked Graph only
+        working-directory: src-tauri
+        run: cargo +stable test --locked --lib
+      - name: Build unsigned internal installer
+        run: npm run tauri -- build --target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.windows.conf.json -- --locked
+      - name: Verify native ARM64 executable
+        shell: pwsh
+        run: |
+          $exe = [IO.File]::ReadAllBytes('src-tauri/target/aarch64-pc-windows-msvc/release/taut_desktop.exe')
+          $pe = [BitConverter]::ToInt32($exe, 0x3c)
+          if ([BitConverter]::ToUInt16($exe, $pe + 4) -ne 0xaa64) { throw "Expected native ARM64 executable" }
+      - name: Checksum installer
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          if ($installers.Count -ne 1) { throw "Expected one installer" }
+          $hash = Get-FileHash $installers[0].FullName -Algorithm SHA256
+          "$($hash.Hash.ToLower())  $($installers[0].Name)" | Set-Content -Encoding ascii src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TAUT-windows-arm64-alpha-${{ github.sha }}
+          path: |
+            src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+            src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

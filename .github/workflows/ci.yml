@@ -41,8 +41,12 @@ jobs:
           retention-days: 7
 
   rust:
-    name: Rust on macOS
-    runs-on: macos-latest
+    name: Rust on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
       run:
