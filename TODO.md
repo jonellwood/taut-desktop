@@ -34,7 +34,7 @@ The three-item implementation queue is complete; signature sending and the recei
 ## Teams, chats and people — later
 
 - [x] Pilot attachment download: direct-file references use SharePoint file GUID/webDavUrl. User confirmed the fix using the Mac dev sender and existing recipient apps; no new Windows build needed. Earlier messages are not rewritten.
-- [x] Paginate beyond the newest 50 conversations with explicit Load more conversations, preserved selection/drafts/history, retry and account guards. Manual tenant acceptance pending; queued for next agreed installer release.
+- [x] Paginate beyond the newest 50 conversations with explicit Load more conversations, preserved selection/drafts/history, retry and account guards. User confirmed manual acceptance November 20; queued for next agreed installer release. Admin-reported Teams message retention is six months; TAUT imposes no client-side retention cutoff.
 - [ ] Extend Shared Media beyond loaded history. Chat message history has explicit older-page loading and preserves loaded pages during refresh; Vance history recovery via older-page loading was user-confirmed November 20.
 - [ ] Explicit Mark unread for chats, without immediately marking the same selection read again.
 - [ ] Channel attachments, mentions and activity indicators.
