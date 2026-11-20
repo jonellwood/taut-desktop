@@ -1,9 +1,21 @@
-//! Marks only the signed-in user's selected, fully loaded conversation as read.
+//! Read/unread actions target only the server-verified signed-in user.
 use crate::deletion::{own_id, read, valid_chat, Request};
 use reqwest::Method;
 use serde_json::json;
 fn enc(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+pub fn mark_unread(permitted: bool, chat: &str, tenant: &str, request: &mut Request<'_>) -> Result<(), String> {
+    if !permitted { return Err("Changing unread status needs delegated Chat.ReadWrite. Sign in again after consent.".into()); }
+    valid_chat(chat)?;
+    let own = own_id(request)?;
+    // Omit lastMessageReadDateTime: Graph marks the latest message unread.
+    // The frontend cannot select a different user's identity or read position.
+    let reply = request(Method::POST, &format!("/chats/{}/markChatUnreadForUser",enc(chat)),
+        Some(json!({"user":{"id":own,"tenantId":tenant}})))
+        .map_err(|_|"Unread status was not confirmed. Refresh and check Teams before explicitly retrying.".to_owned())?;
+    if reply.status != 204 { return Err(format!("Unread status was not confirmed (HTTP {}). Refresh and check Teams before explicitly retrying.",reply.status)); }
+    Ok(())
 }
 pub fn mark_read(
     permitted: bool,
@@ -67,6 +79,32 @@ mod tests {
         assert!(mark_read(false, "chat", "message", "tenant", &mut request).is_err());
         assert!(mark_read(true, "pending:user", "message", "tenant", &mut request).is_err());
         assert!(mark_read(true, "chat", "", "tenant", &mut request).is_err());
+        assert!(mark_unread(false,"chat","tenant",&mut request).is_err());
+        assert!(mark_unread(true,"pending:user","tenant",&mut request).is_err());
+    }
+    #[test]
+    fn unread_targets_server_verified_self_once_without_fetching_or_sending_messages() {
+        let mut writes=0;
+        mark_unread(true,"19:chat@thread.v2","tenant",&mut |method,path,body| {
+            if method==Method::GET {assert_eq!(path,"/me?$select=id");return response(json!({"id":ME}));}
+            writes+=1;
+            assert_eq!(path,"/chats/19%3Achat%40thread.v2/markChatUnreadForUser");
+            assert_eq!(body,Some(json!({"user":{"id":ME,"tenantId":"tenant"}})));
+            Ok(Reply{status:204,body:Value::Null})
+        }).unwrap();
+        assert_eq!(writes,1);
+    }
+    #[test]
+    fn unread_failures_never_retry_or_claim_success() {
+        for status in [None,Some(200),Some(202),Some(403),Some(429),Some(500)] {
+            let mut writes=0;
+            assert!(mark_unread(true,"chat","tenant",&mut |method,path,_| {
+                if method==Method::GET {assert_eq!(path,"/me?$select=id");return response(json!({"id":ME}));}
+                writes+=1;
+                status.map(|status|Reply{status,body:Value::Null}).ok_or("timeout".into())
+            }).is_err());
+            assert_eq!(writes,1);
+        }
     }
     #[test]
     fn mark_read_verifies_latest_message_and_posts_only_server_verified_self() {

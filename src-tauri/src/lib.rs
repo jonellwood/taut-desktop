@@ -629,9 +629,12 @@ fn graph_operation_payload(request:reqwest::blocking::RequestBuilder,method:&req
     else {request}
 }
 fn graph_operation_request(state:&AuthState,method:reqwest::Method,path:&str,body:Option<Value>)->Result<groups::Reply,String>{
+    graph_operation_with_token(&get_access_token(state)?,method,path,body)
+}
+fn graph_operation_with_token(token:&str,method:reqwest::Method,path:&str,body:Option<Value>)->Result<groups::Reply,String>{
     let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Microsoft 365 HTTP client unavailable")?;
     let message_read=method==reqwest::Method::GET && path.contains("/messages/");
-    let request=client.request(method.clone(),format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(state)?);
+    let request=client.request(method.clone(),format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(token);
     let request=if message_read {request.header("Prefer","include-unknown-enum-members")}else{request};
     let request=graph_operation_payload(request,&method,body);
     let response=request.send().map_err(|_|"Microsoft 365 operation was not confirmed. Refresh and check Teams before retrying")?;
@@ -704,6 +707,18 @@ async fn graph_chat_visibility(state:State<'_,AuthState>,chat_id:String)->Result
     let state=AuthState(state.0.clone());
     tauri::async_runtime::spawn_blocking(move ||deletion::visibility_status(&chat_id,&mut |m,p,b|graph_operation_request(&state,m,p,b)))
         .await.map_err(|_|"Chat visibility check stopped")?
+}
+#[tauri::command]
+async fn graph_mark_chat_unread(state:State<'_,AuthState>,chat_id:String)->Result<(),String>{
+    let state=AuthState(state.0.clone());
+    tauri::async_runtime::spawn_blocking(move ||{
+        let token=get_access_token(&state)?;
+        let permitted=state.0.lock().map_err(|_|"Authentication state unavailable")?.token.as_ref()
+            .is_some_and(|current|current.access==token&&scope_has(&current.scopes,"Chat.ReadWrite"));
+        // Identity verification and the write share one token snapshot even if
+        // the user signs out or changes accounts while the request is pending.
+        read_state::mark_unread(permitted,&chat_id,TENANT,&mut |m,p,b|graph_operation_with_token(&token,m,p,b))
+    }).await.map_err(|_|"Unread status was not confirmed. Refresh and check Teams before retrying.")?
 }
 #[tauri::command]
 async fn graph_mark_chat_read(state:State<'_,AuthState>,chat_id:String,message_id:String)->Result<bool,String>{
@@ -875,7 +890,7 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler(tauri::generate_handler![calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

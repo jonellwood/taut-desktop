@@ -110,6 +110,9 @@ export class MockGraph {
   attachmentPermission = false;
   groupPermission = false;
   chatWritePermission = false;
+  unreadError="";
+  unreadGate?:Promise<void>;
+  unreadLag=false;
   changeError = '';
   visibilityError = '';
   statusError = '';
@@ -124,7 +127,7 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['calendar_manage','calendar_create','calendar_response','mail_set_read','mail_move_deleted','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['calendar_manage','calendar_create','calendar_response','mail_set_read','mail_move_deleted','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_mark_chat_unread','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
@@ -232,6 +235,14 @@ export class MockGraph {
         if(this.visibilityError)throw Error(this.visibilityError);
         this.chats.find(c=>c.id===args.chatId)!.viewpoint={isHidden:args.hidden};
         return null;
+      case 'graph_mark_chat_unread': {
+        if(!this.allowWrites)break;
+        await this.unreadGate;
+        if(this.unreadError)throw Error(this.unreadError);
+        const target=this.chats.find(c=>c.id===args.chatId)!;
+        if(!this.unreadLag)target.viewpoint={...target.viewpoint,lastMessageReadDateTime:new Date(Date.parse(target.lastMessagePreview?.createdDateTime??'2026-01-01T12:00:00Z')-1).toISOString()};
+        return null;
+      }
       case 'graph_mark_chat_read': {
         if(!this.allowWrites)break;
         if(this.readError)throw Error(this.readError);

@@ -278,8 +278,9 @@
  let unreadChats=$derived(chats.filter(c=>!c.hidden&&c.unread>0&&c.id!=='empty').length);
  let pinnedIds=$state<string[]>([]);
  let pinMenuId=$state<string|null>(null);
- let pinMenuAction=$state<HTMLButtonElement>();
  let pinError=$state('');
+ let unreadBusy=$state<string|null>(null);
+ let unreadPendingUntil:Record<string,number>={};
  function pinKey(){return `taut.pins.v1.${ownId.toLowerCase()}`;}
  function loadPins(){
    pinMenuId=null;pinError='';pinnedIds=[];
@@ -288,7 +289,27 @@
    }catch{pinError='Saved pins could not be loaded on this device.';}
  }
  function isPinned(chat:Conversation){return isLive?pinnedIds.includes(chat.id):Boolean(chat.favorite);}
- async function openPinMenu(id:string){pinMenuId=pinMenuId===id?null:id;await tick();pinMenuAction?.focus();}
+ async function openPinMenu(id:string){pinMenuId=pinMenuId===id?null:id;await tick();document.querySelector<HTMLButtonElement>('.pin-menu [role="menuitem"]:not(:disabled)')?.focus();}
+ function chatContextMenu(event:MouseEvent,id:string){
+   if(!isLive||authBusy||id==='empty'||id.startsWith('pending:'))return;
+   event.preventDefault();pinMenuId=null;void openPinMenu(id);
+ }
+ async function markChatUnread(chat:Conversation){
+   if(!isLive||!chatWritePermission||authBusy||reauthRequired||unreadBusy||chat.id==='empty'||chat.id.startsWith('pending:'))return;
+   if(readInFlight.has(chat.id)){pinError='Read status is updating. Try marking this chat unread again in a moment.';return;}
+   const session=nameSession,id=chat.id;
+   unreadBusy=id;pinMenuId=null;pinError='';
+   // Pause automatic read marking until an explicit visit after this action.
+   if(selectedId===id){selectedReadEligible=false;readSelection++;}
+   try{
+     await invoke('graph_mark_chat_unread',{chatId:id});
+     if(!isLive||session!==nameSession)return;
+     const current=chats.find(c=>c.id===id);
+     if(current){current.unread=1;unreadPendingUntil[id]=Date.now()+60_000;}
+     if(selectedId===id){selectedReadEligible=false;readSelection++;}
+   }catch{if(isLive&&session===nameSession)pinError='Unread status was not confirmed. Refresh and check Teams before explicitly retrying.';}
+   finally{if(session===nameSession)unreadBusy=null;}
+ }
  async function togglePin(chat:Conversation){
    if(!isLive||!ownId||authBusy||chat.id==='empty'||chat.id.startsWith('pending:'))return;
    const next=isPinned(chat)?pinnedIds.filter(id=>id!==chat.id):[...pinnedIds,chat.id];
@@ -336,7 +357,7 @@
    return dateKey(date.toISOString())===dateKey(new Date().toISOString())?date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):date.toLocaleDateString();
  }
  function markVisibleRead(){
-   if(!isLive||!selectedReadEligible||!chatWritePermission||reauthRequired||authBusy||mode!=='chats'||changeTarget||emojiTarget||newChatOpen||settingsOpen||paletteOpen||discoveryOpen||lightbox||document.hidden||!document.hasFocus()||!messageViewport||messageViewport.scrollHeight-messageViewport.scrollTop-messageViewport.clientHeight>2)return;
+   if(!isLive||!selectedReadEligible||!chatWritePermission||reauthRequired||authBusy||unreadBusy===selectedId||pinMenuId||mode!=='chats'||changeTarget||emojiTarget||newChatOpen||settingsOpen||paletteOpen||discoveryOpen||lightbox||document.hidden||!document.hasFocus()||!messageViewport||messageViewport.scrollHeight-messageViewport.scrollTop-messageViewport.clientHeight>2)return;
    const chat=chats.find(c=>c.id===selectedId);if(!chat||chat.hidden||!chat.unread||chat.id.startsWith('pending:'))return;
    const raw=knownChats.find(c=>c.id===chat.id);
    const latest=[...chat.messages].reverse().find(m=>!m.activity);
@@ -559,6 +580,7 @@
 
  async function connectSession(){
      resetChatPaging();
+     unreadBusy=null;unreadPendingUntil={};
      const priorOwn=ownId;const priorSelected=selectedId;const priorChats=isLive?chats:[];
      const me=await invoke<{id:string;displayName:string;mail?:string;userPrincipalName?:string}>('graph_profile');
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
@@ -605,6 +627,7 @@
  async function signOut(){
    if(authBusy || sendBusy || stagingBusy || groupBusy || operationBusy)return;
    resetChatPaging();
+   unreadBusy=null;unreadPendingUntil={};
    try{localStorage.removeItem(directoryKey(ownId));}catch{/* Sign-out still clears the session. */}
    discoveryOpen=false;chatEmailDraft=null;mailOpen=null;mailRecipient='';
    pinnedIds=[];pinMenuId=null;pinError='';closeReplyThread();
@@ -650,6 +673,10 @@
    const byId=new Map(chats.map(c=>[c.id,c]));
    const ordered=[...new Map(recent.map(c=>[c.id,c])).values()].map(raw=>{
      const incoming=convertChat(raw);
+     if(unreadPendingUntil[raw.id]){
+       if(incoming.unread||Date.now()>=unreadPendingUntil[raw.id])delete unreadPendingUntil[raw.id];
+       else incoming.unread=1;
+     }
      const old=byId.get(raw.id);
      if(!old)return incoming;
      const useIncoming=Boolean(incoming.previewAt)&&(!old.previewAt||Date.parse(incoming.previewAt!)>=Date.parse(old.previewAt));
@@ -793,6 +820,7 @@
  }
  function selectChat(id:string,read=false){
    emojiTarget=null;closeReplyThread();
+   if(read)delete unreadPendingUntil[id];
    selectedReadEligible=read;readSelection++;readError='';
    drafts[selectedId]=draft;
    draft=drafts[id]??'';
@@ -1045,9 +1073,9 @@
    <label class="search-field"><Search size={17}/><input bind:this={conversationSearch} bind:value={search} disabled={!isLive} placeholder="Search conversations" aria-label="Search conversations"/><kbd>⌘ K</kbd></label>
    {#if isLive}<button class="hidden-chats-toggle" type="button" aria-pressed={showHidden} onclick={()=>showHidden=!showHidden}>{showHidden?'Back to visible chats':`Hidden chats (${chats.filter(c=>c.hidden).length})`}</button>{/if}
    <div class="list-scroll">{#if pinError}<div class="pin-error" role="alert">{pinError}<button type="button" aria-label="Dismiss pin error" onclick={()=>pinError=''}>×</button></div>{/if}<div class="list-label">PINNED <span>{filtered.filter(c=>isPinned(c)).length}</span></div>
-   {#each filtered.filter(c=>isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i aria-hidden="true" style:background={chatPresence(c).color} title={chatPresence(c).label}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}><span>ON THIS DEVICE · TAUT ONLY</span><button type="button" role="menuitem" bind:this={pinMenuAction} onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
+   {#each filtered.filter(c=>isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" oncontextmenu={event=>chatContextMenu(event,c.id)} onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i aria-hidden="true" style:background={chatPresence(c).color} title={chatPresence(c).label}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}>{#if chatWritePermission}<button type="button" role="menuitem" disabled={!!unreadBusy||authBusy||reauthRequired} onclick={()=>markChatUnread(c)}>Mark as unread</button>{/if}<span>PINNING · ON THIS DEVICE ONLY</span><button type="button" role="menuitem" onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
    <div class="list-label recent">RECENT <span>{filtered.filter(c=>!isPinned(c)).length}</span></div>
-   {#each filtered.filter(c=>!isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i aria-hidden="true" style:background={chatPresence(c).color} title={chatPresence(c).label}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}><span>ON THIS DEVICE · TAUT ONLY</span><button type="button" role="menuitem" bind:this={pinMenuAction} onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
+   {#each filtered.filter(c=>!isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" oncontextmenu={event=>chatContextMenu(event,c.id)} onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i aria-hidden="true" style:background={chatPresence(c).color} title={chatPresence(c).label}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}>{#if chatWritePermission}<button type="button" role="menuitem" disabled={!!unreadBusy||authBusy||reauthRequired} onclick={()=>markChatUnread(c)}>Mark as unread</button>{/if}<span>PINNING · ON THIS DEVICE ONLY</span><button type="button" role="menuitem" onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
    {#if filtered.length===0}<div class="empty">{isLive?'No matching conversations':'Sign in to see your conversations.'}</div>{/if}
    {#if isLive}<div class="conversation-paging">{#if chatPageError}<p role="alert">{chatPageError}</p>{/if}{#if chatNext}<button type="button" disabled={chatPageBusy||authBusy||reauthRequired} onclick={loadMoreChats}>{chatPageBusy?'Loading conversations…':'Load more conversations'}</button>{:else}<small>No more conversations available.</small>{/if}</div>{/if}</div>
   {:else}<div class="sidebar-note"><span class="note-icon"><LayoutPanelTop size={19}/></span><strong>{nav.find(n=>n.id===mode)?.label}</strong><p>This section is a UI placeholder. Microsoft Graph integration comes next.</p><button class="text-action" onclick={()=>mode='chats'}>Back to Chats <ChevronRight size={14}/></button></div>{/if}
