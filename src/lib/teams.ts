@@ -1,6 +1,7 @@
+import type {CardAttachment} from './card-preview';
 export type Team={id:string;displayName?:string;description?:string;isArchived?:boolean;tenantId?:string};
 export type Channel={id:string;displayName?:string;description?:string;membershipType?:string;isArchived?:boolean;hostTeamId?:string|null;tenantId?:string};
-export type ChannelPost={id:string;subject?:string;messageType?:string;eventDetail?:{'@odata.type'?:string}|null;createdDateTime?:string;lastModifiedDateTime?:string;deletedDateTime?:string|null;from?:{user?:{displayName?:string};application?:{displayName?:string}};body?:{contentType?:string;content?:string};attachments?:{id?:string;name?:string}[]};
+export type ChannelPost={id:string;subject?:string;messageType?:string;eventDetail?:{'@odata.type'?:string}|null;createdDateTime?:string;lastModifiedDateTime?:string;deletedDateTime?:string|null;from?:{user?:{displayName?:string};application?:{displayName?:string}};body?:{contentType?:string;content?:string};attachments?:CardAttachment[]};
 export type TeamQuery={collection:'joined'|'associated'|'channels'|'shared'|'posts'|'replies'|'members';teamId?:string;channelId?:string;messageId?:string;next?:string|null};
 export type TeamPage<T>={value:T[];next:string|null};
 export function channelText(post:ChannelPost):string{

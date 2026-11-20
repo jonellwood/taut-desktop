@@ -1,6 +1,6 @@
 # Windows alpha readiness
 
-Target confirmed November 20, 2026: two Windows 11 ARM64 testers. macOS is second; Linux remains deferred. Candidate version: 1.4.4-alpha.1. This is an internal pilot, not a public release.
+Target confirmed November 20, 2026: two Windows 11 ARM64 testers. macOS is second; Linux remains deferred. Current source candidate version: 1.4.4-alpha.2 (Workflow card preview follow-up; earlier download links below are alpha.1). This is an internal pilot, not a public release.
 
 ## Implemented for the candidate
 
@@ -65,3 +65,5 @@ This unsigned artifact is ready for a deliberate clean-PC acceptance test, not a
 The user's own Windows PC has an 11th-generation Intel Core i7 and needs the **x64** installer. The candidate workflow now builds separate ARM64 and x64 artifacts on matching Windows runners, verifies the expected PE architecture for each, and generates independent checksums. App source/version remains the same; no ARM64 installer should be used on the Intel machine. Both installer jobs succeeded in [Windows alpha candidate #3](https://github.com/jonellwood/taut-desktop/actions/runs/44781436701), source commit 35f59e4481005da8ab6e1a2daf1a8142b1eda70b. Under Artifacts choose `TAUT-windows-x64-alpha-35f59e4…` for the Intel PC; choose `TAUT-windows-arm64-alpha-35f59e4…` for ARM devices.
 
 The x64 ZIP contains `TAUT_1.4.4-alpha.1_x64-setup.exe` (3,859,730 bytes) and SHA256SUMS.txt. Installer SHA-256 independently verified after download: `b7b0e0c69dc47f89d7070e17b2304c3279322047c9fe4743fb15d17f41991849`. Native x64 PE verification, backend tests, packaging and checksum/upload steps all passed. The ARM64 job also passed. No installer was executed; clean-device acceptance is still required. The earlier downloaded ARM64 candidate remains valid for Hannah because application code is unchanged.
+
+User accepted x64 installation, Office 365 sign-in and restart restoration, Mail attachment saving, test notification and feature navigation on November 20. ARM native-device feedback remains pending. The next alpha.2 build adds read-only Workflow card previews; no new Graph permissions.

@@ -1,6 +1,6 @@
 [package]
 name = "taut_desktop"
-version = "1.4.4-alpha.1"
+version = "1.4.4-alpha.2"
 description = "TAUT Desktop"
 authors = ["TAUT"]
 edition = "2021"
