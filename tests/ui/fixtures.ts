@@ -25,6 +25,10 @@ export function message(id: string, content: string, sender = alex.id): MockMess
 type Call = { command: string; args: Record<string, any> };
 export class MockGraph {
   calls: Call[] = [];
+  chatNext?:string;
+  chatPages:Record<string,{value:TestChat[];'@odata.nextLink'?:string}>={};
+  chatPageGate?:Promise<void>;
+  chatPageError='';
   messageNext:Record<string,string>={};
   historyPages:Record<string,{value:MockMessage[];'@odata.nextLink'?:string}>={};
   unexpected: string[] = [];
@@ -252,7 +256,9 @@ export class MockGraph {
         return null;
       }
       case 'graph_chat_members': return {value:this.chats.find(c=>c.id===args.chatId)?.members??[],...(this.membershipIncomplete?{'@odata.nextLink':'https://graph.microsoft.com/next'}:{})};
-      case 'graph_chats': if(this.chatsError)throw Error(this.chatsError);return { value: this.chats };
+      case 'graph_chats':
+        if(args.next){if(this.chatPageGate)await this.chatPageGate;if(this.chatPageError)throw Error(this.chatPageError);return this.chatPages[args.next]??{value:[]};}
+        if(this.chatsError)throw Error(this.chatsError);return { value: this.chats,'@odata.nextLink':this.chatNext };
       case 'people_page': await this.peopleGate;if(this.peopleError)throw Error(this.peopleError);return {value:[me,{...alex,jobTitle:'Engineer',department:'Technology',companyName:'Example',officeLocation:'Main office',businessPhones:['1234']},blair,casey],next:null};
       case 'people_profile': return {user:{...[me,alex,blair,casey].find(p=>p.id===args.id),jobTitle:'Engineer',department:'Technology',companyName:'Example',officeLocation:'Main office',businessPhones:['1234']},manager:args.id===alex.id?blair:null,notice:''};
       case 'graph_search_users': return { value: [me, alex, blair, casey].filter(u => `${u.displayName} ${'mail' in u ? u.mail : ''}`.toLowerCase().includes(args.query.toLowerCase())) };

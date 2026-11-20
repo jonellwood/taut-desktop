@@ -121,3 +121,5 @@
 .my-avatar{position:relative}.own-presence-dot{position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border:2px solid var(--border);border-radius:50%}
 
 .unified-search-launch{display:flex;align-items:center;gap:8px;color:var(--text-secondary);border:1px solid var(--border);border-radius:7px;padding:6px 12px;font-size:11px;margin-left:auto;margin-right:16px}.unified-search-launch:hover{border-color:var(--accent-border);color:var(--accent)}@media(max-width:650px){.unified-search-launch span{display:none}}
+
+.conversation-paging{padding:16px 12px 22px;text-align:center;color:var(--text-secondary)}.conversation-paging button{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;color:var(--accent)}.conversation-paging button:hover:not(:disabled){background:var(--surface-hover);border-color:var(--accent)}.conversation-paging p{text-align:left;font-size:12px;line-height:1.5}

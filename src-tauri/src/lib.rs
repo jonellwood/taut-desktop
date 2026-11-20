@@ -2,6 +2,7 @@ mod mailbox_transport;
 mod meeting;
 mod meeting_manage;
 mod chat_history;
+mod chat_list;
 mod calendar;
 mod people;
 mod mail;
@@ -215,15 +216,18 @@ async fn graph_profile(state: State<'_, AuthState>, notifications:State<'_,notif
     Ok(value)
     }).await
 }
-const CHAT_LIST_PATH:&str="/me/chats?$top=50&$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime%20desc";
+const CHAT_LIST_PATH:&str=chat_list::FIRST_PATH;
 #[tauri::command]
-async fn graph_chats(state: State<'_, AuthState>, notifications:State<'_,notifications::State>, app:tauri::AppHandle) -> Result<Value, String> {
+async fn graph_chats(state: State<'_, AuthState>, notifications:State<'_,notifications::State>, app:tauri::AppHandle, next:Option<String>) -> Result<Value, String> {
+    let path=chat_list::path(next.as_deref())?;
+    let recent=next.is_none();
     let state=AuthState(state.0.clone());
     let notifications=notifications::State(notifications.0.clone());
     background_read(move||{
     let generation=notifications.0.lock().map_err(|_|"Notification state unavailable")?.tracker.generation;
-    let value=graph_get(&state,CHAT_LIST_PATH,true)?;
-    notify_snapshot(&app,&notifications,&value,generation);Ok(value)
+    let value=graph_get(&state,&path,true)?;
+    if let Some(link)=value["@odata.nextLink"].as_str(){chat_list::path(Some(link))?;}
+    if recent {notify_snapshot(&app,&notifications,&value,generation);}Ok(value)
     }).await
 }
 #[tauri::command]

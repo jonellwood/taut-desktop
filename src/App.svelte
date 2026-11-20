@@ -88,6 +88,13 @@
  function changeKey(target:ChangeTarget){return JSON.stringify([target.kind,target.chatId,target.messageId]);}
  let hiddenOverrides:Record<string,boolean>={};
  let chatListSerial=0;
+ let chatPageSerial=0;
+ let chatNext=$state<string|null>(null);
+ let chatPageBusy=$state(false);
+ let chatPageError=$state('');
+ let chatListExpanded=false;
+ const chatPageSeen=new Set<string>();
+ function resetChatPaging(){chatPageSerial++;chatListSerial++;chatNext=null;chatPageBusy=false;chatPageError='';chatListExpanded=false;chatPageSeen.clear();}
  let selectedReadEligible=false;
  let readSelection=0;
  const readAttempts=new Set<string>();
@@ -551,6 +558,7 @@
  }
 
  async function connectSession(){
+     resetChatPaging();
      const priorOwn=ownId;const priorSelected=selectedId;const priorChats=isLive?chats:[];
      const me=await invoke<{id:string;displayName:string;mail?:string;userPrincipalName?:string}>('graph_profile');
      const sameAccount=priorOwn.toLowerCase()===me.id.toLowerCase();
@@ -559,8 +567,9 @@
        imageCache={};imageErrors={};imageLoading={};lightbox=null;nameSession++;replyDrafts={};formattedDrafts={};formattedReplies={};replyErrors={};replyUncertain={};channelDrafts={};activityNames={};attemptedNames.clear();leftGroupIds.clear();chatNames={};checkedLegacyNames.clear();
      }
      ownMailAddresses=[me.mail,me.userPrincipalName].filter((v):v is string=>!!v);ownId=me.id;signedInName=me.displayName;loadPins();
-     const result=await invoke<{value:ApiChat[]}>('graph_chats');
-     knownChats=(result.value??[]).filter(c=>!leftGroupIds.has(c.id));
+     const result=await invoke<{value:ApiChat[];'@odata.nextLink'?:string}>('graph_chats');
+     chatNext=result['@odata.nextLink']??null;
+     knownChats=[...new Map((result.value??[]).filter(c=>!leftGroupIds.has(c.id)).map(c=>[c.id,c])).values()];
      chats=knownChats.map(raw=>{const converted=convertChat(raw);const old=sameAccount?priorChats.find(c=>c.id===raw.id):undefined;return old?{...converted,messages:old.messages,favorite:old.favorite}:converted;});
      if(sameAccount)chats=[...priorChats.filter(c=>c.id.startsWith('pending:')),...chats];
      if(chats.length&&chats.every(c=>c.hidden))chats=[{id:'empty',name:'No visible conversations',initials:'—',status:'offline',preview:'Open Hidden chats to find a conversation',time:'',unread:0,messages:[]},...chats];
@@ -595,6 +604,7 @@
  }
  async function signOut(){
    if(authBusy || sendBusy || stagingBusy || groupBusy || operationBusy)return;
+   resetChatPaging();
    try{localStorage.removeItem(directoryKey(ownId));}catch{/* Sign-out still clears the session. */}
    discoveryOpen=false;chatEmailDraft=null;mailOpen=null;mailRecipient='';
    pinnedIds=[];pinMenuId=null;pinError='';closeReplyThread();
@@ -632,11 +642,13 @@
  async function syncChatList(){
    if(!isLive)return;
    const serial=++chatListSerial;const session=nameSession;
-   const result=await invoke<{value:ApiChat[]}>('graph_chats');
+   const result=await invoke<{value:ApiChat[];'@odata.nextLink'?:string}>('graph_chats');
    if(!isLive || serial!==chatListSerial||session!==nameSession)return;
-   knownChats=(result.value??[]).filter(c=>!leftGroupIds.has(c.id));
+   if(!chatListExpanded&&!chatPageBusy)chatNext=result['@odata.nextLink']??null;
+   const recent=(result.value??[]).filter(c=>!leftGroupIds.has(c.id));
+   knownChats=[...new Map([...knownChats,...recent].map(c=>[c.id,c])).values()];
    const byId=new Map(chats.map(c=>[c.id,c]));
-   const ordered=knownChats.map(raw=>{
+   const ordered=[...new Map(recent.map(c=>[c.id,c])).values()].map(raw=>{
      const incoming=convertChat(raw);
      const old=byId.get(raw.id);
      if(!old)return incoming;
@@ -652,6 +664,29 @@
    }
    const status=await invoke<PersistenceStatus>('auth_persistence_status');
    if(isLive&&serial===chatListSerial&&session===nameSession){sessionSaved=status.saved;persistenceNotice=status.notice??'';clearSyncIssue('chats');}
+ }
+ async function loadMoreChats(){
+   if(!isLive||!chatNext||chatPageBusy||authBusy||reauthRequired)return;
+   const cursor=chatNext,session=nameSession,serial=++chatPageSerial;
+   chatPageBusy=true;chatPageError='';
+   try{
+     const result=await invoke<{value:ApiChat[];'@odata.nextLink'?:string}>('graph_chats',{next:cursor});
+     if(!isLive||session!==nameSession||serial!==chatPageSerial)return;
+     // Older overlaps must not replace fresh summaries or loaded messages/drafts.
+     const byId=new Map(chats.filter(c=>c.id!=='empty').map(c=>[c.id,c]));
+     const rawById=new Map(knownChats.map(c=>[c.id,c]));
+     for(const raw of result.value??[]){
+       if(leftGroupIds.has(raw.id))continue;
+       if(!rawById.has(raw.id))rawById.set(raw.id,raw);
+       if(!byId.has(raw.id))byId.set(raw.id,convertChat(raw));
+     }
+     knownChats=[...rawById.values()];chats=[...byId.values()];
+     chatListExpanded=true;chatPageSeen.add(cursor);
+     const next=result['@odata.nextLink']??null;
+     chatNext=next&&!chatPageSeen.has(next)?next:null;
+     void resolveUnnamedChats();void refreshPresence();
+   }catch{if(session===nameSession&&serial===chatPageSerial)chatPageError='More conversations could not be loaded. Your current chats are still available. Try again.';}
+   finally{if(session===nameSession&&serial===chatPageSerial)chatPageBusy=false;}
  }
  function rememberIdentity(identity:EventIdentity){
    if(identity.id && typeof identity.displayName==='string' && identity.displayName.trim())activityNames[identityKey(identity)]=identity.displayName.trim();
@@ -1013,7 +1048,8 @@
    {#each filtered.filter(c=>isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i aria-hidden="true" style:background={chatPresence(c).color} title={chatPresence(c).label}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}><span>ON THIS DEVICE · TAUT ONLY</span><button type="button" role="menuitem" bind:this={pinMenuAction} onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
    <div class="list-label recent">RECENT <span>{filtered.filter(c=>!isPinned(c)).length}</span></div>
    {#each filtered.filter(c=>!isPinned(c)) as c}<div class="chat-row-wrap" class:pinned={isPinned(c)}><button class:selected={c.id===selectedId} class:unread={c.unread>0} class="chat-row" onclick={()=>selectChat(c.id,true)}><span class="avatar">{c.initials}<i aria-hidden="true" style:background={chatPresence(c).color} title={chatPresence(c).label}></i></span><span class="chat-copy"><strong>{c.name}</strong><small>{c.preview}</small></span><span class="chat-meta"><small>{c.time}</small>{#if c.unread}<span class="unread-dot" aria-label="Unread conversation" title="Unread message"></span>{/if}</span></button>{#if isLive&&c.id!=='empty'&&!c.id.startsWith('pending:')}<button type="button" class="conversation-options" disabled={authBusy} id={`pin-options-${c.id}`} aria-label={`Conversation options for ${c.name}`} aria-haspopup="menu" aria-expanded={pinMenuId===c.id} title="Conversation options" onclick={()=>openPinMenu(c.id)}><MoreHorizontal size={16}/></button>{#if pinMenuId===c.id}<div class="pin-menu" role="menu" aria-label={`Options for ${c.name}`}><span>ON THIS DEVICE · TAUT ONLY</span><button type="button" role="menuitem" bind:this={pinMenuAction} onclick={()=>togglePin(c)}>{#if isPinned(c)}<PinOff size={15}/>Unpin chat{:else}<Pin size={15}/>Pin chat{/if}</button></div>{/if}{/if}</div>{/each}
-   {#if filtered.length===0}<div class="empty">{isLive?'No matching conversations':'Sign in to see your conversations.'}</div>{/if}</div>
+   {#if filtered.length===0}<div class="empty">{isLive?'No matching conversations':'Sign in to see your conversations.'}</div>{/if}
+   {#if isLive}<div class="conversation-paging">{#if chatPageError}<p role="alert">{chatPageError}</p>{/if}{#if chatNext}<button type="button" disabled={chatPageBusy||authBusy||reauthRequired} onclick={loadMoreChats}>{chatPageBusy?'Loading conversations…':'Load more conversations'}</button>{:else}<small>No more conversations available.</small>{/if}</div>{/if}</div>
   {:else}<div class="sidebar-note"><span class="note-icon"><LayoutPanelTop size={19}/></span><strong>{nav.find(n=>n.id===mode)?.label}</strong><p>This section is a UI placeholder. Microsoft Graph integration comes next.</p><button class="text-action" onclick={()=>mode='chats'}>Back to Chats <ChevronRight size={14}/></button></div>{/if}
   <div class="sidebar-foot"><span class="live-dot" class:presence-muted={!isLive}></span>{isLive?'MICROSOFT 365 · CONNECTED':'NOT CONNECTED'} <span class="spacer"></span>{#if isLive}<button class="auth-action" disabled={authBusy} onclick={signOut}>Sign out</button>{:else}<button class="auth-action" disabled={authBusy} onclick={signIn}>{authBusy?authPhase:'Sign in'}</button>{/if}</div>
  </aside><div class="resize-handle" role="separator" aria-label="Resize conversation panel" aria-orientation="vertical" tabindex="0" onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag} onkeydown={(e)=>{if(e.key==='ArrowRight')sidebarWidth=Math.min(490,sidebarWidth+20);if(e.key==='ArrowLeft')sidebarWidth=Math.max(220,sidebarWidth-20)}}></div>
