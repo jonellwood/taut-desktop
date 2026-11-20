@@ -15,7 +15,7 @@ Target confirmed November 20, 2026: two Windows 11 ARM64 testers. macOS is secon
 
 CI checks the Rust backend on macOS, Windows x64 and Windows ARM64. All automated Graph calls use mocks. Tests do not run interactive OAuth, write real credentials, send real messages or open save dialogs.
 
-The **Windows alpha candidate** workflow builds ARM64 on `windows-11-arm` targeting `aarch64-pc-windows-msvc`, and x64 on `windows-latest` targeting `x86_64-pc-windows-msvc`. Each job verifies the matching PE machine type and uploads a separately named artifact. It tests the backend, builds the UI and NSIS installer, verifies the application's PE machine type is ARM64, and uploads the installer with SHA256SUMS.txt as a 14-day Actions artifact. No GitHub Release is published and no tester receives a message automatically. Artifacts inherit repository access: this repository is public, so these are internal candidates by intended audience, not an invitation-only download channel. It runs on relevant pushes to `feat/message-deletion`; manual dispatch is also declared (GitHub requires the workflow on the default branch for its manual UI).
+The **Windows alpha candidate** workflow builds ARM64 on `windows-11-arm` targeting `aarch64-pc-windows-msvc`, and x64 on `windows-latest` targeting `x86_64-pc-windows-msvc`. Each job verifies the matching PE machine type and uploads a separately named artifact. It tests the backend, builds the UI and NSIS installer, verifies the application's PE machine type matches its architecture, and uploads the installer with SHA256SUMS.txt as a 14-day Actions artifact. No GitHub Release is published and no tester receives a message automatically. Artifacts inherit repository access: this repository is public, so these are internal candidates by intended audience, not an invitation-only download channel. Installer builds are manual only, after the user explicitly agrees to a release. Push triggers have been removed. Manual dispatch requires the release-approved checkbox; an unapproved dispatch skips the installer jobs. Ordinary CI still runs on pushes. GitHub requires the workflow on the default branch for its manual UI.
 
 Tauri's NSIS setup program itself runs under x86 emulation; the installed TAUT application is native ARM64. The candidate is unsigned: signing/IT distribution approval remains a release decision. The WebView2 bootstrapper may require network access if the runtime is absent. Do not bypass organizational installation policies.
 
@@ -67,3 +67,17 @@ The user's own Windows PC has an 11th-generation Intel Core i7 and needs the **x
 The x64 ZIP contains `TAUT_1.4.4-alpha.1_x64-setup.exe` (3,859,730 bytes) and SHA256SUMS.txt. Installer SHA-256 independently verified after download: `b7b0e0c69dc47f89d7070e17b2304c3279322047c9fe4743fb15d17f41991849`. Native x64 PE verification, backend tests, packaging and checksum/upload steps all passed. The ARM64 job also passed. No installer was executed; clean-device acceptance is still required. The earlier downloaded ARM64 candidate remains valid for Hannah because application code is unchanged.
 
 User accepted x64 installation, Office 365 sign-in and restart restoration, Mail attachment saving, test notification and feature navigation on November 20. ARM native-device feedback remains pending. The next alpha.2 build adds read-only Workflow card previews; no new Graph permissions.
+
+
+## Alpha.2 Workflow card preview update
+
+Both architecture jobs succeeded in [Windows alpha candidate run 44788954286](https://github.com/jonellwood/taut-desktop/actions/runs/44788954286), source commit e02a507a4974f5818c3e701f85e5505ba63fb48f. Under Artifacts select `TAUT-windows-x64-alpha-e02a507…` for Intel/AMD, or `TAUT-windows-arm64-alpha-e02a507…` for ARM64.
+
+| Installer | Bytes | SHA-256 |
+| --- | ---: | --- |
+| TAUT_1.4.4-alpha.2_x64-setup.exe | 3,855,070 | 8f9c93730a878239bf3b85feb227da6e5c6e0443a1edb968eb0685568aef8c87 |
+| TAUT_1.4.4-alpha.2_arm64-setup.exe | 3,441,633 | d5c0753c443b400a6973934376804f79f14e063ffcf66ca5ccbe6891705c283d |
+
+Both ZIP contents/checksums were independently verified after download without execution. Architecture verification and installer build steps passed. Full CI is green on macOS, Windows x64/ARM64 and mocked browser tests. These remain unsigned alpha candidates; the user's supplied Workflow card shape is covered and its appearance was approved, but new-version native-device validation remains a user test. Earlier x64 alpha.1 acceptance is recorded above.
+
+Pilot update November 20: approximately nine people are testing on Windows and feedback has been positive. Future installer builds wait for an explicitly agreed release; feature work accumulates between releases.

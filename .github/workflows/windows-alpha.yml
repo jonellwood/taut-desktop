@@ -1,15 +1,13 @@
 name: Windows alpha candidate
 
 on:
-  push:
-    branches: [feat/message-deletion]
-    paths:
-      - 'src-tauri/**'
-      - 'src/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/windows-alpha.yml'
   workflow_dispatch:
+    inputs:
+      release_approved:
+        description: Confirm this release has been explicitly agreed with the user
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +18,7 @@ concurrency:
 
 jobs:
   installer:
+    if: ${{ inputs.release_approved }}
     name: Internal Windows ${{ matrix.arch }} candidate
     strategy:
       fail-fast: false

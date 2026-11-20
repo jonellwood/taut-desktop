@@ -460,3 +460,15 @@ User confirmed installed Intel/x64 build: Microsoft 365 sign-in, restart restora
 Added bounded read-only card-preview parser and shared ChannelMessageContent for posts, selected thread roots and replies. Supports the supplied structure and common containers/columns/rich text/basic tables plus legacy connector text/facts. Accepts Graph JSON strings and webhook-style objects, normalizes semantic enum casing, keeps normal message text, hides placeholder text only when a readable card replaces it. Sanitized existing formatting handles text/Markdown links; no raw HTML execution, remote-image loads, inputs or automatic actions. Deleted cards stay hidden; unsupported/malformed/partial content gets a fallback. Limits cap parsing/rendering; duplicate card attachment IDs do not cause keyed-list crashes. Anonymized fixture preserves the user's structure without publishing the supplied personnel names.
 
 Version advanced consistently to 1.4.4-alpha.2 for updated installers. All 105 Node tests, 64 targeted mocked Teams/channel/card/feedback browser cases across Chromium/WebKit, UI TypeScript, production build and offline cargo check passed. Light/dark WebKit card screenshots inspected. Rust operation source unchanged except package version. No real Microsoft 365 calls, webhook posts, installer execution or native app launch during automated validation. Live card reading and new Windows installers remain pending at this checkpoint.
+
+User reviewed the Workflow card result and said it looks really good. Record this as appearance approval; updated Windows alpha.2 installer builds are still running. No ARM-device acceptance was inferred.
+
+
+Alpha.2 completed: both installer jobs succeeded in run 44788954286 for e02a507. Independently downloaded/verified ZIPs: x64 artifact 14656296834, installer 3,855,070 bytes SHA256 8f9c93730a878239bf3b85feb227da6e5c6e0443a1edb968eb0685568aef8c87; ARM64 artifact 14654519547, installer 3,441,633 bytes SHA256 d5c0753c443b400a6973934376804f79f14e063ffcf66ca5ccbe6891705c283d. Stable Actions run/architecture instructions in WINDOWS_ALPHA.md. Full CI run 44788954365 green across native macOS/x64/ARM64 and browser/frontend checks. Unsigned candidates, no executable launch or real Microsoft 365 automation. User approved card appearance; ARM-device acceptance remains pending.
+
+Final alpha.2 frontend CI log confirms 630 browser cases passed (9.2 minutes), plus 105 Node cases and build/type checks.
+
+
+### Release cadence — explicit user instruction
+
+User reports approximately nine Windows testers and positive feedback. Moving forward, wait to trigger installer builds until a release is explicitly agreed. Removed automatic push triggers from windows-alpha.yml; only manual dispatch remains, guarded by a required release-approved boolean defaulting false. Ordinary CI checks remain enabled on pushes. Added durable policy to AGENTS.md and WINDOWS_ALPHA.md. Do not dispatch a new installer run as part of validating this workflow change. No version bump or new installer for this update.
