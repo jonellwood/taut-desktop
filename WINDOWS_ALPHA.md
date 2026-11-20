@@ -40,8 +40,21 @@ Expected output: `src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*
 7. Test Ctrl+K/Ctrl+Shift+K, keyboard focus, file picker/drop/paste, display scaling and appearance changes.
 8. Test an upgrade and uninstall. Local draft/preferences retention and Credential Manager cleanup must be verified/documented before distribution; sign out before uninstalling the pilot. Automatic updates are not configured.
 
-Settings → Feedback now opens a prefilled draft in the existing public GitHub Issues repository, per user preference. Only the app version and empty prompts are included; account/chat/email/log data is not attached. Users review and submit on GitHub. Remaining pilot work: clean-machine acceptance, code-signing/distribution decision, known limitations/release notes, and update/uninstall instructions. Recurring meeting editing, creating Teams meeting links and Linux packaging remain deferred. This document does not assert a successful Windows installer build or native acceptance until the corresponding evidence is recorded.
+Settings → Feedback now opens a prefilled draft in the existing public GitHub Issues repository, per user preference. Only the app version and empty prompts are included; account/chat/email/log data is not attached. Users review and submit on GitHub. Remaining pilot work: clean-machine acceptance, code-signing/distribution decision, known limitations/release notes, and update/uninstall instructions. Recurring meeting editing, creating Teams meeting links and Linux packaging remain deferred. The native build result is recorded below; clean-machine acceptance is still pending.
 
 References: [Tauri Windows installers](https://tauri.app/distribute/windows-installer/), [Credential Manager credential limits](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw), [GitHub ARM64 runners in private repositories](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/).
 
 The first native Windows test runs uncovered a Unix-only directory sync in the away reservation ledger. Windows now uses a flushed temporary file followed by MoveFileExW with replacement and write-through flags; Unix retains rename plus directory fsync. Tests cover replacing an existing ledger and existing reserve/restart safety. See https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw.
+
+
+## First candidate built — November 20, 2026
+
+[Download the ARM64 candidate artifact](https://github.com/jonellwood/taut-desktop/actions/runs/44772991818/artifacts/14648298989) from the successful [Windows alpha workflow](https://github.com/jonellwood/taut-desktop/actions/runs/44772991818). Source commit: 1f8a91d46617183c89915170e027585237e7b086. The artifact expires after 14 days.
+
+- Installer: `TAUT_1.4.4-alpha.1_arm64-setup.exe` (3,443,545 bytes), plus SHA256SUMS.txt.
+- SHA-256: `0860653e20b25a7f30bee3d0b9776fcc26d804c9a1389f58c2c6ee5964e5ab85`.
+- Build, ARM64 PE verification, checksum generation and artifact upload all succeeded. Artifact contents and installer checksum were independently verified after download without executing it.
+- Native backend CI passed 206 tests on ARM64 and 206 on x64; macOS backend CI passed too. Local 98 Node tests, production build/type checks and focused mocked UI checks passed.
+- The full remote browser run passed 620 cases; four room-status cases used contradictory organizer/attendee fixture identity. The fixture was corrected (no application change), and all four cases passed again in Chromium/WebKit.
+
+This unsigned artifact is ready for a deliberate clean-PC acceptance test, not an assertion that installation, OAuth persistence, native notification identity or upgrade/uninstall have been verified. No installer was executed during this work.

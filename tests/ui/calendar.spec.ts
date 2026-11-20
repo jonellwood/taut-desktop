@@ -130,7 +130,7 @@ test('failed refresh keeps old status non-actionable until a fresh calendar read
 for(const theme of ['light','dark'])test(`room booking is above calendar status and highlights only a declined room in ${theme}`,async({page,graph},info)=>{
  graph.restoredSession=true;
  await page.addInitScript(theme=>localStorage.setItem('taut.appearance.v1',JSON.stringify({mode:theme,accent:'blue',contrast:'standard'})),theme);
- Object.assign(graph.calendarEvents[0],{isOrganizer:true,isCancelled:false,changeKey:'v1',attendees:[
+ Object.assign(graph.calendarEvents[0],{isOrganizer:true,isCancelled:false,changeKey:'v1',organizer:{emailAddress:{name:'Meeting Owner',address:'owner@example.test'}},attendees:[
   {type:'required',emailAddress:{name:'Alex Example',address:'alex@example.test'},status:{response:'declined'}},
   {type:'resource',emailAddress:{name:'River room',address:'room@example.test'},status:{response:'declined'}},
   {type:'resource',emailAddress:{name:'Lake room'},status:{response:'accepted'}},
