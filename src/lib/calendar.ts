@@ -19,3 +19,10 @@ export function meetingResponseState(event:CalendarEvent|null,mail?:MeetingStatu
  return {answered,eligible,needsResponse};
 }
 export function meetingMessageLabel(type?:string){return ({meetingRequest:'Meeting invitation or update',meetingCancelled:'Meeting cancellation',meetingAccepted:'Meeting acceptance',meetingTentativelyAccepted:'Tentative meeting response',meetingTenativelyAccepted:'Tentative meeting response',meetingDeclined:'Meeting decline'} as Record<string,string>)[type??'']??'Meeting message';}
+
+// Organizer identity is separate from RSVP; Graph may report their status as none.
+export function calendarAttendeeLabel(event:CalendarEvent,attendee:NonNullable<CalendarEvent['attendees']>[number]){
+ const organizer=event.organizer?.emailAddress?.address?.trim().toLowerCase();
+ const address=attendee.emailAddress?.address?.trim().toLowerCase();
+ return attendee.type!=='resource'&&organizer&&address===organizer?'Organizer · No RSVP needed':attendeeResponseLabel(attendee.status?.response);
+}

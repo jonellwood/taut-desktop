@@ -159,3 +159,6 @@ Automated checks use mocked Graph/IPC. The user performs the following deliberat
 5. Cancel the disposable meeting with a note, review, and confirm once. Check Outlook and the attendee/room cancellation. TAUT reports submission until Microsoft 365 reconciles; use Refresh calendar if needed.
 
 Incoming invitation acceptance, organizer cancellation received through Mail/Calendar, and initial room booking have already been user-validated. New organizer edits/cancellation remain pending live acceptance. Recurring events can be viewed/responded to where eligible, but creating/editing/cancelling recurring meetings remains in Outlook. Creating Teams meeting links is deferred; existing online meeting descriptions are protected. These limitations do not block the focused desktop alpha.
+
+
+User confirmed organizer meeting edits passed live testing. TAUT-initiated organizer cancellation remains pending live acceptance. Organizer attendee rows display Organizer · No RSVP needed using organizer email identity, rather than interpreting Graph's none status as an unanswered RSVP or manufacturing accepted. See https://learn.microsoft.com/en-us/graph/api/resources/responsestatus?view=graph-rest-1.0.

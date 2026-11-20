@@ -390,3 +390,8 @@ Validation: 200 Rust tests, 94 Node tests, 22 organizer-management browser check
 Final review displays replacement description content and the affected room on cancellation. Attempt-lock reads happen before local draft parsing; corrupt drafts cannot bypass a prior uncertain attempt, and unreadable safety storage leaves management unavailable. Added pending-cancellation, corrupt-draft and storage-read failure regressions. All 72 mocked Calendar/meeting/organizer browser cases passed in Chromium/WebKit; 94 Node tests, UI TypeScript and production build passed. Native source unchanged from the 200-test Rust pass above. WebKit cancellation review inspected. CALENDAR.md contains the live organizer acceptance checklist; those writes are performed only by the user. Recurrence authoring/editing and new Teams links remain deferred for the focused alpha.
 
 User reprioritized installable pilot after Calendar acceptance: two Windows testers first, one Mac tester second, Linux tentative/deferred. Plan Windows compatibility/credential storage/attachment-save/auth/notification audit, installer validation and Settings feedback link to an internal form. No release or feedback service created yet.
+
+
+### Organizer status display follow-up
+
+User confirmed live organizer meeting editing worked as expected and observed no email to themselves. Organizer cancellation initiated in TAUT still awaits confirmation. Calendar attendee rows now identify the organizer by the event's actual organizer email and display Organizer · No RSVP needed even when Graph returns none. No accepted RSVP is fabricated, other people/resource responses remain unchanged, and no write behavior changes.

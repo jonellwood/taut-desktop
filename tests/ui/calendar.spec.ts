@@ -157,3 +157,8 @@ for(const theme of ['light','dark'])test(`Mail decline has a prominent warning h
  const heading=page.getByRole('heading',{name:'Meeting decline',exact:true});await expect(heading).toBeVisible();await expect(heading).toHaveClass(/declined/);await expect(heading).toHaveCSS('font-size','20px');
  await expect(page.locator('.meeting')).toContainText('You organize this event');await page.screenshot({path:info.outputPath(`mail-decline-${theme}.png`)});expect(graph.writes).toEqual([]);
 });
+
+test('organizer attendee row needs no RSVP while other people keep recorded status',async({page,graph})=>{
+ graph.restoredSession=true;Object.assign(graph.calendarEvents[0],{isOrganizer:true,isCancelled:false,organizer:{emailAddress:{name:'Meeting Owner',address:'owner@example.test'}},attendees:[{type:'required',emailAddress:{name:'Meeting Owner',address:'owner@example.test'},status:{response:'none'}},{type:'required',emailAddress:{name:'Other Person',address:'other@example.test'},status:{response:'none'}}]});
+ await page.goto('/');await page.getByRole('button',{name:'Calendar',exact:true}).click();await page.locator('.agenda .event').first().click();await expect(page.locator('.attendee').filter({hasText:'Meeting Owner'})).toContainText('Organizer · No RSVP needed');await expect(page.locator('.attendee').filter({hasText:'Other Person'})).toContainText('None');expect(graph.writes).toEqual([]);
+});

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {calendarRange,eventDate,eventDay,eventWhen,responseLabel,attendeeResponseLabel,calendarLink,meetingResponseState,meetingMessageLabel} from '../src/lib/calendar.ts';
+import {calendarRange,eventDate,eventDay,eventWhen,responseLabel,attendeeResponseLabel,calendarAttendeeLabel,calendarLink,meetingResponseState,meetingMessageLabel} from '../src/lib/calendar.ts';
 test('calendar dates keep UTC instants and all-day calendar dates',()=>{
  assert.equal(eventDate({dateTime:'2026-11-12T15:00:00',timeZone:'UTC'}).toISOString(),'2026-11-12T15:00:00.000Z');
  assert.equal(eventDate({dateTime:'2026-11-12T15:00:00',timeZone:'Unknown'}),null);
@@ -37,4 +37,14 @@ test('meeting attention follows current RSVP and explicit request metadata only'
  for(const changed of [{isCancelled:true},{isOrganizer:true},{type:'seriesMaster'},{responseRequested:false},{changeKey:undefined},{responseStatus:{response:'none'}},{responseStatus:{}}])assert.equal(meetingResponseState({...event,...changed}).needsResponse,false);
  assert.equal(meetingResponseState(null).needsResponse,false);
  assert.equal(meetingMessageLabel('meetingAccepted'),'Meeting acceptance');
+});
+
+test('organizer identity explains absent RSVP without inventing acceptance for people or rooms',()=>{
+ const e={organizer:{emailAddress:{address:'OWNER@example.test'}}};
+ const a={type:'required',emailAddress:{address:'owner@example.test'},status:{response:'none'}};
+ assert.equal(calendarAttendeeLabel(e,a),'Organizer · No RSVP needed');
+ assert.equal(calendarAttendeeLabel(e,{...a,emailAddress:{address:'other@example.test'}}),'None');
+ assert.equal(calendarAttendeeLabel({},a),'None');
+ assert.equal(calendarAttendeeLabel(e,{...a,type:'resource'}),'None');
+ assert.equal(calendarAttendeeLabel(e,{...a,emailAddress:{address:'other@example.test'},status:{response:'accepted'}}),'Accepted');
 });
