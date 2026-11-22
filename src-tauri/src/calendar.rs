@@ -1,6 +1,6 @@
 //! Calendar reads and explicitly reviewed meeting responses. Writes are never retried.
 use serde_json::{json, Value};
-const SELECT: &str = "id,subject,start,end,isAllDay,isCancelled,isOrganizer,organizer,location,responseStatus,responseRequested,showAs,attendees,bodyPreview,webLink,type,changeKey";
+const SELECT: &str = "id,subject,start,end,isAllDay,isCancelled,isOrganizer,organizer,location,responseStatus,responseRequested,showAs,attendees,bodyPreview,isOnlineMeeting,onlineMeetingProvider,onlineMeeting,webLink,type,changeKey";
 fn route(start: &str, end: &str, next: Option<&str>) -> Result<String,String> {
     let a=chrono::DateTime::parse_from_rfc3339(start).map_err(|_|"Invalid calendar start")?;
     let b=chrono::DateTime::parse_from_rfc3339(end).map_err(|_|"Invalid calendar end")?;

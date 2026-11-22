@@ -1,5 +1,5 @@
 export type EventTime={dateTime:string;timeZone:string};
-export type CalendarEvent={id:string;changeKey?:string;subject?:string;start:EventTime;end:EventTime;isAllDay?:boolean;isCancelled?:boolean;isOrganizer?:boolean;responseRequested?:boolean;organizer?:{emailAddress?:{name?:string;address?:string}};location?:{displayName?:string};responseStatus?:{response?:string};showAs?:string;attendees?:{type?:string;emailAddress?:{name?:string;address?:string};status?:{response?:string}}[];bodyPreview?:string;webLink?:string;type?:string};
+export type CalendarEvent={id:string;changeKey?:string;subject?:string;start:EventTime;end:EventTime;isAllDay?:boolean;isOnlineMeeting?:boolean;onlineMeetingProvider?:string;onlineMeeting?:{joinUrl?:string};isCancelled?:boolean;isOrganizer?:boolean;responseRequested?:boolean;organizer?:{emailAddress?:{name?:string;address?:string}};location?:{displayName?:string};responseStatus?:{response?:string};showAs?:string;attendees?:{type?:string;emailAddress?:{name?:string;address?:string};status?:{response?:string}}[];bodyPreview?:string;webLink?:string;type?:string};
 export function localDate(date:Date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;}
 export function calendarRange(day:string,days:number){const start=new Date(day+'T00:00:00');const end=new Date(start);end.setDate(end.getDate()+days);return {start:start.toISOString(),end:end.toISOString()};}
 export function eventDate(time:EventTime){const raw=time?.dateTime;if(!raw)return null;const explicit=/([zZ]|[+-]\d\d:\d\d)$/.test(raw);if(!explicit&&time.timeZone!=='UTC')return null;const date=new Date(raw+(explicit?'':'Z'));return Number.isNaN(date.getTime())?null:date;}
@@ -25,4 +25,11 @@ export function calendarAttendeeLabel(event:CalendarEvent,attendee:NonNullable<C
  const organizer=event.organizer?.emailAddress?.address?.trim().toLowerCase();
  const address=attendee.emailAddress?.address?.trim().toLowerCase();
  return attendee.type!=='resource'&&organizer&&address===organizer?'Organizer · No RSVP needed':attendeeResponseLabel(attendee.status?.response);
+}
+
+// Only recorded Teams metadata can produce a join action; never parse the body.
+export function teamsJoinLink(event:CalendarEvent|null|undefined):string|null{
+ if(!event?.isOnlineMeeting||event.isCancelled||event.onlineMeetingProvider!=='teamsForBusiness')return null;
+ const raw=event.onlineMeeting?.joinUrl;if(!raw||raw.length>8192)return null;
+ try{const u=new URL(raw);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&!u.hash&&['teams.microsoft.com','teams.cloud.microsoft','gov.teams.microsoft.us','dod.teams.microsoft.us','teams.microsoft.us'].includes(u.hostname)&&/^\/(?:l\/meetup-join|meet)\/[^/]+/.test(u.pathname)?u.href:null;}catch{return null;}
 }

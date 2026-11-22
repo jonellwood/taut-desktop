@@ -1,6 +1,6 @@
 # TAUT Desktop roadmap
 
-Updated November 20, 2026. Work in the numbered queue in order. Keep new ideas in the later backlog unless we explicitly reprioritize them.
+Updated November 22, 2026. Work in the numbered queue in order. Keep new ideas in the later backlog unless we explicitly reprioritize them.
 
 ## Current checkpoint
 
@@ -15,6 +15,13 @@ Completed milestones and their original validation notes are preserved in [ROADM
 3. [x] **Chat → Respond by email.** Create an editable local draft with quoted source attribution; review recipients and any attachments explicitly. Never send or cross-post on selection. Reverse Mail → Chat is a later extension.
 
 The three-item implementation queue is complete; signature sending and the received chat quote were user-validated. Received inline image approval and Mail read-state controls were manually validated by the user, including read/unread propagation to Outlook web and native.
+
+## Platform testing — near term
+
+- [ ] **Installable macOS alpha for a tester.** Prepare an installable package for another Mac user, confirm their Mac architecture and distribution/signing requirements, and document installation and basic acceptance checks. Build only when explicitly agreed.
+- [ ] **iOS build for the user's iPhone.** Assess mobile compatibility and required UI/native adaptations, configure device signing/provisioning, and prepare a build the user can install on their own iPhone. This is a personal device test, not an App Store release. Build only when explicitly agreed.
+
+Both items were requested November 22 for the near future; no implementation or build is requested now.
 
 ## Mail and discovery — later
 
@@ -51,7 +58,8 @@ The three-item implementation queue is complete; signature sending and the recei
 ## Calendar, Files and calls
 
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
-- [ ] Calendar follow-ups: recurring meetings and Teams meeting links. Organizer edits/cancellation implemented for single meetings; live verification pending.
+- [ ] Calendar follow-ups: recurring meeting creation/editing and adding Teams links to existing offline meetings. Organizer edits/cancellation are implemented for single meetings.
+- [x] Teams meeting option for new Calendar events, supported-provider check, reviewed hybrid room/people invitations and safe Join Teams meeting action in details. Mocked validation complete; manual tenant acceptance pending and queued for next agreed installer release.
 
 - [x] Calendar v1: read-only date/agenda/details workspace, recurring occurrences, attendee and recorded response status. Delegated Calendars.Read approved; user validated successfully.
 - [x] Calendar/Mail: resolve invitations to current calendar status; reviewed Accept/Tentative/Decline and Change response with approved Calendars.ReadWrite.
@@ -76,4 +84,4 @@ The three-item implementation queue is complete; signature sending and the recei
 - [ ] Remaining formatted-message round-trip edge cases in channels and quoted replies; long PHP send and IDE copy were user-validated.
 - [ ] Optional accent-matched Dock icon, later.
 - [ ] Looping feature showcase after core workflows settle.
-- [ ] Desktop alpha after Calendar acceptance: Windows 11 ARM64 first (two testers), macOS second (one tester), Linux deferred (tentative tester). Windows compatibility implementation and build pipeline are prepared; see WINDOWS_ALPHA.md. First ARM64 installer built and checksum verified; clean-device native acceptance remains pending; installer/clean-machine verification and Settings feedback link to GitHub Issues (implemented per user preference). Recurring editing and new Teams meeting links remain documented alpha limitations.
+- [ ] Desktop alpha after Calendar acceptance: Windows 11 ARM64 first (two testers), macOS second (one tester), Linux deferred (tentative tester). Windows compatibility implementation and build pipeline are prepared; see WINDOWS_ALPHA.md. First ARM64 installer built and checksum verified; clean-device native acceptance remains pending; installer/clean-machine verification and Settings feedback link to GitHub Issues (implemented per user preference). Recurring editing remains deferred. New Teams meeting links are implemented in development and await manual acceptance/next agreed release; shipped alpha.2 does not include them.

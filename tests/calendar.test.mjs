@@ -1,6 +1,14 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {calendarRange,eventDate,eventDay,eventWhen,responseLabel,attendeeResponseLabel,calendarAttendeeLabel,calendarLink,meetingResponseState,meetingMessageLabel} from '../src/lib/calendar.ts';
+import {calendarRange,eventDate,eventDay,eventWhen,responseLabel,attendeeResponseLabel,calendarAttendeeLabel,calendarLink,meetingResponseState,meetingMessageLabel,teamsJoinLink} from '../src/lib/calendar.ts';
+test('Teams joins require recorded meeting metadata and a safe Microsoft join destination',()=>{
+ const event={isOnlineMeeting:true,onlineMeetingProvider:'teamsForBusiness',onlineMeeting:{joinUrl:'https://teams.microsoft.com/l/meetup-join/example/0?context=test'}};
+ assert.equal(teamsJoinLink(event),event.onlineMeeting.joinUrl);
+ assert.ok(teamsJoinLink({...event,onlineMeeting:{joinUrl:'https://teams.microsoft.com/meet/123?p=example'}}));
+ for(const change of [{isCancelled:true},{isOnlineMeeting:false},{onlineMeetingProvider:'skypeForBusiness'},{onlineMeeting:{}}])assert.equal(teamsJoinLink({...event,...change}),null);
+ for(const url of ['javascript:alert(1)','https://evil.test/meet/123','https://teams.microsoft.com.evil.test/meet/123','https://user@teams.microsoft.com/meet/123','https://teams.microsoft.com/chat','https://teams.microsoft.com:444/meet/123','http://teams.microsoft.com/meet/123'])assert.equal(teamsJoinLink({...event,onlineMeeting:{joinUrl:url}}),null);
+ assert.equal(teamsJoinLink({bodyPreview:'https://teams.microsoft.com/meet/123'}),null);
+});
 test('calendar dates keep UTC instants and all-day calendar dates',()=>{
  assert.equal(eventDate({dateTime:'2026-11-12T15:00:00',timeZone:'UTC'}).toISOString(),'2026-11-12T15:00:00.000Z');
  assert.equal(eventDate({dateTime:'2026-11-12T15:00:00',timeZone:'Unknown'}),null);

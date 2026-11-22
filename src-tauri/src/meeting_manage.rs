@@ -2,7 +2,7 @@
 use serde::Deserialize;
 use serde_json::{json,Value};
 
-const SELECT:&str="id,changeKey,type,recurrence,isOrganizer,isCancelled,isAllDay,isOnlineMeeting,subject,start,end,body,bodyPreview,attendees,location,locations,organizer,responseStatus,webLink";
+const SELECT:&str="id,changeKey,type,recurrence,isOrganizer,isCancelled,isAllDay,isOnlineMeeting,subject,start,end,body,bodyPreview,attendees,location,locations,organizer,responseStatus,onlineMeetingProvider,onlineMeeting,webLink";
 #[derive(Clone,Deserialize,Default)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Changes {

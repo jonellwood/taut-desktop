@@ -63,6 +63,7 @@ export class MockGraph {
   calendarResponseResult={status:'accepted',error:''};
   calendarPermitted=true;
   calendarError='';
+  meetingOnlineSupported=true;meetingOnlineError="";meetingOnlineGate?:Promise<void>;
   calendarEventError='';
   calendarInvitations:Record<string,any>={};
   calendarEventResults:any[]=[];
@@ -138,9 +139,10 @@ export class MockGraph {
       case 'mail_send_new': return this.mailSendResult;
       case 'calendar_manage_read':{const event=this.calendarEvents.find(e=>e.id===args.eventId);if(!event)throw Error('Meeting unavailable');return event;}
       case 'calendar_manage':{await this.meetingManageGate;if(this.meetingManageError)throw Error(this.meetingManageError);if(this.meetingManageResult)return this.meetingManageResult;const event=this.calendarEvents.find(e=>e.id===args.eventId);if(!event||event.changeKey!==args.version)return {status:'notSent',error:'This meeting changed. Reopen it.'};if(args.action==='cancel'){this.calendarEvents=this.calendarEvents.filter(e=>e.id!==args.eventId);return {status:'accepted'};}const c=args.changes??{};if(c.subject!==undefined)event.subject=c.subject;if(c.start){event.start={dateTime:c.start,timeZone:'UTC'};event.end={dateTime:c.end,timeZone:'UTC'};}if(c.description!==undefined)event.body={contentType:'text',content:c.description};if(c.descriptionNote)event.body={...event.body,content:event.body.content+'\n'+c.descriptionNote};if(c.people)event.attendees=[...c.people.map((p:any)=>({type:p.kind,emailAddress:{address:p.address}})),...event.attendees.filter((a:any)=>a.type==='resource')];if(c.changeRoom){event.attendees=event.attendees.filter((a:any)=>a.type!=='resource');if(c.room)event.attendees.push({type:'resource',emailAddress:{address:c.room.emailAddress,name:c.room.displayName},status:{response:'none'}});event.location={displayName:c.room?.displayName??''};}event.changeKey='updated-'+event.changeKey;return {status:'updated',event};}
+      case 'calendar_online_support':await this.meetingOnlineGate;if(this.meetingOnlineError)throw Error(this.meetingOnlineError);return this.meetingOnlineSupported;
       case 'calendar_rooms':return {value:this.meetingRooms,next:null};
       case 'calendar_availability':return args.addresses.map((scheduleId:string)=>({scheduleId,availabilityView:'0000'}));
-      case 'calendar_create':{if(this.meetingResult)return this.meetingResult;const event={...this.calendarEvents[0],id:'created-meeting',subject:args.draft.subject,isOrganizer:true,attendees:[{type:'resource',emailAddress:{address:'room@example.test'},status:{response:'none'}}]};this.calendarEvents.unshift(event);return {status:'created',event};}
+      case 'calendar_create':{if(this.meetingResult)return this.meetingResult;const event={...this.calendarEvents[0],id:'created-meeting',subject:args.draft.subject,isOrganizer:true,isOnlineMeeting:args.draft.online===true,onlineMeetingProvider:args.draft.online?'teamsForBusiness':'unknown',onlineMeeting:args.draft.online?{joinUrl:'https://teams.microsoft.com/l/meetup-join/test-meeting/0?context=test'}:undefined,attendees:[{type:'resource',emailAddress:{address:'room@example.test'},status:{response:'none'}}]};this.calendarEvents.unshift(event);return {status:'created',event};}
       case 'calendar_response_permission':return true;
       case 'calendar_event':{await this.calendarEventGate;if(this.calendarEventError)throw Error(this.calendarEventError);if(this.calendarEventResults.length)return this.calendarEventResults.shift();const meta=this.calendarInvitations[args.messageId]??{};return {...meta,event:this.calendarEvents.find(e=>e.id===(args.eventId??meta.eventId))??this.calendarEvents[0]};}
       case 'calendar_response':return this.calendarResponseResult;
