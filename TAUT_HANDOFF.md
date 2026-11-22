@@ -538,3 +538,11 @@ User confirmed the date interface is better and default meeting length works in 
 Show meeting summary and its helper text now render only when the right details panel is closed. The panel can still be reopened with that control. Default-length manual acceptance is confirmed; the new popup/visibility changes await native acceptance. No assertion of completed Teams invitation creation/join testing was inferred from this feedback.
 
 Validation: 52 targeted mocked Chromium/WebKit creation/editor/time-entry cases passed, including new AM/PM conversion, cancellation/Escape focus return, manual overrides and summary visibility. UI TypeScript and production build passed with the same three existing App warnings; WebKit popup screenshot reviewed. No backend operation changes or Microsoft 365 writes; no version bump or installer build/dispatch. Queue for next agreed release.
+
+### Calendar icon and date-to-time focus — November 22
+
+User requested an accented calendar icon matching the clock and focus moving to the time field after choosing a date. Added CalendarDays icons over the existing native date-picker indicator, keeping its native click target (opacity only, not display:none) and keyboard date input intact. Valid committed date changes focus the corresponding time input after the local value update; clearing/invalid input does not move focus. Time popover remains an explicit click/clock/Alt+Down action, so date selection does not steal focus into a separate dialog. Applies to both new and edited meetings.
+
+User also reported the online meeting was created and appeared in Calendar with a join-in-Teams note. Record that creation observation; actual live joining was not explicitly confirmed. TAUT's Join Teams meeting opens the recorded link through the system Teams app/browser; embedded audio/video calling is not implemented.
+
+Validation: all 54 targeted mocked Chromium/WebKit time-entry/composer/editor checks passed; production build passed with the same three preexisting App warnings. WebKit screenshot reviewed for matching accents, date/time text spacing and focus. No backend/Graph operation changes, real Microsoft 365 writes, version bump or installer build/dispatch. Native picker-focus acceptance remains manual.

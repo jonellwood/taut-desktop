@@ -1,6 +1,17 @@
 import {test,expect} from './fixtures';
 async function open(page:any){await page.getByRole('button',{name:'Calendar',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();}
 async function start(page:any,date='2026-11-23',time='10:00'){await page.getByLabel('Start date',{exact:true}).fill(date);await page.getByLabel('Start time',{exact:true}).fill(time);}
+test('calendar icons match the clock accent and a committed date focuses its matching time field',async({page,graph},info)=>{
+ graph.restoredSession=true;await page.goto('/');await open(page);
+ const startDate=page.getByLabel('Start date',{exact:true}),startTime=page.getByLabel('Start time',{exact:true});
+ await startDate.fill('2026-11-23');await expect(startTime).toBeFocused();
+ const icons=page.locator('.calendar-icon');await expect(icons).toHaveCount(2);
+ const color=await page.getByRole('button',{name:'Choose start time',exact:true}).evaluate(el=>getComputedStyle(el).color);
+ await expect(icons.first()).toHaveCSS('color',color);
+ await startTime.fill('10:00');
+ await page.getByLabel('End date',{exact:true}).fill('2026-11-24');await expect(page.getByLabel('End time',{exact:true})).toBeFocused();
+ await page.screenshot({path:info.outputPath('calendar-clock-icons.png')});expect(graph.writes).toEqual([]);
+});
 test('clicking time opens an actual picker and applying updates the default end',async({page,graph},info)=>{
  graph.restoredSession=true;await page.goto('/');await open(page);await start(page);
  await page.getByLabel('Start time',{exact:true}).click();
