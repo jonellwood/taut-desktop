@@ -1,6 +1,31 @@
 import {test,expect} from './fixtures';
 async function open(page:any){await page.getByRole('button',{name:'Calendar',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();}
 async function start(page:any,date='2026-11-23',time='10:00'){await page.getByLabel('Start date',{exact:true}).fill(date);await page.getByLabel('Start time',{exact:true}).fill(time);}
+test('clicking time opens an actual picker and applying updates the default end',async({page,graph},info)=>{
+ graph.restoredSession=true;await page.goto('/');await open(page);await start(page);
+ await page.getByLabel('Start time',{exact:true}).click();
+ const picker=page.getByRole('dialog',{name:'Start time picker',exact:true});await expect(picker).toBeVisible();
+ await picker.getByRole('combobox',{name:'Hour',exact:true}).selectOption('12');await picker.getByRole('combobox',{name:'Minute',exact:true}).selectOption('15');await picker.getByRole('combobox',{name:'AM or PM',exact:true}).selectOption('PM');
+ await page.screenshot({path:info.outputPath('time-picker.png')});await picker.getByRole('button',{name:'Set time',exact:true}).click();
+ await expect(page.getByLabel('Start time',{exact:true})).toHaveValue('12:15');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('12:45');
+ await page.getByRole('button',{name:'Choose start time',exact:true}).click();await picker.getByRole('combobox',{name:'AM or PM',exact:true}).selectOption('AM');await picker.getByRole('button',{name:'Set time',exact:true}).click();
+ await expect(page.getByLabel('Start time',{exact:true})).toHaveValue('00:15');expect(graph.writes).toEqual([]);
+});
+test('picker cancellation and Escape leave times unchanged, while an end choice remains manual',async({page,graph})=>{
+ graph.restoredSession=true;await page.goto('/');await open(page);await start(page);
+ await page.getByRole('button',{name:'Choose end time',exact:true}).click();
+ const picker=page.getByRole('dialog',{name:'End time picker',exact:true});await picker.getByRole('combobox',{name:'Hour',exact:true}).selectOption('4');await picker.getByRole('button',{name:'Cancel',exact:true}).click();
+ await expect(page.getByLabel('End time',{exact:true})).toHaveValue('10:30');
+ await page.getByRole('button',{name:'Choose end time',exact:true}).click();await page.keyboard.press('Escape');await expect(picker).toHaveCount(0);await expect(page.getByLabel('End time',{exact:true})).toBeFocused();
+ await page.getByRole('button',{name:'Choose end time',exact:true}).click();await picker.getByRole('combobox',{name:'Hour',exact:true}).selectOption('11');await picker.getByRole('button',{name:'Set time',exact:true}).click();
+ await page.getByLabel('Start time',{exact:true}).fill('10:15');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('11:30');expect(graph.writes).toEqual([]);
+});
+test('show summary control appears only while the details panel is closed',async({page,graph})=>{
+ graph.restoredSession=true;await page.goto('/');await open(page);
+ await expect(page.getByRole('button',{name:'Show meeting summary',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Close meeting summary',exact:true}).click();await page.getByRole('button',{name:'Show meeting summary',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Show meeting summary',exact:true})).toHaveCount(0);expect(graph.writes).toEqual([]);
+});
 test('Calendar preference persists and supplies end times while manual overrides survive later start changes',async({page,graph})=>{
  graph.restoredSession=true;await page.goto('/');await page.getByRole('button',{name:'Settings',exact:true}).click();
  await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Calendar',exact:true}).click();
