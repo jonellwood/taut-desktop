@@ -60,6 +60,7 @@ Both items were requested November 22 for the near future; no implementation or 
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
 - [ ] Calendar follow-ups: recurring meeting creation/editing and adding Teams links to existing offline meetings. Organizer edits/cancellation are implemented for single meetings.
 - [x] Teams meeting option for new Calendar events, supported-provider check, reviewed hybrid room/people invitations and safe Join Teams meeting action in details. Mocked validation complete; manual tenant acceptance pending and queued for next agreed installer release.
+- [x] Meeting time-entry refinement: separate date/time controls for creation/editing; Settings → Calendar default meeting length; auto-fill new draft end times while preserving manual overrides; explain availability prerequisites and optional hybrid rooms. Mocked validation complete; native Mac acceptance pending.
 
 - [x] Calendar v1: read-only date/agenda/details workspace, recurring occurrences, attendee and recorded response status. Delegated Calendars.Read approved; user validated successfully.
 - [x] Calendar/Mail: resolve invitations to current calendar status; reviewed Accept/Tentative/Decline and Change response with approved Calendars.ReadWrite.

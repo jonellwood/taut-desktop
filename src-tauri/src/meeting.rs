@@ -82,4 +82,8 @@ pub fn rooms(next:Option<&str>,request:&mut dyn FnMut(&str)->Result<(u16,Value),
  #[test]fn online_timeout_never_retries_creation(){
   let mut posts=0;let result=create(&draft(),true,&mut|method,_,_|if method=="GET"{Ok((200,json!({"allowedOnlineMeetingProviders":["teamsForBusiness"]})))}else{posts+=1;Err("timeout".into())}).unwrap();assert_eq!(posts,1);assert_eq!(result["status"],"uncertain");
  }
+ #[test]fn online_meeting_without_room_never_invents_a_resource_or_location(){
+  let mut d=draft();d.room=None;let body=payload(&d).unwrap();
+  assert_eq!(body["isOnlineMeeting"],true);assert_eq!(body["attendees"].as_array().unwrap().len(),1);assert_eq!(body["attendees"][0]["type"],"required");assert!(body.get("location").is_none());
+ }
 }

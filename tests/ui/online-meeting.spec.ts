@@ -1,6 +1,6 @@
 import {test,expect,me} from './fixtures';
 async function open(page:any){await page.getByRole('button',{name:'Calendar',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();}
-async function fill(page:any){await page.getByLabel('Subject',{exact:true}).fill('Hybrid planning');await page.getByLabel('Starts',{exact:true}).fill('2026-11-23T10:00');await page.getByLabel('Ends',{exact:true}).fill('2026-11-23T11:00');await page.getByLabel('Attendees',{exact:true}).fill('person@example.test');}
+async function fill(page:any){await page.getByLabel('Subject',{exact:true}).fill('Hybrid planning');await page.getByLabel('Start date',{exact:true}).fill('2026-11-23');await page.getByLabel('Start time',{exact:true}).fill('10:00');await page.getByLabel('End date',{exact:true}).fill('2026-11-23');await page.getByLabel('End time',{exact:true}).fill('11:00');await page.getByLabel('Attendees',{exact:true}).fill('person@example.test');}
 async function confirm(page:any){await page.getByRole('button',{name:'Review meeting',exact:true}).click();await page.getByRole('button',{name:'Create & send invitations',exact:true}).click();}
 test('Teams choice persists locally, appears in review and creates hybrid invitations only on confirmation',async({page,graph},info)=>{
  graph.restoredSession=true;await page.goto('/');await open(page);await fill(page);

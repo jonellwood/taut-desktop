@@ -1,7 +1,7 @@
 import {test,expect,me,alex} from './fixtures';
 import {directoryKey} from '../../src/lib/people';
 async function open(page:any){await page.getByRole('button',{name:'Calendar',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();}
-async function fill(page:any){await page.getByLabel('Subject',{exact:true}).fill('Room planning');await page.getByLabel('Starts',{exact:true}).fill('2026-11-20T10:00');await page.getByLabel('Ends',{exact:true}).fill('2026-11-20T11:00');await page.getByLabel('Attendees',{exact:true}).fill('alex@example.test');}
+async function fill(page:any){await page.getByLabel('Subject',{exact:true}).fill('Room planning');await page.getByLabel('Start date',{exact:true}).fill('2026-11-20');await page.getByLabel('Start time',{exact:true}).fill('10:00');await page.getByLabel('End date',{exact:true}).fill('2026-11-20');await page.getByLabel('End time',{exact:true}).fill('11:00');await page.getByLabel('Attendees',{exact:true}).fill('alex@example.test');}
 test('room discovery, availability and saved drafts are read-only until confirmation',async({page,graph})=>{
  graph.restoredSession=true;await page.goto('/');await open(page);await fill(page);await page.getByRole('button').filter({hasText:'River room'}).click();await page.getByRole('button',{name:'Check availability',exact:true}).click();await expect(page.locator('.meeting-summary .availability').filter({hasText:'River room'}).getByText('Free at the requested time')).toBeVisible();expect(graph.writes).toEqual([]);
  await page.getByRole('button',{name:'Save & close',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Room planning');await expect(page.locator('.room-picker h3')).toHaveText('River room');
@@ -26,6 +26,6 @@ test('cached attendee autocomplete and live summary remain read-only and invalid
  const attendee=page.getByRole('combobox',{name:'Attendees',exact:true});await attendee.fill('Alex');await page.getByRole('option',{name:'Alex Example alex@example.com'}).click();
  await expect(attendee).toHaveValue('alex@example.com; ');await expect(page.getByRole('complementary',{name:'Meeting summary'})).toContainText('alex@example.com');
  await page.getByRole('button',{name:'Check availability',exact:true}).click();await expect(page.locator('.meeting-summary')).toContainText('Free at the requested time');
- await page.getByLabel('Ends',{exact:true}).fill('2026-11-20T12:00');await expect(page.locator('.meeting-summary')).toContainText('Check availability again');await expect(page.locator('.meeting-summary .availability')).toHaveCount(0);
+ await page.getByLabel('End date',{exact:true}).fill('2026-11-20');await page.getByLabel('End time',{exact:true}).fill('12:00');await expect(page.locator('.meeting-summary')).toContainText('Check availability again');await expect(page.locator('.meeting-summary .availability')).toHaveCount(0);
  await page.getByRole('button',{name:'Close meeting summary'}).click();await expect(page.locator('.meeting-summary')).toHaveCount(0);await page.getByRole('button',{name:'Show meeting summary'}).click();await expect(page.locator('.meeting-summary')).toContainText('Room planning');expect(graph.writes).toEqual([]);
 });

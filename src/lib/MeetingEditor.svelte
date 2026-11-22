@@ -1,4 +1,5 @@
 <script lang="ts">
+ import MeetingDateTime from './MeetingDateTime.svelte';
  import {onMount,onDestroy} from 'svelte';
  import {invoke} from '@tauri-apps/api/core';
  import MailRecipient from './MailRecipient.svelte';
@@ -41,7 +42,7 @@
  {#if event&&form}<div class="original"><strong>{event.subject||'Untitled meeting'}</strong><p>{eventDay(event)} · {eventWhen(event)}</p><p>Current room: {currentRoom?.emailAddress?.name||currentRoom?.emailAddress?.address||event.location?.displayName||'None'}</p></div>
  {#if mode==='edit'}<fieldset disabled={busy||attempted}>
  <label>Subject<input maxlength="255" bind:value={form.subject}/></label>
- <div class="times"><label>Starts<input type="datetime-local" step="0.001" disabled={event.isAllDay!==false} bind:value={form.start}/></label><label>Ends<input type="datetime-local" step="0.001" disabled={event.isAllDay!==false} bind:value={form.end}/></label></div><small>Times are in {Intl.DateTimeFormat().resolvedOptions().timeZone}. All-day times are edited in Outlook.</small>
+ <div class="times"><MeetingDateTime label="Start" precise value={form.start} disabled={event.isAllDay!==false} onChange={value=>{if(form)form.start=value;}}/><MeetingDateTime label="End" precise value={form.end} disabled={event.isAllDay!==false} onChange={value=>{if(form)form.end=value;}}/></div><small>Times are in {Intl.DateTimeFormat().resolvedOptions().timeZone}. All-day times are edited in Outlook.</small>
  <MailRecipient label="Required attendees" value={form.required} {ownId} onFocus={()=>{}} onChange={value=>form&&(form.required=value)}/>
  <MailRecipient label="Optional attendees" value={form.optional} {ownId} onFocus={()=>{}} onChange={value=>form&&(form.optional=value)}/>
  {#if canReplaceDescription(event)}<label>Description<textarea rows="6" maxlength="64000" bind:value={form.description}></textarea></label>{:else}<p class="note">The existing formatted or online-meeting description is preserved.</p><details><summary>Existing description</summary><pre>{receivedText(event.body,event.bodyPreview??'')}</pre></details><label>Add a description note<textarea rows="4" maxlength="4000" bind:value={form.note}></textarea></label>{/if}
