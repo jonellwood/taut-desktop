@@ -58,7 +58,8 @@ Both items were requested November 22 for the near future; no implementation or 
 ## Calendar, Files and calls
 
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
-- [ ] Calendar follow-ups: recurring meeting creation/editing and adding Teams links to existing offline meetings. Organizer edits/cancellation are implemented for single meetings.
+- [x] New daily/weekly recurring meetings with weekdays, interval, explicit end date or occurrence count; named time zone retained across daylight saving. Pending native acceptance and next agreed release.
+- [ ] Calendar follow-ups: recurring series editing, monthly/yearly patterns, and adding Teams links to existing offline meetings. Organizer edits/cancellation are implemented for single meetings; manage recurring series in Outlook.
 - [x] Teams meeting option for new Calendar events, supported-provider check, reviewed hybrid room/people invitations and safe Join Teams meeting action in details. Mocked validation complete; manual tenant acceptance pending and queued for next agreed installer release.
 - [x] Meeting time-entry refinement: separate date/time controls for creation/editing; Settings → Calendar default meeting length; auto-fill new draft end times while preserving manual overrides; explain availability prerequisites and optional hybrid rooms. Mocked validation complete; native Mac acceptance pending.
 - [x] Click-to-open meeting time picker with hour/minute/AM–PM controls, keyboard entry and cancel/Escape behavior. Hide Show meeting summary while the details panel is open. Manual Mac acceptance pending.

@@ -1,5 +1,6 @@
 mod mailbox_transport;
 mod meeting;
+mod recurrence;
 mod meeting_manage;
 mod chat_history;
 mod chat_list;
@@ -479,10 +480,16 @@ async fn calendar_manage(state:State<'_,AuthState>,own_id:String,event_id:String
  }).or_else(|error|Ok(serde_json::json!({"status":"notSent","error":error})))
 }).await}
 // Calendar composer commands use one account-bound token and never retry writes.
+fn meeting_request_builder(client:&Client,token:&str,method:&str,path:&str,body:&Value)->reqwest::blocking::RequestBuilder{
+ let request=if method=="POST"{client.post(format!("https://graph.microsoft.com/v1.0{path}")).json(body)}else{client.get(format!("https://graph.microsoft.com/v1.0{path}"))};
+ // Recurrence is submitted in its named zone; normalize only response times for
+ // the Calendar UI, which already expects UTC event instants.
+ request.bearer_auth(token).header("Prefer","outlook.timezone=\"UTC\"")
+}
 fn meeting_request(token:&str,method:&str,path:&str,body:Value)->Result<(u16,Value),String>{
  let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Calendar client unavailable")?;
- let req=if method=="POST"{client.post(format!("https://graph.microsoft.com/v1.0{path}")).json(&body)}else{client.get(format!("https://graph.microsoft.com/v1.0{path}"))};
- let reply=req.bearer_auth(token).send().map_err(|_|"Calendar request unavailable")?;let status=reply.status().as_u16();if !matches!(status,200|201){return Ok((status,Value::Null));}
+ let req=meeting_request_builder(&client,token,method,path,&body);
+ let reply=req.send().map_err(|_|"Calendar request unavailable")?;let status=reply.status().as_u16();if !matches!(status,200|201){return Ok((status,Value::Null));}
  let mut bytes=vec![];reply.take(2*1024*1024+1).read_to_end(&mut bytes).map_err(|_|"Calendar response unavailable")?;if bytes.len()>2*1024*1024{return Err("Calendar response too large".into());}Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid calendar response")?))
 }
 #[tauri::command]
@@ -902,6 +909,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recurring_request_keeps_named_zone_and_requests_utc_response(){
+        let body=serde_json::json!({"start":{"dateTime":"2026-11-23T09:00:00","timeZone":"America/New_York"},"recurrence":{"range":{"recurrenceTimeZone":"America/New_York"}}});
+        let request=super::meeting_request_builder(&reqwest::blocking::Client::new(),"mock-token","POST","/me/events",&body).build().unwrap();
+        assert_eq!(request.headers()["Prefer"],"outlook.timezone=\"UTC\"");
+        let sent:serde_json::Value=serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+        assert_eq!(sent,body);
+    }
     #[test]
     fn refresh_does_not_silently_request_new_mail_scopes(){
         let form=super::refresh_form("mock-refresh");

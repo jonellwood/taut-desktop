@@ -81,3 +81,5 @@ Both architecture jobs succeeded in [Windows alpha candidate run 44788954286](ht
 Both ZIP contents/checksums were independently verified after download without execution. Architecture verification and installer build steps passed. Full CI is green on macOS, Windows x64/ARM64 and mocked browser tests. These remain unsigned alpha candidates; the user's supplied Workflow card shape is covered and its appearance was approved, but new-version native-device validation remains a user test. Earlier x64 alpha.1 acceptance is recorded above.
 
 Pilot update November 20: approximately nine people are testing on Windows and feedback has been positive. Future installer builds wait for an explicitly agreed release; feature work accumulates between releases.
+
+Development follow-up (not in shipped alpha.2): new daily/weekly meeting series with interval, weekdays and end date/count. Availability covers the first occurrence only; manage series changes in Outlook. Await native acceptance and the next agreed release before distributing an installer.

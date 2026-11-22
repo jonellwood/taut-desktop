@@ -3,7 +3,7 @@ use serde::{Deserialize,Serialize};
 use serde_json::{json,Value};
 #[derive(Clone,Deserialize,Serialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-pub struct Draft {pub transaction_id:String,pub subject:String,pub description:String,pub start:String,pub end:String,pub attendees:Vec<String>,pub room:Option<Room>,#[serde(default)] pub online:bool}
+pub struct Draft {pub transaction_id:String,pub subject:String,pub description:String,pub start:String,pub end:String,pub attendees:Vec<String>,pub room:Option<Room>,#[serde(default)] pub online:bool,#[serde(default)] pub recurrence:Option<crate::recurrence::Recurrence>}
 #[derive(Clone,Deserialize,Serialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Room {pub email_address:String,pub display_name:String}
@@ -16,6 +16,7 @@ pub fn payload(d:&Draft)->Result<Value,String>{
  let mut body=json!({"transactionId":d.transaction_id,"subject":d.subject.trim(),"body":{"contentType":"text","content":d.description},"start":{"dateTime":a,"timeZone":"UTC"},"end":{"dateTime":b,"timeZone":"UTC"},"attendees":attendees});
  if let Some(room)=&d.room{if !address(&room.email_address)||room.display_name.len()>255||!seen.insert(room.email_address.to_lowercase()){return Err("Choose a valid room distinct from attendees.".into());}body["attendees"].as_array_mut().unwrap().push(json!({"emailAddress":{"address":room.email_address,"name":room.display_name},"type":"resource"}));body["location"]=json!({"displayName":room.display_name,"locationEmailAddress":room.email_address});}
  if d.online{body["isOnlineMeeting"]=json!(true);body["onlineMeetingProvider"]=json!("teamsForBusiness");}
+ if let Some(recurrence)=&d.recurrence{crate::recurrence::apply(&mut body,recurrence,&d.start,&d.end)?;}
  Ok(body)
 }
 pub const ONLINE_CALENDAR_PATH:&str="/me/calendar?$select=allowedOnlineMeetingProviders";
@@ -45,7 +46,7 @@ pub fn schedule(addresses:&[String],start:&str,end:&str,request:&mut dyn FnMut(&
 pub fn rooms(next:Option<&str>,request:&mut dyn FnMut(&str)->Result<(u16,Value),String>)->Result<Value,String>{let path=if let Some(link)=next{let u=url::Url::parse(link).map_err(|_|"Invalid room continuation")?;if u.scheme()!="https"||u.host_str()!=Some("graph.microsoft.com")||!u.username().is_empty()||u.password().is_some()||u.port().is_some()||u.fragment().is_some()||u.path()!="/v1.0/places/microsoft.graph.room"{return Err("Invalid room continuation".into());}format!("/places/microsoft.graph.room{}",u.query().map(|q|format!("?{q}")).unwrap_or_default())}else{"/places/microsoft.graph.room?$select=id,displayName,emailAddress,capacity,building,floorLabel&$top=100".into()};let(status,value)=request(&path)?;if status!=200||!value["value"].is_array(){return Err(format!("Rooms unavailable (HTTP {status})."));}if let Some(link)=value["@odata.nextLink"].as_str(){// Validate before returning to the UI without following it.
  let u=url::Url::parse(link).map_err(|_|"Invalid room continuation")?;if u.scheme()!="https"||u.host_str()!=Some("graph.microsoft.com")||u.path()!="/v1.0/places/microsoft.graph.room"||!u.username().is_empty()||u.password().is_some()||u.port().is_some()||u.fragment().is_some(){return Err("Invalid room continuation".into());}}
  Ok(json!({"value":value["value"],"next":value["@odata.nextLink"]}))}
-#[cfg(test)]mod tests{use super::*;fn draft()->Draft{Draft{transaction_id:"12345678-1234-1234".into(),subject:"Plan".into(),description:"Discuss".into(),start:"2026-11-12T15:00:00Z".into(),end:"2026-11-12T16:00:00Z".into(),attendees:vec!["person@example.test".into()],room:Some(Room{email_address:"room@example.test".into(),display_name:"Room".into()}),online:false}}
+#[cfg(test)]mod tests{use super::*;fn draft()->Draft{Draft{transaction_id:"12345678-1234-1234".into(),subject:"Plan".into(),description:"Discuss".into(),start:"2026-11-12T15:00:00Z".into(),end:"2026-11-12T16:00:00Z".into(),attendees:vec!["person@example.test".into()],room:Some(Room{email_address:"room@example.test".into(),display_name:"Room".into()}),online:false,recurrence:None}}
 #[test]fn resource_and_utc_payload(){let v=payload(&draft()).unwrap();assert_eq!(v["attendees"][1]["type"],"resource");assert_eq!(v["start"]["timeZone"],"UTC");assert_eq!(v["transactionId"],"12345678-1234-1234");}
 #[test]fn invalid_and_denied_never_post(){let mut d=draft();d.end=d.start.clone();assert!(create(&d,true,&mut|_,_,_|panic!()).is_err());assert!(create(&draft(),false,&mut|_,_,_|panic!()).is_err());d=draft();d.attendees.push("PERSON@example.test".into());assert!(payload(&d).is_err());}
 #[test]fn uncertain_is_one_attempt(){let mut n=0;let v=create(&draft(),true,&mut|_,_,_|{n+=1;Err("timeout".into())}).unwrap();assert_eq!(n,1);assert_eq!(v["status"],"uncertain");}
