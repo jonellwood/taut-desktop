@@ -23,9 +23,9 @@ test('toolbar inserts code at selection, blank fences never send, and files stay
  await page.getByRole('button',{name:'Send message',exact:true}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_attachments').length).toBe(1);expect(graph.calls.find(c=>c.command==='graph_send_attachments')?.args.formatted).toBe(true);
 });
 test('quoted formatted reply keeps its own draft and sends HTML through the mocked command',async({page,graph})=>{
- graph.allowWrites=true;await signIn(page);await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();const pane=page.getByRole('complementary',{name:'Chat reply thread'});
+ graph.allowWrites=true;await signIn(page);await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();const pane=page.getByRole('complementary',{name:'Quoted replies'});
  await pane.getByRole('button',{name:'Format',exact:true}).click();await pane.getByRole('textbox',{name:'Quoted reply'}).fill('**A reply**');
- await pane.getByRole('button',{name:'Close reply thread'}).click();await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();await expect(pane.getByRole('button',{name:'Format',exact:true})).toHaveAttribute('aria-pressed','true');await expect(pane.getByRole('textbox',{name:'Quoted reply'})).toHaveValue('**A reply**');
+ await pane.getByRole('button',{name:'Close quoted replies'}).click();await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();await expect(pane.getByRole('button',{name:'Format',exact:true})).toHaveAttribute('aria-pressed','true');await expect(pane.getByRole('textbox',{name:'Quoted reply'})).toHaveValue('**A reply**');
  await pane.getByRole('button',{name:'Send quoted reply'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_reply_with_quote').length).toBe(1);expect(graph.calls.find(c=>c.command==='graph_reply_with_quote')?.args.formatted).toBe(true);await expect(pane.locator('strong').filter({hasText:'A reply'})).toBeVisible();
 });
 test('channel post and reply formatting use independent drafts and explicit sends',async({page,graph})=>{
@@ -40,7 +40,7 @@ for(const composer of ['chat','quote','post','channel reply'])test(`List starter
  await signIn(page);
  let scope=page.locator('.compose-format-area');let input=page.getByRole('textbox',{name:'Message',exact:true});
  if(composer==='quote'){
-  await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();scope=page.getByRole('complementary',{name:'Chat reply thread'});input=scope.getByRole('textbox',{name:'Quoted reply'});
+  await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();scope=page.getByRole('complementary',{name:'Quoted replies'});input=scope.getByRole('textbox',{name:'Quoted reply'});
  }else if(composer!=='chat'){
   graph.teamData.posts=[{id:'post',body:{contentType:'text',content:'Original'}}];
   await page.getByRole('button',{name:'Teams and Channels',exact:true}).click();await page.getByRole('button',{name:'Browse team IT Development'}).click();await page.getByRole('button',{name:'Open channel General',exact:true}).click();
@@ -75,7 +75,7 @@ test('long PHP draft changes its existing fence and sends intact; oversize stays
 
 test('quoted and channel composers preserve and send text beyond the former 4000 character cap',async({page,graph})=>{
  graph.allowWrites=true;await signIn(page);const text='Long snippet line\n'.repeat(300);
- await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();const quote=page.getByRole('complementary',{name:'Chat reply thread'});await quote.getByRole('textbox',{name:'Quoted reply'}).fill(text);await expect(quote.getByRole('textbox')).toHaveValue(text);await quote.getByRole('button',{name:'Send quoted reply'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_reply_with_quote').length).toBe(1);
+ await page.getByRole('button',{name:'Reply with quote',exact:true}).first().click();const quote=page.getByRole('complementary',{name:'Quoted replies'});await quote.getByRole('textbox',{name:'Quoted reply'}).fill(text);await expect(quote.getByRole('textbox')).toHaveValue(text);await quote.getByRole('button',{name:'Send quoted reply'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_reply_with_quote').length).toBe(1);
  graph.teamData.posts=[{id:'post',body:{contentType:'text',content:'Original'}}];await page.getByRole('button',{name:'Teams and Channels',exact:true}).click();await page.getByRole('button',{name:'Browse team IT Development'}).click();await page.getByRole('button',{name:'Open channel General',exact:true}).click();
  const post=page.getByRole('form',{name:'New channel post'});await post.getByRole('textbox').fill(text);await expect(post.getByRole('textbox')).toHaveValue(text);await post.getByRole('button',{name:'Post to channel'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_channel').length).toBe(1);
  await page.getByRole('button',{name:'View replies',exact:true}).last().click();const reply=page.getByRole('form',{name:'Channel reply'});await reply.getByRole('textbox').fill(text);await reply.getByRole('button',{name:'Send channel reply'}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='graph_send_channel').length).toBe(2);

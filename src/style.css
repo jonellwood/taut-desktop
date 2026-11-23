@@ -99,10 +99,7 @@
 .message-text{white-space:normal}
 .messages{min-height:0;gap:16px}
 .messages>*,.chat-thread-scroll>*{flex-shrink:0}
-.quoted-reply-event{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 12px;border-left:2px solid var(--accent);background:var(--surface-raised);border-radius:5px;color:var(--text-secondary);font-size:12px}
-.quoted-reply-event svg{color:var(--accent)}
-.quoted-reply-event button{color:var(--accent);padding:2px 0}
-.quoted-reply-event button:hover{text-decoration:underline}
+
 
 .bubble{max-width:100%;min-width:0}.message-stack{min-width:0}.message-text{min-width:0;max-width:100%}
 

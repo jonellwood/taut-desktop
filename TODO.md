@@ -57,6 +57,7 @@ Both items were requested November 22 for the near future; no implementation or 
 
 ## Calendar, Files and calls
 
+- [ ] Calendar reminders: notify users before upcoming meetings, with configurable reminder timing and a way to open the event.
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
 - [x] New daily/weekly recurring meetings with weekdays, interval, explicit end date or occurrence count; named time zone retained across daylight saving. Pending native acceptance and next agreed release.
 - [ ] Calendar follow-ups: recurring series editing, monthly/yearly patterns, and adding Teams links to existing offline meetings. Organizer edits/cancellation are implemented for single meetings; manage recurring series in Outlook.

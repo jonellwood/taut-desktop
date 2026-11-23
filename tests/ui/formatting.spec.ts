@@ -37,7 +37,7 @@ test('format-only refresh updates content and deleted bodies never render code',
 test('quoted parent and reply pane share code formatting and copy failure keeps code selectable',async({page,graph})=>{
  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{throw Error('Denied');}}}));
  graph.messages['chat-alex']=[{...message('root',''),body:{contentType:'html',content:block()}},{...message('reply','',me.id),body:{contentType:'html',content:'<pre><code>reply\n  code</code></pre>'},attachments:[{id:'root',contentType:'messageReference',content:JSON.stringify({messageId:'root'})}]}];
- await signIn(page);await page.getByRole('button',{name:'View chat replies',exact:true}).first().click();const pane=page.getByRole('complementary',{name:'Chat reply thread'});
+ await signIn(page);await page.getByRole('button',{name:'View chat replies',exact:true}).first().click();const pane=page.getByRole('complementary',{name:'Quoted replies'});
  expect(await pane.getByRole('region',{name:'PowerShell code block'}).locator('pre code').textContent()).toBe(source);
  await expect(pane.getByRole('region',{name:'Plain text code block'})).toContainText('reply');
  await pane.getByRole('button',{name:'Copy code'}).first().click();await expect(pane.getByRole('status')).toContainText('Copy unavailable');expect(graph.writes).toEqual([]);

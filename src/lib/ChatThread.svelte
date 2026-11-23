@@ -5,15 +5,15 @@
  import MessageBody from './MessageBody.svelte';
  import MessageReactions from './MessageReactions.svelte';
  import type {Message} from './types';
- let {formatted=false,onFormat,replyText,sendError,uncertain,disabled,onText,onSend,onAcknowledge,onRefresh,root,replies,loading,error,chatName,group=false,onClose,onRetry,onOpenFile,onViewImage}:
- {formatted?:boolean;onFormat:(value:boolean)=>void;replyText:string;sendError:string;uncertain:boolean;disabled:boolean;onText:(text:string)=>void;onSend:()=>void;onAcknowledge:()=>void;onRefresh:()=>void;root?:Message|null;replies:Message[];loading:boolean;error:string;chatName:string;group?:boolean;onClose:()=>void;onRetry:()=>void;onOpenFile:(url:string)=>void;onViewImage:(messageId:string,contentId:string)=>void}=$props();
+ let {formatted=false,onFormat,replyText,sendError,uncertain,disabled,onText,onSend,onAcknowledge,onRefresh,root,replies,loading,error,chatName,group=false,onClose,onRetry,onOpenFile,onViewImage,onViewConversation}:
+ {formatted?:boolean;onFormat:(value:boolean)=>void;replyText:string;sendError:string;uncertain:boolean;disabled:boolean;onText:(text:string)=>void;onSend:()=>void;onAcknowledge:()=>void;onRefresh:()=>void;root?:Message|null;replies:Message[];loading:boolean;error:string;chatName:string;group?:boolean;onClose:()=>void;onRetry:()=>void;onOpenFile:(url:string)=>void;onViewImage:(messageId:string,contentId:string)=>void;onViewConversation:(messageId:string)=>void}=$props();
  let replyInput=$state<HTMLTextAreaElement>();
  function author(message:Message){return message.sender==='me'?'You':message.senderName||(group?'Participant unavailable':chatName);}
  function time(message:Message){const value=new Date(message.createdDateTime??'');return Number.isNaN(value.getTime())?message.time:value.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
 </script>
-<aside class="chat-thread-pane" aria-label="Chat reply thread">
- <header><div><span class="eyebrow">REPLY THREAD</span><h2>{chatName}</h2></div><button type="button" aria-label="Close reply thread" title="Return to conversation details" onclick={onClose}><X size={18}/></button></header>
- <p class="thread-explanation">Quoted replies from loaded chat history. More replies may exist in older history.</p>
+<aside class="chat-thread-pane" aria-label="Quoted replies">
+ <header><div><span class="eyebrow">QUOTED REPLIES</span><h2>{chatName}</h2></div><button type="button" aria-label="Close quoted replies" title="Return to conversation details" onclick={onClose}><X size={18}/></button></header>
+ <p class="thread-explanation">Only messages with an explicit quote are grouped here. Ordinary follow-ups stay in the conversation. More quoted replies may exist in older history.</p>
  <div class="chat-thread-scroll">
   {#if loading}<p class="chat-thread-status" role="status">Loading the quoted message…</p>{/if}
   {#if error}<div class="chat-thread-error" role="alert">{error}<button type="button" onclick={onRetry}>Retry quoted message</button></div>{/if}
@@ -31,6 +31,7 @@
   <div class="thread-reply-heading"><MessagesSquare size={14}/>{replies.length} {replies.length===1?'reply':'replies'} in loaded history</div>
   {#each replies as reply (reply.id)}<article class="chat-thread-reply" aria-label={`Reply from ${author(reply)}`}>
    <div class="thread-message-meta"><strong>{author(reply)}</strong><time datetime={reply.createdDateTime}>{time(reply)}</time></div>
+   <button class="thread-file" type="button" onclick={()=>onViewConversation(reply.id)}>View in conversation ↗</button>
    <div class="thread-body"><MessageBody body={reply.body} fallback={reply.text} deleted={!!reply.deleted}/></div>
    {#if !reply.deleted}
     {#each reply.attachments??[] as file}<button class="thread-file" onclick={()=>onOpenFile(file.url)}><Files size={15}/>{file.name}</button>{/each}
