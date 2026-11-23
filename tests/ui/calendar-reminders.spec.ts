@@ -15,3 +15,8 @@ test('reminder click opens current event with message alerts off and also while 
 test('removed event gives an actionable error without sending or switching accounts',async({page,graph})=>{
  await signIn(page);graph.calendarEventError='HTTP 404';graph.pendingReminderEvent='removed';await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(page.getByRole('alert')).toContainText('reminder’s event could not be opened');await page.getByRole('button',{name:'Dismiss',exact:true}).click();await expect(page.getByText('reminder’s event could not be opened',{exact:false})).toHaveCount(0);expect(graph.writes).toEqual([]);
 });
+
+test('live reminder status shows the check and request separately from visible delivery',async({page,graph})=>{
+ graph.reminderSettings={enabled:true,error:null,last_check:1795435200000,last_request:1795435200000,summary:'1 reminders due in the last two minutes; 1 banner requests.'} as any;
+ await signIn(page);const settings=await preferences(page);const status=settings.getByRole('status',{name:'Calendar reminder status'});await expect(status).toContainText('Last check:');await expect(status).toContainText('Last banner request:');await expect(status).toContainText('does not confirm it appeared');expect(graph.writes).toEqual([]);
+});

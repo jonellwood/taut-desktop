@@ -18,11 +18,17 @@ struct Saved {
 pub struct Status {
     pub enabled: bool,
     pub error: Option<String>,
+    pub last_check: Option<i64>,
+    pub last_request: Option<i64>,
+    pub summary: String,
 }
 pub struct Manager {
     saved: Saved,
     path: Option<PathBuf>,
     pub error: Option<String>,
+    pub last_check: Option<i64>,
+    pub last_request: Option<i64>,
+    pub summary: String,
     valid: bool,
     tickets: HashMap<i32, (String, String, String)>,
     sequence: i32,
@@ -46,6 +52,7 @@ impl Manager {
             path,
             error: (!valid)
                 .then(|| "Calendar reminder storage is unavailable. Reminders are paused.".into()),
+            last_check: None, last_request: None, summary: "Waiting for the next reminder check.".into(),
             valid,
             tickets: HashMap::new(),
             sequence: 0,
@@ -85,6 +92,7 @@ impl Manager {
         Status {
             enabled: self.saved.enabled && self.valid,
             error: self.error.clone(),
+            last_check: self.last_check, last_request: self.last_request, summary: self.summary.clone(),
         }
     }
     pub fn configure(&mut self, enabled: bool) -> Result<Status, String> {

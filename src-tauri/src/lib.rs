@@ -886,16 +886,17 @@ fn calendar_reminder_take_open(state:State<'_,reminders::State>,notifications:St
  Ok(m.pending.take().and_then(|(session,own,event)|(m.status().enabled&&n.tracker.session==session&&n.tracker.own.as_deref()==Some(&own)).then_some(event)))
 }
 fn scan_calendar_reminders(app:&tauri::AppHandle,auth:&AuthState,notifications:&notifications::State,state:&reminders::State)->Result<(),String>{
- if !state.0.lock().map_err(|_|"Calendar reminders unavailable")?.status().enabled{return Ok(());}
- let (own,session)={let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let Some(own)=n.tracker.own.clone()else{return Ok(());};(own,n.tracker.session.clone())};
+ {let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;if !m.status().enabled{return Ok(());}m.last_check=Some(notifications::now());m.summary="Checking Outlook reminders…".into();}
+ let (own,session)={let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let Some(own)=n.tracker.own.clone()else{state.0.lock().map_err(|_|"Calendar reminders unavailable")?.summary="Waiting for a connected Microsoft 365 account.".into();return Ok(());};(own,n.tracker.session.clone())};
  let scopes=collaboration_scopes(auth)?;let permitted=scope_has(&scopes,"Calendars.Read")||scope_has(&scopes,"Calendars.ReadWrite");
  let token=get_access_token(auth)?;
  let mut request=|path:&str|meeting_request(&token,"GET",path,Value::Null);
  let due=reminders::candidates(notifications::now(),permitted,&own,&mut request)?;
+ let due_count=due.len();let mut duplicates=0;let mut skipped=0;let mut requested=0;
  for item in due{
   let now=notifications::now();if item.fire<now-120000{continue;}
-  if state.0.lock().map_err(|_|"Calendar reminders unavailable")?.seen(&own,&item){continue;}
-  let Some(event)=reminders::verified(&item,&mut request)else{continue;};
+  if state.0.lock().map_err(|_|"Calendar reminders unavailable")?.seen(&own,&item){duplicates+=1;continue;}
+  let Some(event)=reminders::verified(&item,&mut request)else{skipped+=1;continue;};
   let now=notifications::now();if item.start<now-120000||item.fire<now-120000{continue;}
   // Serialize delivery with account reset so an in-flight old-account read
   // cannot display a banner after sign-out or account replacement.
@@ -903,9 +904,10 @@ fn scan_calendar_reminders(app:&tauri::AppHandle,auth:&AuthState,notifications:&
   if n.tracker.session!=session||n.tracker.own.as_deref()!=Some(&own){return Ok(());}
   let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;
   let Some(id)=m.reserve(&own,&session,&item,now)?else{continue;};
+  m.last_request=Some(now);requested+=1;
   app.notification().builder().id(id).title("TAUT · Calendar reminder").body(reminders::banner(&event)).extra("tautSession",&session).extra("tautCalendar",true).show().map_err(|_|"A Calendar reminder could not be requested. Check system notification settings.")?;
  }
- state.0.lock().map_err(|_|"Calendar reminders unavailable")?.error=None;Ok(())
+ let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;m.error=None;m.summary=format!("{due_count} reminders due in the last two minutes; {requested} banner requests, {duplicates} already requested, {skipped} changed or unavailable.");Ok(())
 }
 fn setup_calendar_reminders(app:&mut tauri::App){
  let state=app.state::<reminders::State>().inner().clone();let notifications=app.state::<notifications::State>().inner().clone();let auth=AuthState(app.state::<AuthState>().0.clone());let handle=app.handle().clone();
