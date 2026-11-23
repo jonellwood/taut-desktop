@@ -83,3 +83,5 @@ Both ZIP contents/checksums were independently verified after download without e
 Pilot update November 20: approximately nine people are testing on Windows and feedback has been positive. Future installer builds wait for an explicitly agreed release; feature work accumulates between releases.
 
 Development follow-up (not in shipped alpha.2): new daily/weekly meeting series with interval, weekdays and end date/count. Availability covers the first occurrence only; manage series changes in Outlook. Await native acceptance and the next agreed release before distributing an installer.
+
+Calendar reminders (development, not shipped alpha.2): enable separately in Settings → Calendar. Uses Outlook reminder timing while TAUT runs, title/start-time banners, persistent duplicate prevention and event navigation. Native banner/click acceptance is pending; on Windows the notification plugin reports clicks while the toast is visible, not from Action Center. No installer has been rebuilt for this change.

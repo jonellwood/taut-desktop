@@ -24,6 +24,7 @@
  let mailDetailsAvailable=$state(false);
  import MailSignatureSettings from './lib/MailSignatureSettings.svelte';
  import type {CalendarEvent} from './lib/calendar';
+ let calendarNavigation=$state(0),reminderOpenError=$state('');
  let calendarTarget=$state<{ownId:string;event:CalendarEvent}|null>(null);
  import CalendarWorkspace from './lib/CalendarWorkspace.svelte';
  let calendarDetailsAvailable=$state(false);
@@ -466,8 +467,8 @@
      presenceClock=Date.now();
      const elapsed=++seconds;
      if(elapsed%30===0)void refreshPresence();
+     if(elapsed%5===0)void consumeNotificationOpen();
      if(notificationSettings.enabled&&!document.hasFocus())return;
-     if(notificationSettings.enabled&&elapsed%5===0)void consumeNotificationOpen();
      if (elapsed%5===0 && selectedId && selectedId!=='empty' && !sendBusy && !operationBusy) {
        if (!pollingMessages && !refreshBusy) {
          pollingMessages=true;
@@ -507,15 +508,25 @@
    const atLatest=Boolean(chatId&&selected.messages.length&&!jumpVisible&&!settingsOpen&&!newChatOpen&&!paletteOpen&&!discoveryOpen&&!lightbox&&!changeTarget&&!emojiTarget&&!authBusy);
    void invoke('notification_view',{chatId,atLatest}).catch(()=>{});
  });
+ let consumingNotification=false;
  async function consumeNotificationOpen(){
-   if(!isLive||authBusy||operationBusy||sendBusy||stagingBusy||groupBusy)return;
-   try{const id=await invoke<string|null>('notification_take_open');if(id){await syncChatList();if(chats.some(c=>c.id===id&&!c.hidden)){settingsOpen=false;newChatOpen=false;paletteOpen=false;lightbox=null;changeTarget=null;emojiTarget=null;selectChat(id,true);}}}
+   if(!isLive||authBusy||operationBusy||sendBusy||stagingBusy||groupBusy||consumingNotification)return;
+   consumingNotification=true;const account=ownId;const session=nameSession;
+   try{
+    const eventId=await invoke<string|null>('calendar_reminder_take_open');
+    if(eventId){
+     try{const result=await invoke<{event:CalendarEvent}>('calendar_event',{eventId,messageId:null});if(!isLive||ownId!==account||nameSession!==session)return;if(!result.event)throw Error();settingsOpen=false;newChatOpen=false;paletteOpen=false;lightbox=null;changeTarget=null;emojiTarget=null;reminderOpenError='';calendarTarget={ownId:account,event:result.event};calendarNavigation++;sidebarOpen=true;detailsOpen=true;mode='calendar';}
+     catch{if(isLive&&ownId===account&&nameSession===session)reminderOpenError='The reminder’s event could not be opened. It may have been removed or changed. Open Calendar or check Outlook.';}
+     return;
+    }
+    const id=await invoke<string|null>('notification_take_open');if(id){await syncChatList();if(chats.some(c=>c.id===id&&!c.hidden)){settingsOpen=false;newChatOpen=false;paletteOpen=false;lightbox=null;changeTarget=null;emojiTarget=null;selectChat(id,true);}}}
    catch{/* A notification click never changes authentication or retries a write. */}
+   finally{consumingNotification=false;}
  }
  function windowFocused(){
    markVisibleRead();
    if(notificationSettings.enabled)void loadNotificationSettings();
-   if(isLive&&notificationSettings.enabled&&!authBusy&&!operationBusy)void(async()=>{await consumeNotificationOpen();await syncChatList().catch(markSyncError);})();
+   if(isLive&&!authBusy&&!operationBusy)void(async()=>{await consumeNotificationOpen();if(notificationSettings.enabled)await syncChatList().catch(markSyncError);})();
  }
  function markSyncError(e:unknown,source:'messages'|'chats'='chats') {
    syncIssues[source]=true;
@@ -1093,7 +1104,7 @@
  {/if}
  <main class="main">
   {#if mode==='teams'}{#key ownId}<TeamsWorkspace presencePermitted={collaboration.readPresence} onCloseDetails={()=>detailsOpen=false} drafts={channelDrafts} sendBusy={sendBusy} onSendBusy={(busy)=>sendBusy=busy} {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
-  {:else if mode==='calendar'}{#key `${ownId}:${isLive}`}<CalendarWorkspace initialEvent={calendarTarget?.ownId===ownId?calendarTarget.event:null} onNavigationHandled={()=>calendarTarget=null} {ownId} {isLive} {sidebarOpen} {detailsOpen} onOpenDetails={()=>detailsOpen=true} onDetailsAvailable={value=>calendarDetailsAvailable=value} onCloseDetails={()=>detailsOpen=false} onSignIn={signIn}/>{/key}
+  {:else if mode==='calendar'}{#key `${ownId}:${isLive}:${calendarNavigation}`}<CalendarWorkspace initialEvent={calendarTarget?.ownId===ownId?calendarTarget.event:null} onNavigationHandled={()=>calendarTarget=null} {ownId} {isLive} {sidebarOpen} {detailsOpen} onOpenDetails={()=>detailsOpen=true} onDetailsAvailable={value=>calendarDetailsAvailable=value} onCloseDetails={()=>detailsOpen=false} onSignIn={signIn}/>{/key}
   {:else if mode==='mail'}{#key `${ownId}:${isLive}:${mailNavigation}`}<MailWorkspace inboxUnread={mailCount} unreadStale={mailCountStale} syncRevision={mailSync} onMailboxChanged={()=>mailCountRefresh++} onOpenCalendar={event=>{calendarTarget={ownId,event};sidebarOpen=true;detailsOpen=true;mode='calendar';}} readDelay={mailReadDelay} {detailsOpen} onDetails={open=>detailsOpen=open} onDetailsAvailable={value=>mailDetailsAvailable=value} {ownId} {ownMailAddresses} defaultPresentation={mailPresentation} initialDraft={chatEmailDraft} onRecipientHandled={()=>{mailRecipient='';chatEmailDraft=null;}} initialRecipient={mailRecipient} initialMessage={mailOpen} {isLive} {sidebarOpen} {authBusy} onSidebar={open=>sidebarOpen=open} onSignIn={signIn}/>{/key}
   {:else if mode==='people'}{#key `${ownId}:${isLive}`}<PeopleWorkspace {isLive} {ownId} {sidebarOpen} {detailsOpen} connections={chats} members={Object.fromEntries(knownChats.map(chat=>[chat.id,(chat.members??[]).map(member=>member.userId??'')]))} onOpenChat={id=>{mode='chats';void discoverChat(id,'');}} onOpenMail={discoverMail} presencePermitted={collaboration.readPresence} onChat={peopleChat} onEmail={peopleEmail} onSignIn={signIn}/>{/key}
   {:else if mode==='chats'}
@@ -1156,7 +1167,8 @@
  </main>
  {#if detailsOpen&&mode==='chats'&&activeThread}<ChatThread formatted={formattedReplies[replyKey]??false} onFormat={value=>formattedReplies[replyKey]=value} replyText={replyDrafts[replyKey]??''} sendError={replyErrors[replyKey]??''} uncertain={replyUncertain[replyKey]??false} disabled={sendBusy||stagingBusy||authBusy||operationBusy||groupBusy||reauthRequired||!!selected.hidden||!threadRoot||!!threadRoot.deleted} onText={(text)=>replyDrafts[replyKey]=text} onSend={sendQuotedReply} onAcknowledge={()=>{replyUncertain[replyKey]=false;replyErrors[replyKey]='';}} onRefresh={()=>loadMessages(selected.id,'manual')} root={threadRoot} replies={threadMessages} loading={quotedLoading} error={quotedError} chatName={selected.name} group={selected.chatType==='group'} onClose={closeReplyThread} onRetry={()=>activeThread&&openReplyThread(activeThread.rootId)} onOpenFile={openAttachment} onViewImage={viewThreadImage} onViewConversation={viewQuotedInConversation}/>{:else if detailsOpen&&mode==='chats'&&selected.id!=='empty'}<aside class="details" aria-label="Conversation details"><div class="details-title"><strong>Conversation</strong><button aria-label="Close details" title="Close details" onclick={()=>detailsOpen=false}><X size={17}/></button></div><div class="profile"><span class="avatar big-avatar">{selected.initials}</span><h3>{selected.name}</h3><span class="status"><span class="live-dot" class:presence-muted={chatPresence(selected).label==='Presence unavailable'} style:color={chatPresence(selected).color} style:background={chatPresence(selected).color}></span>{chatPresence(selected).label}</span></div>{#if isLive && selected.chatType==='group' && !selected.id.startsWith('pending:')}{#key selected.id}<GroupMembers presencePermitted={collaboration.readPresence} chatId={selected.id} {ownId} permitted={groupMemberPermission} disabled={sendBusy||stagingBusy||operationBusy||authBusy||reauthRequired} onBusyChange={busy=>groupBusy=busy} onChanged={()=>{void syncChatList().catch(markSyncError)}} onLeft={leaveGroupLocally}/>{/key}{/if}{#key selected.id}<SharedMedia messages={selected.messages} onFile={openAttachment} onLink={url=>{if(safeMessageLink(url))void openUrl(url).catch(()=>fileOpenError='The link could not be opened.');}} onImage={async(messageId,imageId)=>{const chatId=selected.id;const session=nameSession;const key=mediaKey(chatId,messageId,imageId);if(!imageCache[key])await loadImage(chatId,messageId,imageId);if(session!==nameSession||selected.id!==chatId)return;if(!selected.messages.some(m=>m.id===messageId&&!m.deleted&&m.images?.some(i=>i.id===imageId)))return;if(!imageCache[key])throw new Error('Image unavailable');openImageViewer(imageCache[key]);}}/>{/key}<div class="detail-section"><div class="detail-heading">WORKSPACE</div>{#if isLive && legacyDiagnostics[selected.id]}<p title="Names are returned only where Graph exposes them">{legacyDiagnostics[selected.id]}</p>{/if}<button class="detail-action" onclick={()=>detailsOpen=false}><PanelRightClose size={16}/> Hide details <ChevronRight size={14}/></button></div><div class="details-bottom">{isLive?"MICROSOFT 365 · CONNECTED":"NOT CONNECTED"}</div></aside>{/if}
 </div>
-<footer class="workspace-status" aria-label="Workspace status" class:warning={!!attachmentInputNotice||reauthRequired||!!authError||!!readError||!!persistenceNotice||isLive&&syncStatus==='offline'}>
+{#if reminderOpenError}<div role="alert" class="notification-error">{reminderOpenError}<button type="button" onclick={()=>reminderOpenError=''}>Dismiss</button></div>{/if}
+ <footer class="workspace-status" aria-label="Workspace status" class:warning={!!attachmentInputNotice||reauthRequired||!!authError||!!readError||!!persistenceNotice||isLive&&syncStatus==='offline'}>
  {#if reauthRequired}<div role="status"><span>Microsoft requires a fresh sign-in. Your drafts remain in this session.</span><button type="button" disabled={authBusy||sendBusy||stagingBusy||groupBusy||operationBusy} onclick={signIn}>Reconnect</button></div>
  {:else if authError}<div role="alert"><span>{authError}</span><button type="button" onclick={()=>authError=''} aria-label="Dismiss error">×</button></div>
  {:else if readError}<div role="status"><span>{readError}</span><button type="button" aria-label="Dismiss read status notice" onclick={()=>readError=''}>×</button></div>

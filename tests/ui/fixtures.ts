@@ -82,6 +82,8 @@ export class MockGraph {
   mailFiles:any[]=[{id:'file-1',name:'project.txt',contentType:'text/plain',size:5}];
   mailFile={contentType:'text/plain',base64:'aGVsbG8='};
   mailSaveResult=true;
+  reminderSettings:{enabled:boolean;error:string|null}={enabled:false,error:null};
+  reminderError='';pendingReminderEvent:string|null=null;
   notificationSettings={enabled:false,showNames:false,error:null as string|null};
   notificationConfigError='';
   notificationTestError='';
@@ -190,6 +192,9 @@ export class MockGraph {
         const q=args.query;
         return this.teamPages[q.next??`${q.collection}:${q.teamId??''}:${q.channelId??''}:${q.messageId??''}`]??{value:this.teamData[q.collection]??[],next:null};
       }
+      case 'calendar_reminder_settings': return this.reminderSettings;
+      case 'calendar_reminder_configure': if(this.reminderError)throw Error(this.reminderError);this.reminderSettings={enabled:args.enabled,error:null};return this.reminderSettings;
+      case 'calendar_reminder_take_open': {const id=this.pendingReminderEvent;this.pendingReminderEvent=null;return id;}
       case 'notification_settings': return this.notificationSettings;
       case 'notification_view': return null;
       case 'notification_configure':
