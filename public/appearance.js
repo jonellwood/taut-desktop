@@ -15,6 +15,7 @@
   const increased=settings.contrast==='increased'||settings.contrast==='system'&&contrast.matches;
   Object.assign(document.documentElement.dataset,{theme,accent:settings.accent,contrast:increased?'increased':'standard'});
   document.documentElement.style.colorScheme=theme;
+  document.querySelector('link[rel=icon]')?.setAttribute('href',`/icons/${settings.accent}.png`);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme==='dark'?'#10151a':'#e9e9e3');
  }
  window.tautAppearance={get:()=>({...settings}),set:value=>{settings=read(value);try{localStorage.setItem(key,JSON.stringify(settings));}catch{}apply();}};

@@ -249,3 +249,15 @@ test('move during a pending body read releases loading state after failure',asyn
  await expect(page.locator('.mail-response-actions')).toBeVisible();
  expect(graph.calls.filter(c=>c.command==='mail_move_deleted')).toHaveLength(1);
 });
+
+for(const preference of ['plain','html'] as const)for(const initiallyRead of [false,true])test(`explicit ${preference==='plain'?'HTML':'plain'} choice survives read-state updates (default ${preference}, read ${initiallyRead})`,async({page,graph})=>{
+ graph.mailMessages[0].isRead=initiallyRead;graph.mailMessages[0].body={contentType:'html',content:'<h2>Stable reading choice</h2>'};
+ await page.addInitScript(({preference})=>{if(window!==window.top)return;localStorage.setItem('taut.mail.presentation.v1',preference);localStorage.setItem('taut.mail.read-delay.v1','3');Object.defineProperty(document,'hasFocus',{configurable:true,value:()=>true});},{preference});
+ await signIn(page);await openMail(page);await mailRow(page).click();
+ const choice=page.getByRole('button',{name:preference==='plain'?'HTML':'Plain text',exact:true});await choice.click();await expect(choice).toHaveAttribute('aria-pressed','true');
+ await page.locator('.mail-read-marker').scrollIntoViewIfNeeded();await page.clock.runFor(3800);
+ if(!initiallyRead)await expect(page.getByRole('button',{name:'Mark unread',exact:true})).toBeVisible();
+ await expect(choice).toHaveAttribute('aria-pressed','true');
+ await page.getByRole('button',{name:'Mark unread',exact:true}).click();await expect(page.getByRole('button',{name:'Mark read',exact:true})).toBeVisible();await expect(choice).toHaveAttribute('aria-pressed','true');
+ expect(await page.evaluate(()=>localStorage.getItem('taut.mail.presentation.v1'))).toBe(preference);
+});

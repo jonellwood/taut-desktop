@@ -1,4 +1,5 @@
 <script lang="ts">
+ import MeetingConflicts from './MeetingConflicts.svelte';
  import MeetingDateTime from './MeetingDateTime.svelte';
  import {onMount,onDestroy} from 'svelte';
  import {invoke} from '@tauri-apps/api/core';
@@ -42,7 +43,8 @@
  {#if event&&form}<div class="original"><strong>{event.subject||'Untitled meeting'}</strong><p>{eventDay(event)} · {eventWhen(event)}</p><p>Current room: {currentRoom?.emailAddress?.name||currentRoom?.emailAddress?.address||event.location?.displayName||'None'}</p></div>
  {#if mode==='edit'}<fieldset disabled={busy||attempted}>
  <label>Subject<input maxlength="255" bind:value={form.subject}/></label>
- <div class="times"><MeetingDateTime label="Start" precise value={form.start} disabled={event.isAllDay!==false} onChange={value=>{if(form)form.start=value;}}/><MeetingDateTime label="End" precise value={form.end} disabled={event.isAllDay!==false} onChange={value=>{if(form)form.end=value;}}/></div><small>Times are in {Intl.DateTimeFormat().resolvedOptions().timeZone}. All-day times are edited in Outlook.</small>
+ <div class="times"><MeetingDateTime label="Start" value={form.start} disabled={event.isAllDay!==false} onChange={value=>{if(form)form.start=value;}}/><MeetingDateTime label="End" value={form.end} disabled={event.isAllDay!==false} onChange={value=>{if(form)form.end=value;}}/></div><small>Times are in {Intl.DateTimeFormat().resolvedOptions().timeZone}. All-day times are edited in Outlook.</small>
+ <MeetingConflicts start={form.start} end={form.end} exclude={eventId}/>
  <MailRecipient label="Required attendees" value={form.required} {ownId} onFocus={()=>{}} onChange={value=>form&&(form.required=value)}/>
  <MailRecipient label="Optional attendees" value={form.optional} {ownId} onFocus={()=>{}} onChange={value=>form&&(form.optional=value)}/>
  {#if canReplaceDescription(event)}<label>Description<textarea rows="6" maxlength="64000" bind:value={form.description}></textarea></label>{:else}<p class="note">The existing formatted or online-meeting description is preserved.</p><details><summary>Existing description</summary><pre>{receivedText(event.body,event.bodyPreview??'')}</pre></details><label>Add a description note<textarea rows="4" maxlength="4000" bind:value={form.note}></textarea></label>{/if}
@@ -53,7 +55,8 @@
  <footer><button disabled={busy} onclick={()=>discard=true}>Discard local changes</button></footer>{/if}
  </div>
 </section>
-{#if review&&event&&form}<MailConfirm title={mode==='edit'?'Review meeting changes':'Review meeting cancellation'} confirmLabel={mode==='edit'?'Send meeting update':'Cancel meeting & notify attendees'} cancelLabel="Keep editing" onClose={()=>review=false} onConfirm={send}>
+
+{#if review&&event&&form}<MailConfirm title={mode==='edit'?'Review meeting changes':'Review meeting cancellation'} confirmLabel={mode==='edit'?'Send meeting update':'Cancel meeting & notify attendees'} cancelLabel="Keep editing" onClose={()=>review=false} onConfirm={send}>{#if mode==='edit'}<MeetingConflicts start={form.start} end={form.end} exclude={eventId} review/>{/if}
  <p><strong>{event.subject}</strong></p>{#if mode==='edit'}<ul>{#if changes.subject!==undefined}<li>Subject: {event.subject} → {changes.subject}</li>{/if}{#if changes.start}<li>Time: {new Date(changes.start).toLocaleString()} – {new Date(changes.end!).toLocaleString()}</li>{/if}{#if changes.description!==undefined}<li>Replace the plain-text description:<pre class="review-description">{changes.description||'(empty description)'}</pre></li>{/if}{#if changes.descriptionNote}<li>Add note: {changes.descriptionNote}</li>{/if}{#if changes.people}<li>Attendees: {changes.people.map(p=>`${p.address} (${p.kind})`).join('; ')||'None'}</li>{/if}{#if changes.changeRoom}<li>Room / location: {currentRoom?.emailAddress?.name||event.location?.displayName||'None'} → {changes.room?.displayName||'None (location cleared)'}</li>{/if}</ul><p>This updates the existing meeting. Microsoft 365 can notify attendees of the changes. Any new room must accept its booking.</p>{:else}<p>{eventDay(event)} · {eventWhen(event)}</p><p>Room: {currentRoom?.emailAddress?.name||currentRoom?.emailAddress?.address||event.location?.displayName||'None'}</p><p>Cancel this meeting for everyone, including any room resource. Microsoft 365 will send cancellation messages and move the organizer's event to Deleted Items.</p>{#if comment}<blockquote>{comment}</blockquote>{/if}{/if}
 </MailConfirm>{/if}
 {#if discard}<MailConfirm title="Discard local meeting changes?" confirmLabel="Discard local changes" onClose={()=>discard=false} onConfirm={()=>{if(draftKey)localStorage.removeItem(draftKey);ready=false;onClose();}}><p>This removes only the local editor draft. It does not undo any update or cancellation already submitted.</p></MailConfirm>{/if}

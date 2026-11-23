@@ -7,3 +7,5 @@ src-tauri/gen/schemas/
 .DS_Store
 playwright-report/
 test-results/
+
+/release-artifacts/

@@ -16,19 +16,19 @@ test('clicking time opens an actual picker and applying updates the default end'
  graph.restoredSession=true;await page.goto('/');await open(page);await start(page);
  await page.getByLabel('Start time',{exact:true}).click();
  const picker=page.getByRole('dialog',{name:'Start time picker',exact:true});await expect(picker).toBeVisible();
- await picker.getByRole('combobox',{name:'Hour',exact:true}).selectOption('12');await picker.getByRole('combobox',{name:'Minute',exact:true}).selectOption('15');await picker.getByRole('combobox',{name:'AM or PM',exact:true}).selectOption('PM');
+ await picker.getByRole('listbox',{name:'Hour',exact:true}).getByRole('option',{name:'12',exact:true}).click();await picker.getByRole('listbox',{name:'Minute',exact:true}).getByRole('option',{name:'15',exact:true}).click();await picker.getByRole('button',{name:'PM',exact:true}).click();
  await page.screenshot({path:info.outputPath('time-picker.png')});await picker.getByRole('button',{name:'Set time',exact:true}).click();
  await expect(page.getByLabel('Start time',{exact:true})).toHaveValue('12:15');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('12:45');
- await page.getByRole('button',{name:'Choose start time',exact:true}).click();await picker.getByRole('combobox',{name:'AM or PM',exact:true}).selectOption('AM');await picker.getByRole('button',{name:'Set time',exact:true}).click();
+ await page.getByRole('button',{name:'Choose start time',exact:true}).click();await picker.getByRole('button',{name:'AM',exact:true}).click();await picker.getByRole('button',{name:'Set time',exact:true}).click();
  await expect(page.getByLabel('Start time',{exact:true})).toHaveValue('00:15');expect(graph.writes).toEqual([]);
 });
 test('picker cancellation and Escape leave times unchanged, while an end choice remains manual',async({page,graph})=>{
  graph.restoredSession=true;await page.goto('/');await open(page);await start(page);
  await page.getByRole('button',{name:'Choose end time',exact:true}).click();
- const picker=page.getByRole('dialog',{name:'End time picker',exact:true});await picker.getByRole('combobox',{name:'Hour',exact:true}).selectOption('4');await picker.getByRole('button',{name:'Cancel',exact:true}).click();
+ const picker=page.getByRole('dialog',{name:'End time picker',exact:true});await picker.getByRole('listbox',{name:'Hour',exact:true}).getByRole('option',{name:'04',exact:true}).click();await picker.getByRole('button',{name:'Cancel',exact:true}).click();
  await expect(page.getByLabel('End time',{exact:true})).toHaveValue('10:30');
  await page.getByRole('button',{name:'Choose end time',exact:true}).click();await page.keyboard.press('Escape');await expect(picker).toHaveCount(0);await expect(page.getByLabel('End time',{exact:true})).toBeFocused();
- await page.getByRole('button',{name:'Choose end time',exact:true}).click();await picker.getByRole('combobox',{name:'Hour',exact:true}).selectOption('11');await picker.getByRole('button',{name:'Set time',exact:true}).click();
+ await page.getByRole('button',{name:'Choose end time',exact:true}).click();await picker.getByRole('listbox',{name:'Hour',exact:true}).getByRole('option',{name:'11',exact:true}).click();await picker.getByRole('button',{name:'Set time',exact:true}).click();
  await page.getByLabel('Start time',{exact:true}).fill('10:15');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('11:30');expect(graph.writes).toEqual([]);
 });
 test('show summary control appears only while the details panel is closed',async({page,graph})=>{
@@ -70,4 +70,16 @@ test('availability explains missing inputs and is independent from creating a so
  await start(page);await page.getByLabel('Subject',{exact:true}).fill('Solo planning');
  await expect(page.getByText('Add an attendee or room to check availability. You can still create a meeting without either.',{exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Review meeting',exact:true})).toBeEnabled();expect(graph.writes).toEqual([]);
+});
+
+test('five-minute wheels preserve typed exact minutes and support keyboard selection',async({page,graph})=>{
+ graph.restoredSession=true;await page.goto('/');await open(page);await start(page,'2026-11-23','12:17');
+ const field=page.getByLabel('Start time',{exact:true});await expect(page.getByLabel('End time',{exact:true})).toHaveValue('12:47');
+ const picker=page.getByRole('dialog',{name:'Start time picker',exact:true});
+ for(let attempt=0;attempt<2;attempt++){
+  await page.getByRole('button',{name:'Choose start time',exact:true}).click();
+  const minute=picker.getByRole('listbox',{name:'Minute',exact:true});await expect(minute.getByRole('option')).toHaveCount(12);await expect(minute.getByRole('option',{name:'17',exact:true})).toHaveCount(0);
+  await expect(picker).toContainText('Exact minute 17 is kept');await picker.getByRole('button',{name:'Set time',exact:true}).click();await expect(field).toHaveValue('12:17');
+ }
+ await page.getByRole('button',{name:'Choose start time',exact:true}).click();const minute=picker.getByRole('listbox',{name:'Minute',exact:true});await minute.focus();await page.keyboard.press('ArrowDown');await picker.getByRole('button',{name:'Set time',exact:true}).click();await expect(field).toHaveValue('12:20');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('12:50');expect(graph.writes).toEqual([]);
 });

@@ -4034,11 +4034,14 @@ dependencies = [
 
 [[package]]
 name = "taut_desktop"
-version = "1.4.4-alpha.2"
+version = "1.4.4-alpha.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "chrono-tz",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "percent-encoding",
  "rand 0.8.8",
  "reqwest 0.12.28",

@@ -200,6 +200,7 @@ export class MockGraph {
       case 'calendar_reminder_settings': return this.reminderSettings;
       case 'calendar_reminder_configure': if(this.reminderError)throw Error(this.reminderError);this.reminderSettings={enabled:args.enabled,error:null};return this.reminderSettings;
       case 'calendar_reminder_take_open': {const id=this.pendingReminderEvent;this.pendingReminderEvent=null;return id;}
+      case 'app_icon_accent': return null;
       case 'notification_settings': return this.notificationSettings;
       case 'notification_view': return null;
       case 'notification_configure':

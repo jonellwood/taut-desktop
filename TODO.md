@@ -18,7 +18,7 @@ The three-item implementation queue is complete; signature sending and the recei
 
 ## Platform testing — near term
 
-- [ ] **Installable macOS alpha for a tester.** Prepare an installable package for another Mac user, confirm their Mac architecture and distribution/signing requirements, and document installation and basic acceptance checks. Build only when explicitly agreed.
+- [x] **Installable macOS alpha for a tester.** Apple Silicon alpha.3 DMG built and verified November 23; ad-hoc signed, not notarized. See MACOS_ALPHA.md. Clean-machine tester acceptance pending. Prepare an installable package for another Mac user, confirm their Mac architecture and distribution/signing requirements, and document installation and basic acceptance checks. Build only when explicitly agreed.
 - [ ] **iOS build for the user's iPhone.** Assess mobile compatibility and required UI/native adaptations, configure device signing/provisioning, and prepare a build the user can install on their own iPhone. This is a personal device test, not an App Store release. Build only when explicitly agreed.
 
 Both items were requested November 22 for the near future; no implementation or build is requested now.
@@ -60,12 +60,15 @@ Both items were requested November 22 for the near future; no implementation or 
 - [x] Calendar reminders using Outlook timing, opt-in desktop notifications while TAUT runs, durable duplicate prevention and open-event routing. Mocked checks pass; native acceptance and next agreed release pending.
 - [x] TAUT reminder cards: four corner positions, local countdown/time, Join/Open, persistent five-minute snooze, dismiss and stacked simultaneous meetings. Mocked checks pass; native window/focus/action acceptance pending.
 - [ ] Investigate missed/late reminders and snoozed cards disappearing after Outlook dismissal. The local pending queue was empty after the failed snooze; removal reason is not yet recorded. Verify before considering native reminder acceptance complete.
+- [x] Advisory meeting conflict warnings during composition/editing and review, with Calendar overlap indicators. Creation remains allowed. Loaded events give immediate warnings; read-only Calendar range checks refresh them, including review. Cancelled/Free/declined events and the edited event are excluded; tentative and unavailable coverage are distinguished. Recurring checks cover the first occurrence only. User confirmed warnings November 23.
+- [ ] Reminder card size preference: Full size / Compact; user requested as a future enhancement after testing simultaneous cards.
 - [ ] Calendar reminder follow-ups: custom timing, optional sound and reminder inbox. Initial timing stays in Outlook.
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
 - [x] New daily/weekly recurring meetings with weekdays, interval, explicit end date or occurrence count; named time zone retained across daylight saving. Pending native acceptance and next agreed release.
 - [ ] Calendar follow-ups: recurring series editing, monthly/yearly patterns, and adding Teams links to existing offline meetings. Organizer edits/cancellation are implemented for single meetings; manage recurring series in Outlook.
 - [x] Teams meeting option for new Calendar events, supported-provider check, reviewed hybrid room/people invitations and safe Join Teams meeting action in details. Mocked validation complete; manual tenant acceptance pending and queued for next agreed installer release.
 - [x] Meeting time-entry refinement: separate date/time controls for creation/editing; Settings → Calendar default meeting length; auto-fill new draft end times while preserving manual overrides; explain availability prerequisites and optional hybrid rooms. Mocked validation complete; native Mac acceptance pending.
+- [x] Time picker redesign: hour/minute wheels with five-minute choices and explicit AM/PM buttons; direct typing accepts exact minutes. Unchanged off-grid values and stored precision are preserved; normal fields hide seconds/milliseconds. Mocked Chromium/WebKit checks pass; manual Mac acceptance pending.
 - [x] Click-to-open meeting time picker with hour/minute/AM–PM controls, keyboard entry and cancel/Escape behavior. Hide Show meeting summary while the details panel is open. Manual Mac acceptance pending.
 - [x] Matching accented calendar/clock icons and automatic focus from a committed date to its corresponding time field. Browser validation complete; native Mac acceptance pending.
 
@@ -79,7 +82,7 @@ Both items were requested November 22 for the near future; no implementation or 
 
 ## Polish and validation
 
-- [ ] Mail presentation resets after automatic mark-as-read (reported November 23; reproduced three times): with Plain text as the default and automatic read delay set to 3 seconds, open an unread email and switch it to HTML before the delay expires. It unexpectedly returns to Plain text around the read-state update. Already-read emails retain the HTML selection. Suspected cause, not yet verified: read-state refresh/remount reapplies the default presentation. Preserve the current message's explicit presentation choice across read-state updates; regression coverage should include unread/read messages and both default modes.
+- [x] Mail presentation reset after automatic mark-as-read: explicit HTML/plain choice is scoped to message ID and survives read/unread object refreshes, without changing the default. Regression checks cover both defaults, initially read/unread messages, automatic read and manual unread. User confirmed the fix November 23; existing Mac alpha.3 DMG predates it.
 - [ ] Styled rail tooltips for hover/focus and an optional persistent navigation-label preference.
 - [ ] Consistent context menus while preserving useful native text/copy/writing tools.
 - [ ] Additional syntax languages as needed.
@@ -91,6 +94,6 @@ Both items were requested November 22 for the near future; no implementation or 
 - [ ] Manual Mail edge cases: Inbox unread count and external Outlook read/unread synchronization, government-tenant policy, long pagination, forwarded original attachment fidelity. New mail sending, replies, draft restart and PDF save were user-validated.
 - [ ] Native macOS notification click routing and OS appearance/contrast changes. Banner delivery was user-validated; automated theme/contrast coverage passes.
 - [ ] Remaining formatted-message round-trip edge cases in channels and quoted replies; long PHP send and IDE copy were user-validated.
-- [ ] Optional accent-matched Dock icon, later.
+- [x] Accent-matched runtime app icon, promoted by user November 23: five accent variants; macOS Dock and Windows/Linux main-window icon updates, browser favicon, saved-accent restoration. Bundle/Finder/installer icons remain unchanged. Native macOS compile and mocked appearance checks pass; user confirmed the Dock icon November 23.
 - [ ] Looping feature showcase after core workflows settle.
 - [ ] Desktop alpha after Calendar acceptance: Windows 11 ARM64 first (two testers), macOS second (one tester), Linux deferred (tentative tester). Windows compatibility implementation and build pipeline are prepared; see WINDOWS_ALPHA.md. First ARM64 installer built and checksum verified; clean-device native acceptance remains pending; installer/clean-machine verification and Settings feedback link to GitHub Issues (implemented per user preference). Recurring editing remains deferred. New Teams meeting links are implemented in development and await manual acceptance/next agreed release; shipped alpha.2 does not include them.

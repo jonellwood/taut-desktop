@@ -217,6 +217,7 @@
  let mailPresentation=$state<'html'|'plain'>(localStorage.getItem('taut.mail.presentation.v1')==='plain'?'plain':'html');
  $effect(()=>{localStorage.setItem('taut.mail.presentation.v1',mailPresentation);});
  $effect(()=>{appearanceBridge.set({...appearance,accent});});
+ $effect(()=>{const chosen=accent;void invoke('app_icon_accent',{accent:chosen}).catch(()=>{});});
  let dense=$state(false);
  let sidebarWidth=$state(306);
  let dragStart=$state(false);

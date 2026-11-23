@@ -9,6 +9,8 @@ for(const theme of ['light','dark']) for(const contrast of ['standard','increase
   for(const accent of ['amber','teal','violet','blue','rose']) {
    await page.getByRole('button',{name:`${accent} accent`,exact:true}).click();
    await expect(page.locator('html')).toHaveAttribute('data-accent',accent);
+   await expect(page.locator('link[rel=icon]')).toHaveAttribute('href',`/icons/${accent}.png`);
+   await expect.poll(()=>graph.calls.filter(c=>c.command==='app_icon_accent').at(-1)?.args.accent).toBe(accent);
    const colors=await page.evaluate(()=>{
     const style=getComputedStyle(document.documentElement);
     return [style.getPropertyValue('--text-primary'),style.getPropertyValue('--surface-base')];

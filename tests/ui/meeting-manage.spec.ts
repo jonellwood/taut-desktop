@@ -80,3 +80,14 @@ test('primary meeting review stays visible while scrolling and closing never sen
  await page.screenshot({path:info.outputPath('sticky-meeting-review.png')});await review.click();await expect(page.getByRole('dialog',{name:'Review meeting changes'})).toContainText('Visible review action');expect(graph.writes).toEqual([]);
  await page.getByRole('button',{name:'Keep editing',exact:true}).click();await editor.getByRole('button',{name:'Close editor',exact:true}).click();expect(graph.writes).toEqual([]);await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Visible review action');
 });
+
+
+test('opening and applying an unchanged picker preserves stored seconds during subject-only edit',async({page,graph})=>{
+ organizer(graph);graph.calendarEvents[0].start.dateTime='2026-11-23T15:17:42.123';graph.calendarEvents[0].start.timeZone='UTC';graph.calendarEvents[0].end.dateTime='2026-11-23T15:47:42.123';graph.calendarEvents[0].end.timeZone='UTC';
+ await page.goto('/');await select(page);await edit(page);
+ const field=page.getByLabel('Start time',{exact:true});await expect(field).toHaveValue('10:17');await expect(field).toHaveAttribute('step','60');
+ await page.getByRole('button',{name:'Choose start time',exact:true}).click();await page.getByRole('dialog',{name:'Start time picker',exact:true}).getByRole('button',{name:'Set time',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Review changes',exact:true})).toBeDisabled();
+ await page.getByLabel('Subject',{exact:true}).fill('Precision preserved');await page.getByRole('button',{name:'Review changes',exact:true}).click();await page.getByRole('button',{name:'Send meeting update',exact:true}).click();
+ await expect(page.locator('.event-details h2')).toHaveText('Precision preserved');expect(graph.writes.find(c=>c.command==='calendar_manage')?.args.changes).toEqual({subject:'Precision preserved'});
+});
