@@ -13,7 +13,7 @@ npm ci
 npm run tauri dev
 ```
 
-The first native build compiles Rust dependencies and can take several minutes. Click **Sign in** in TAUT and complete Microsoft sign-in in your system browser. The Entra application identifiers are configured in Rust; no `.env` file or client secret is needed. Tenant consent and device/Conditional Access policies still apply on the laptop.
+The first native build compiles Rust dependencies and can take several minutes. Local development and test profiles disable Rust incremental compilation and omit dependency debug information to reduce disk growth; TAUT retains file/line backtraces. Changed Rust code can take longer to recompile. Generated `src-tauri/target` data can still become large; with the dev app stopped, run `cargo clean` from `src-tauri` when you need to reclaim it. Release settings are unchanged. Click **Sign in** in TAUT and complete Microsoft sign-in in your system browser. The Entra application identifiers are configured in Rust; no `.env` file or client secret is needed. Tenant consent and device/Conditional Access policies still apply on the laptop.
 
 For subsequent updates, stop the app, run `git pull --ff-only` and `npm ci`, then restart `npm run tauri dev`. Commit or preserve any local changes before pulling.
 
