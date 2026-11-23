@@ -85,3 +85,5 @@ Pilot update November 20: approximately nine people are testing on Windows and f
 Development follow-up (not in shipped alpha.2): new daily/weekly meeting series with interval, weekdays and end date/count. Availability covers the first occurrence only; manage series changes in Outlook. Await native acceptance and the next agreed release before distributing an installer.
 
 Calendar reminders (development, not shipped alpha.2): enable separately in Settings → Calendar. Uses Outlook reminder timing while TAUT runs, title/start-time banners, persistent duplicate prevention and event navigation. Native banner/click acceptance is pending; on Windows the notification plugin reports clicks while the toast is visible, not from Action Center. No installer has been rebuilt for this change.
+
+Development reminder presentation now uses persistent TAUT corner cards instead of OS Calendar toasts. Four positions, explicit Join/Open, local durable five-minute snooze and Dismiss are implemented. Native window positioning/focus/action acceptance remains pending on macOS and Windows; shipped alpha.2 is unchanged. No installer build was triggered.

@@ -874,9 +874,8 @@ fn notification_test(app:tauri::AppHandle,state:State<'_,notifications::State>)-
 #[tauri::command]
 fn calendar_reminder_settings(state:State<'_,reminders::State>)->Result<reminders::Status,String>{Ok(state.0.lock().map_err(|_|"Calendar reminders unavailable")?.status())}
 #[tauri::command]
-async fn calendar_reminder_configure(app:tauri::AppHandle,state:State<'_,reminders::State>,enabled:bool)->Result<reminders::Status,String>{
+async fn calendar_reminder_configure(state:State<'_,reminders::State>,enabled:bool)->Result<reminders::Status,String>{
  let state=state.inner().clone();background_read(move||{
-  if enabled&&app.notification().request_permission().map_err(|_|"Notification permission could not be checked")?!=tauri::plugin::PermissionState::Granted{return Err("Calendar reminders need system notification permission. Check system settings.".into());}
   state.0.lock().map_err(|_|"Calendar reminders unavailable")?.configure(enabled)
  }).await
 }
@@ -885,7 +884,47 @@ fn calendar_reminder_take_open(state:State<'_,reminders::State>,notifications:St
  let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;
  Ok(m.pending.take().and_then(|(session,own,event)|(m.status().enabled&&n.tracker.session==session&&n.tracker.own.as_deref()==Some(&own)).then_some(event)))
 }
-fn scan_calendar_reminders(app:&tauri::AppHandle,auth:&AuthState,notifications:&notifications::State,state:&reminders::State)->Result<(),String>{
+#[tauri::command]
+fn calendar_reminder_corner(state:State<'_,reminders::State>,corner:String)->Result<reminders::Status,String>{state.0.lock().map_err(|_|"Calendar reminders unavailable")?.corner(&corner)}
+#[tauri::command]
+fn calendar_reminder_cards(state:State<'_,reminders::State>,notifications:State<'_,notifications::State>)->Result<Vec<Value>,String>{
+ let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let Some(own)=n.tracker.own.as_deref()else{return Ok(vec![]);};Ok(state.0.lock().map_err(|_|"Calendar reminders unavailable")?.card_views(own,&n.tracker.session,notifications::now()))
+}
+#[tauri::command]
+async fn calendar_reminder_card_action(app:tauri::AppHandle,auth:State<'_,AuthState>,state:State<'_,reminders::State>,notifications:State<'_,notifications::State>,key:String,action:String)->Result<(),String>{
+ let auth=AuthState(auth.0.clone());let state=state.inner().clone();let notifications=notifications.inner().clone();
+ background_read(move||{
+  if !["dismiss","snooze","open","join"].contains(&action.as_str()){return Err("Unknown reminder action".into());}
+  let(own,session,target)={let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let own=n.tracker.own.clone().ok_or("Reconnect Microsoft 365")?;let session=n.tracker.session.clone();let target=state.0.lock().map_err(|_|"Calendar reminders unavailable")?.card_target(&key,&own,&session)?;(own,session,target)};
+  if action=="open"&&app.get_webview_window("main").is_none(){return Err("Reopen TAUT’s main window to view this meeting.".into());}
+  let current=if action=="open"||action=="join"{
+   let token=get_access_token(&auth)?;let(status,me)=meeting_request(&token,"GET","/me?$select=id",Value::Null)?;if status!=200||me["id"]!=own{return Err("Reminder account changed".into());}
+   let event=calendar::event(&target.id,&mut |path|meeting_request(&token,"GET",path,Value::Null))?;
+   if event["isCancelled"]==true||reminders::instant(&event["start"])!=Some(target.start){return Err("This meeting changed. Open Calendar to review its current details.".into());}Some(event)
+  }else{None};
+  let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;if n.tracker.session!=session||n.tracker.own.as_deref()!=Some(&own){return Err("Reminder account changed".into());}
+  let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;
+  m.card_target(&key,&own,&session)?;
+  if action=="join"{let url=reminders::join_url(current.as_ref().unwrap()).ok_or("No verified Teams link is available")?;app.opener().open_url(url,None::<&str>).map_err(|_|"Teams could not be opened")?;m.card_action(&key,&own,&session,"dismiss",notifications::now())?;}else{m.card_action(&key,&own,&session,&action,notifications::now())?;}
+  if action=="open"{if let Some(window)=app.get_webview_window("main"){let _=window.unminimize();let _=window.show();let _=window.set_focus();}}
+  Ok(())
+ }).await
+}
+fn sync_reminder_window(app:&tauri::AppHandle,state:&reminders::State,notifications:&notifications::State){
+ let handle=app.clone();let state=state.clone();let notifications=notifications.clone();
+ let _=app.run_on_main_thread(move||{
+  let Ok(n)=notifications.0.lock()else{return;};let Ok(mut m)=state.0.lock()else{return;};
+  let cards=n.tracker.own.as_deref().map(|own|m.card_views(own,&n.tracker.session,notifications::now())).unwrap_or_default();
+  if cards.is_empty(){if let Some(w)=handle.get_webview_window("reminders"){let _=w.hide();}return;}
+  let corner=m.status().corner;drop(m);drop(n);
+  let w=match handle.get_webview_window("reminders"){Some(w)=>w,None=>match tauri::WebviewWindowBuilder::new(&handle,"reminders",tauri::WebviewUrl::App("index.html?surface=reminders".into())).title("TAUT reminders").inner_size(400.0,500.0).resizable(false).decorations(false).always_on_top(true).visible_on_all_workspaces(true).skip_taskbar(true).focused(false).visible(false).build(){Ok(w)=>w,Err(_)=>{if let Ok(mut m)=state.0.lock(){m.error=Some("The reminder window could not be opened.".into());}return;}}};
+  let monitor=handle.get_webview_window("main").and_then(|main|main.current_monitor().ok().flatten()).or_else(||w.primary_monitor().ok().flatten());
+  if let Some(monitor)=monitor{let area=monitor.work_area();let(x,y,width,height)=reminders::placement(area.position.x,area.position.y,area.size.width,area.size.height,monitor.scale_factor(),&corner,cards.len());let _=w.set_size(tauri::PhysicalSize::new(width,height));let _=w.set_position(tauri::PhysicalPosition::new(x,y));}
+
+  if !w.is_visible().unwrap_or(false){let _=w.show();}
+ });
+}
+fn scan_calendar_reminders(_app:&tauri::AppHandle,auth:&AuthState,notifications:&notifications::State,state:&reminders::State)->Result<(),String>{
  {let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;if !m.status().enabled{return Ok(());}m.last_check=Some(notifications::now());m.summary="Checking Outlook reminders…".into();}
  let (own,session)={let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let Some(own)=n.tracker.own.clone()else{state.0.lock().map_err(|_|"Calendar reminders unavailable")?.summary="Waiting for a connected Microsoft 365 account.".into();return Ok(());};(own,n.tracker.session.clone())};
  let scopes=collaboration_scopes(auth)?;let permitted=scope_has(&scopes,"Calendars.Read")||scope_has(&scopes,"Calendars.ReadWrite");
@@ -903,15 +942,24 @@ fn scan_calendar_reminders(app:&tauri::AppHandle,auth:&AuthState,notifications:&
   let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;
   if n.tracker.session!=session||n.tracker.own.as_deref()!=Some(&own){return Ok(());}
   let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;
-  let Some(id)=m.reserve(&own,&session,&item,now)?else{continue;};
+  if !m.status().enabled{return Ok(());}if m.seen(&own,&item){duplicates+=1;continue;}
+  m.queue_card(&own,&session,&item,event,now)?;
   m.last_request=Some(now);requested+=1;
-  app.notification().builder().id(id).title("TAUT · Calendar reminder").body(reminders::banner(&event)).extra("tautSession",&session).extra("tautCalendar",true).show().map_err(|_|"A Calendar reminder could not be requested. Check system notification settings.")?;
  }
- let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;m.error=None;m.summary=format!("{due_count} reminders due in the last two minutes; {requested} banner requests, {duplicates} already requested, {skipped} changed or unavailable.");Ok(())
+ // Refresh persisted/snoozed cards against the current occurrence before displaying.
+ let pending={let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;m.bind_cards(&session);m.pending_cards(&own)};
+ for(key,pending)in pending{
+  let current=calendar::event(&pending.id,&mut request);
+  let event=match current{Ok(e)=>Some(e),Err(error)=>{if error.contains("HTTP 404"){None}else{continue;}}};
+  let event=event.filter(|e|e["isCancelled"]==false&&e["isReminderOn"]==true&&e["responseStatus"]["response"]!="declined"&&reminders::instant(&e["start"])==Some(pending.start)&&reminders::instant(&e["end"]).is_some_and(|end|end>notifications::now()));
+  let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;if n.tracker.session!=session||n.tracker.own.as_deref()!=Some(&own){return Ok(());}
+  state.0.lock().map_err(|_|"Calendar reminders unavailable")?.update_card(&key,event,notifications::now())?;
+ }
+ let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;m.error=None;m.summary=format!("Due: {due_count} · Prepared: {requested} · Already prepared: {duplicates} · Changed/unavailable: {skipped}.");Ok(())
 }
 fn setup_calendar_reminders(app:&mut tauri::App){
  let state=app.state::<reminders::State>().inner().clone();let notifications=app.state::<notifications::State>().inner().clone();let auth=AuthState(app.state::<AuthState>().0.clone());let handle=app.handle().clone();
- std::thread::spawn(move||{let mut delay=30;loop{std::thread::sleep(Duration::from_secs(delay));delay=30;if let Err(error)=scan_calendar_reminders(&handle,&auth,&notifications,&state){if error.contains("429"){delay=60;}if let Ok(mut m)=state.0.lock(){m.error=Some(error);}}}});
+ std::thread::spawn(move||{let mut next=Instant::now();loop{std::thread::sleep(Duration::from_secs(1));sync_reminder_window(&handle,&state,&notifications);if Instant::now()<next{continue;}next=Instant::now()+Duration::from_secs(30);if let Err(error)=scan_calendar_reminders(&handle,&auth,&notifications,&state){if error.contains("429"){next=Instant::now()+Duration::from_secs(60);}if let Ok(mut m)=state.0.lock(){m.error=Some(error);}}}});
 }
 fn setup_notifications(app:&mut tauri::App)->Result<(),Box<dyn std::error::Error>>{
     let path=app.path().app_config_dir().ok().map(|p|p.join("notifications.json"));
@@ -921,7 +969,7 @@ fn setup_notifications(app:&mut tauri::App)->Result<(),Box<dyn std::error::Error
     app.notification().on_action(move |action|{
         if action.action_id()!="tap"{return;}
         let Some(note)=action.notification()else{return;};
-        let opened=click_state.0.lock().ok().and_then(|mut manager|{if note.extra().get("tautSession").and_then(Value::as_str)!=Some(manager.tracker.session.as_str()){return None;}if note.extra().get("tautCalendar").and_then(Value::as_bool)==Some(true){let own=manager.tracker.own.as_deref()?;return reminders.0.lock().ok().and_then(|mut m|m.click(note.id(),&manager.tracker.session,own).then(||own.to_string()));}manager.tracker.click(note.id())});
+        let opened=click_state.0.lock().ok().and_then(|mut manager|{if note.extra().get("tautSession").and_then(Value::as_str)!=Some(manager.tracker.session.as_str()){return None;}manager.tracker.click(note.id())});
         if opened.is_some(){if let Some(window)=click_handle.get_webview_window("main"){let _=window.unminimize();let _=window.show();let _=window.set_focus();}}
     })?;
     let auth=AuthState(app.state::<AuthState>().0.clone());
@@ -939,6 +987,7 @@ fn setup_notifications(app:&mut tauri::App)->Result<(),Box<dyn std::error::Error
     Ok(())
 }
 
+fn reminder_ipc_allowed(window:&str,command:&str)->bool{window=="main"||window=="reminders"&&["calendar_reminder_cards","calendar_reminder_card_action"].contains(&command)}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -947,13 +996,15 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_calendar_reminders(app);setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler(tauri::generate_handler![calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility])
+        .invoke_handler({let handler:fn(tauri::ipc::Invoke)->bool=tauri::generate_handler![calendar_reminder_corner,calendar_reminder_cards,calendar_reminder_card_action,calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility];move |invoke:tauri::ipc::Invoke|{if !reminder_ipc_allowed(invoke.message.webview_ref().label(),invoke.message.command()){invoke.resolver.reject("Command unavailable in this window");return true;}handler(invoke)}})
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]fn reminder_window_cannot_invoke_auth_mail_chat_or_opener_commands(){for command in ["sign_in","graph_send_message","mail_send_new","calendar_create","plugin:opener|open_url","calendar_reminder_configure"]{assert!(!super::reminder_ipc_allowed("reminders",command));assert!(super::reminder_ipc_allowed("main",command));}for command in ["calendar_reminder_cards","calendar_reminder_card_action"]{assert!(super::reminder_ipc_allowed("reminders",command));}assert!(!super::reminder_ipc_allowed("other","calendar_reminder_cards"));}
+
     #[test]
     fn recurring_request_keeps_named_zone_and_requests_utc_response(){
         let body=serde_json::json!({"start":{"dateTime":"2026-11-23T09:00:00","timeZone":"America/New_York"},"recurrence":{"range":{"recurrenceTimeZone":"America/New_York"}}});

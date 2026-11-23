@@ -83,6 +83,8 @@ export class MockGraph {
   mailFile={contentType:'text/plain',base64:'aGVsbG8='};
   mailSaveResult=true;
   reminderSettings:{enabled:boolean;error:string|null}={enabled:false,error:null};
+  reminderActionError='';
+  reminderCards:any[]=[];reminderActions:any[]=[];
   reminderError='';pendingReminderEvent:string|null=null;
   notificationSettings={enabled:false,showNames:false,error:null as string|null};
   notificationConfigError='';
@@ -192,6 +194,9 @@ export class MockGraph {
         const q=args.query;
         return this.teamPages[q.next??`${q.collection}:${q.teamId??''}:${q.channelId??''}:${q.messageId??''}`]??{value:this.teamData[q.collection]??[],next:null};
       }
+      case 'calendar_reminder_cards': return this.reminderCards;
+      case 'calendar_reminder_card_action': if(this.reminderActionError)throw Error(this.reminderActionError);this.reminderActions.push(args);this.reminderCards=this.reminderCards.filter(c=>c.key!==args.key);return null;
+      case 'calendar_reminder_corner': this.reminderSettings={...this.reminderSettings,corner:args.corner} as any;return this.reminderSettings;
       case 'calendar_reminder_settings': return this.reminderSettings;
       case 'calendar_reminder_configure': if(this.reminderError)throw Error(this.reminderError);this.reminderSettings={enabled:args.enabled,error:null};return this.reminderSettings;
       case 'calendar_reminder_take_open': {const id=this.pendingReminderEvent;this.pendingReminderEvent=null;return id;}

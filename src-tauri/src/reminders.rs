@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -13,6 +13,21 @@ use std::{
 struct Saved {
     enabled: bool,
     delivered: BTreeMap<String, i64>,
+    #[serde(default = "default_corner")]
+    corner: String,
+    #[serde(default)]
+    cards: BTreeMap<String, CardPending>,
+}
+fn default_corner() -> String {
+    "bottom-right".into()
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CardPending {
+    pub own: String,
+    pub id: String,
+    pub start: i64,
+    pub fire: i64,
+    pub wake: i64,
 }
 #[derive(Serialize)]
 pub struct Status {
@@ -21,6 +36,7 @@ pub struct Status {
     pub last_check: Option<i64>,
     pub last_request: Option<i64>,
     pub summary: String,
+    pub corner: String,
 }
 pub struct Manager {
     saved: Saved,
@@ -29,9 +45,9 @@ pub struct Manager {
     pub last_check: Option<i64>,
     pub last_request: Option<i64>,
     pub summary: String,
+    card_session: String,
+    card_events: BTreeMap<String, (Value, i64)>,
     valid: bool,
-    tickets: HashMap<i32, (String, String, String)>,
-    sequence: i32,
     pub pending: Option<(String, String, String)>,
 }
 #[derive(Clone)]
@@ -52,10 +68,12 @@ impl Manager {
             path,
             error: (!valid)
                 .then(|| "Calendar reminder storage is unavailable. Reminders are paused.".into()),
-            last_check: None, last_request: None, summary: "Waiting for the next reminder check.".into(),
+            last_check: None,
+            last_request: None,
+            summary: "Waiting for the next reminder check.".into(),
+            card_session: String::new(),
+            card_events: BTreeMap::new(),
             valid,
-            tickets: HashMap::new(),
-            sequence: 0,
             pending: None,
         }
     }
@@ -92,7 +110,14 @@ impl Manager {
         Status {
             enabled: self.saved.enabled && self.valid,
             error: self.error.clone(),
-            last_check: self.last_check, last_request: self.last_request, summary: self.summary.clone(),
+            last_check: self.last_check,
+            last_request: self.last_request,
+            summary: self.summary.clone(),
+            corner: if self.saved.corner.is_empty() {
+                default_corner()
+            } else {
+                self.saved.corner.clone()
+            },
         }
     }
     pub fn configure(&mut self, enabled: bool) -> Result<Status, String> {
@@ -102,62 +127,149 @@ impl Manager {
         self.saved = next;
         self.error = None;
         if !enabled {
-            self.tickets.clear();
+            self.saved.cards.clear();
+            self.card_events.clear();
+            self.save(&self.saved)?;
             self.pending = None;
         }
         Ok(self.status())
     }
-    pub fn seen(&self, own: &str, item: &Candidate) -> bool {
-        self.saved.delivered.contains_key(&key(own, item))
+    pub fn corner(&mut self, corner: &str) -> Result<Status, String> {
+        if !["top-left", "top-right", "bottom-left", "bottom-right"].contains(&corner) {
+            return Err("Choose a valid reminder corner".into());
+        }
+        let mut next = self.saved.clone();
+        next.corner = corner.into();
+        self.save(&next)?;
+        self.saved = next;
+        Ok(self.status())
     }
-    pub fn reserve(
+    pub fn bind_cards(&mut self, session: &str) {
+        if self.card_session != session {
+            self.card_events.clear();
+            self.card_session = session.into();
+        }
+    }
+    pub fn queue_card(
         &mut self,
         own: &str,
         session: &str,
         item: &Candidate,
+        event: Value,
         now: i64,
-    ) -> Result<Option<i32>, String> {
+    ) -> Result<bool, String> {
         if !self.status().enabled {
-            return Ok(None);
+            return Err("Calendar reminders are off".into());
         }
+        self.bind_cards(session);
         let key = key(own, item);
         if self.saved.delivered.contains_key(&key) {
-            return Ok(None);
+            return Ok(false);
         }
         let mut next = self.saved.clone();
+        if next.cards.len() >= 128 {
+            return Err("Too many reminders. Dismiss older reminders first.".into());
+        }
+        next.cards.insert(
+            key.clone(),
+            CardPending {
+                own: own.into(),
+                id: item.id.clone(),
+                start: item.start,
+                fire: item.fire,
+                wake: now,
+            },
+        );
         next.delivered.retain(|_, expires| *expires > now);
         if next.delivered.len() >= 10000 {
-            return Err("Calendar reminder history is full. Reminders are paused.".into());
+            return Err("Calendar reminder history is full".into());
         }
-        next.delivered.insert(key, item.start + 86400000);
+        next.delivered.insert(key.clone(), item.start + 86400000);
         if let Err(error) = self.save(&next) {
             self.valid = false;
             self.error = Some(error.clone());
             return Err(error);
         }
+
         self.saved = next;
-        self.sequence = self.sequence.wrapping_add(1).max(1);
-        let id = -self.sequence;
-        self.tickets
-            .insert(id, (session.into(), own.into(), item.id.clone()));
-        if self.tickets.len() > 256 {
-            self.tickets.retain(|id, _| *id <= -self.sequence + 255);
-        }
-        Ok(Some(id))
+        self.card_events.insert(key, (event, now));
+        Ok(true)
     }
-    pub fn click(&mut self, id: i32, session: &str, own: &str) -> bool {
-        if !self.status().enabled {
-            return false;
+    pub fn pending_cards(&self, own: &str) -> Vec<(String, CardPending)> {
+        self.saved
+            .cards
+            .iter()
+            .filter(|(_, p)| p.own == own)
+            .map(|(k, p)| (k.clone(), p.clone()))
+            .collect()
+    }
+    pub fn update_card(&mut self, key: &str, event: Option<Value>, now: i64) -> Result<(), String> {
+        if let Some(event) = event {
+            self.card_events.insert(key.into(), (event, now));
+            Ok(())
+        } else {
+            self.remove_card(key)
         }
-        if let Some((s, o, event)) = self.tickets.get(&id) {
-            if s == session && o == own {
-                self.pending = Some((session.into(), own.into(), event.clone()));
-                return true;
+    }
+    fn remove_card(&mut self, key: &str) -> Result<(), String> {
+        let mut next = self.saved.clone();
+        next.cards.remove(key);
+        self.save(&next)?;
+        self.saved = next;
+        self.card_events.remove(key);
+        Ok(())
+    }
+    pub fn card_target(&self, key: &str, own: &str, session: &str) -> Result<CardPending, String> {
+        if !self.status().enabled || self.card_session != session {
+            return Err("Reminder session changed".into());
+        }
+        self.saved
+            .cards
+            .get(key)
+            .filter(|p| p.own == own)
+            .cloned()
+            .ok_or("This reminder is no longer available".into())
+    }
+    pub fn card_action(
+        &mut self,
+        key: &str,
+        own: &str,
+        session: &str,
+        action: &str,
+        now: i64,
+    ) -> Result<(), String> {
+        let target = self.card_target(key, own, session)?;
+        match action {
+            "dismiss" => self.remove_card(key),
+            "snooze" => {
+                let mut next = self.saved.clone();
+                next.cards.get_mut(key).unwrap().wake = now + 300000;
+                self.save(&next)?;
+                self.saved = next;
+                Ok(())
             }
+            "open" => {
+                self.remove_card(key)?;
+                self.pending = Some((session.into(), own.into(), target.id));
+                Ok(())
+            }
+            _ => Err("Unknown reminder action".into()),
         }
-        false
+    }
+    pub fn card_views(&mut self, own: &str, session: &str, now: i64) -> Vec<Value> {
+        self.bind_cards(session);
+        if !self.status().enabled {
+            return vec![];
+        }
+        let mut cards:Vec<Value>=self.saved.cards.iter().filter(|(_,p)|p.own==own&&p.wake<=now).filter_map(|(key,p)|{let(event,checked)=self.card_events.get(key)?;if now-checked>90000{return None;}Some(serde_json::json!({"key":key,"title":event["subject"].as_str().unwrap_or("Untitled meeting"),"start":p.start,"allDay":event["isAllDay"]==true,"room":event["location"]["displayName"].as_str().unwrap_or(""),"canJoin":join_url(event).is_some()}))}).collect();
+        cards.sort_by_key(|card| card["start"].as_i64().unwrap_or(i64::MAX));
+        cards
+    }
+    pub fn seen(&self, own: &str, item: &Candidate) -> bool {
+        self.saved.delivered.contains_key(&key(own, item))
     }
 }
+
 fn key(own: &str, item: &Candidate) -> String {
     format!(
         "{:x}",
@@ -170,7 +282,7 @@ pub struct Candidate {
     pub start: i64,
     pub fire: i64,
 }
-fn instant(value: &Value) -> Option<i64> {
+pub fn instant(value: &Value) -> Option<i64> {
     let raw = value["dateTime"].as_str()?;
     if let Ok(t) = chrono::DateTime::parse_from_rfc3339(raw) {
         return Some(t.timestamp_millis());
@@ -257,29 +369,35 @@ pub fn verified(
     }
     Some(event)
 }
-pub fn banner(event: &Value) -> String {
-    let title = event["subject"]
-        .as_str()
-        .unwrap_or("Upcoming meeting")
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(120)
-        .collect::<String>();
-    let title = if title.trim().is_empty() {
-        "Untitled event"
-    } else {
-        title.trim()
-    };
-    if event["isAllDay"] == true {
-        return format!("{title} · All day");
+pub fn join_url(event: &Value) -> Option<String> {
+    if event["isOnlineMeeting"] != true
+        || event["isCancelled"] == true
+        || event["onlineMeetingProvider"] != "teamsForBusiness"
+    {
+        return None;
     }
-    let ms = instant(&event["start"]).unwrap_or(0);
-    let utc = chrono::DateTime::from_timestamp_millis(ms).unwrap();
-    let time = utc
-        .with_timezone(&chrono::Local)
-        .format("%b %e, %I:%M %p %Z")
-        .to_string();
-    format!("{title} · {time}")
+    let raw = event["onlineMeeting"]["joinUrl"].as_str()?;
+    if raw.len() > 8192 {
+        return None;
+    }
+    let u = url::Url::parse(raw).ok()?;
+    (u.scheme() == "https"
+        && u.username().is_empty()
+        && u.password().is_none()
+        && u.port().is_none()
+        && u.fragment().is_none()
+        && [
+            "teams.microsoft.com",
+            "teams.cloud.microsoft",
+            "gov.teams.microsoft.us",
+            "dod.teams.microsoft.us",
+            "teams.microsoft.us",
+        ]
+        .contains(&u.host_str()?)
+        && ["/l/meetup-join/", "/meet/"]
+            .iter()
+            .any(|prefix| u.path().starts_with(prefix) && u.path().len() > prefix.len()))
+    .then(|| u.to_string())
 }
 #[cfg(test)]
 mod tests {
@@ -307,25 +425,19 @@ mod tests {
         let mut m = Manager::load(Some(p.clone()));
         assert!(!m.status().enabled);
         m.configure(true).unwrap();
-        let id = m.reserve("a", "s", &item(), NOW).unwrap().unwrap();
-        assert!(!m.click(id, "other", "a"));
-        assert!(!m.click(id, "s", "b"));
-        assert!(m.click(id, "s", "a"));
+        assert!(m.queue_card("a", "s", &item(), event(), NOW).unwrap());
+        let k = key("a", &item());
+        assert!(m.card_target(&k, "a", "other").is_err());
+        assert!(m.card_target(&k, "b", "s").is_err());
         let mut m = Manager::load(Some(p.clone()));
-        assert!(m
-            .reserve("a", "newsession", &item(), NOW)
-            .unwrap()
-            .is_none());
-        assert!(m
-            .reserve("b", "newsession", &item(), NOW)
-            .unwrap()
-            .is_some());
+        assert!(!m.queue_card("a", "new", &item(), event(), NOW).unwrap());
+        assert!(m.queue_card("b", "new", &item(), event(), NOW).unwrap());
         let mut moved = item();
         moved.start += 86400000;
         moved.fire += 86400000;
-        assert!(m.reserve("a", "s", &moved, NOW).unwrap().is_some());
+        assert!(m.queue_card("a", "s", &moved, event(), NOW).unwrap());
         m.configure(false).unwrap();
-        assert!(!m.click(id, "s", "a"));
+        assert!(m.card_target(&k, "a", "s").is_err());
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
     #[test]
@@ -335,7 +447,7 @@ mod tests {
         std::fs::write(&p, "broken").unwrap();
         let mut m = Manager::load(Some(p.clone()));
         assert!(m.configure(true).is_err());
-        assert!(m.reserve("a", "s", &item(), NOW).unwrap().is_none());
+        assert!(m.queue_card("a", "s", &item(), event(), NOW).is_err());
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
         let mut m = Manager::load(None);
         assert!(m.configure(true).is_err());
@@ -345,18 +457,19 @@ mod tests {
         let p = path();
         let mut m = Manager::load(Some(p.clone()));
         m.configure(true).unwrap();
-        m.reserve("private-account", "s", &item(), NOW).unwrap();
+        m.queue_card("private-account", "s", &item(), event(), NOW)
+            .unwrap();
         let data = std::fs::read_to_string(&p).unwrap();
-        assert!(!data.contains("private-account"));
-        assert!(!data.contains("event"));
+        assert!(!data.contains("Meeting"));
+        assert!(!data.contains("subject"));
         std::fs::remove_file(&p).unwrap();
         std::fs::create_dir(&p).unwrap();
         let mut next = item();
         next.fire += 1;
-        assert!(m.reserve("a", "s", &next, NOW).is_err());
+        assert!(m.queue_card("a", "s", &next, event(), NOW).is_err());
         assert!(!m.status().enabled);
         assert!(m.status().error.is_some());
-        assert!(m.reserve("a", "s", &next, NOW).unwrap().is_none());
+        assert!(m.queue_card("a", "s", &next, event(), NOW).is_err());
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
     #[test]
@@ -415,5 +528,137 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(paths.len(), 2);
         assert!(paths[1].starts_with("/me/reminderView("));
+    }
+}
+
+pub fn placement(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    scale: f64,
+    corner: &str,
+    count: usize,
+) -> (i32, i32, u32, u32) {
+    let aw = width as f64;
+    let ah = height as f64;
+    let margin = (16.0 * scale).min(aw / 4.0).min(ah / 4.0);
+    let w = (400.0 * scale).min(aw - 2.0 * margin).max(1.0);
+    let h = ((150.0 + 260.0 * count as f64).min(500.0) * scale)
+        .min(ah - 2.0 * margin)
+        .max(1.0);
+    let px = x as f64
+        + if corner.ends_with("right") {
+            aw - w - margin
+        } else {
+            margin
+        };
+    let py = y as f64
+        + if corner.starts_with("bottom") {
+            ah - h - margin
+        } else {
+            margin
+        };
+    (px.round() as i32, py.round() as i32, w as u32, h as u32)
+}
+#[cfg(test)]
+mod card_tests {
+    use super::*;
+    use serde_json::json;
+    fn path() -> PathBuf {
+        std::env::temp_dir()
+            .join(format!("taut-cards-test-{}", crate::random_urlsafe()))
+            .join("reminders.json")
+    }
+    fn event() -> Value {
+        json!({"subject":"Planning","start":{"dateTime":"2026-11-23T15:30:00Z"},"end":{"dateTime":"2026-11-23T16:30:00Z"},"isCancelled":false})
+    }
+    #[test]
+    fn snooze_survives_restart_but_requires_fresh_read_and_same_account() {
+        let p = path();
+        let mut m = Manager::load(Some(p.clone()));
+        m.configure(true).unwrap();
+        let item = Candidate {
+            id: "event".into(),
+            start: 900000,
+            fire: 0,
+        };
+        m.queue_card("a", "s", &item, event(), 0).unwrap();
+        let key = key("a", &item);
+        assert_eq!(m.card_views("a", "s", 0).len(), 1);
+        assert!(m.card_action(&key, "b", "s", "snooze", 0).is_err());
+        m.card_action(&key, "a", "s", "snooze", 0).unwrap();
+        assert!(m.card_views("a", "s", 299999).is_empty());
+        let mut m = Manager::load(Some(p.clone()));
+        assert!(m.card_views("a", "new", 300000).is_empty());
+        assert_eq!(m.pending_cards("a")[0].1.wake, 300000);
+        assert!(m.pending_cards("b").is_empty());
+        m.update_card(&key, Some(event()), 300000).unwrap();
+        assert_eq!(m.card_views("a", "new", 300000).len(), 1);
+        m.card_action(&key, "a", "new", "open", 300000).unwrap();
+        assert_eq!(m.pending.as_ref().unwrap().2, "event");
+        assert!(m.pending_cards("a").is_empty());
+        assert!(m.seen("a", &item));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+    #[test]
+    fn cancelled_or_changed_cards_are_removed_and_disabled_reminders_clear_queue() {
+        let p = path();
+        let mut m = Manager::load(Some(p.clone()));
+        m.configure(true).unwrap();
+        let item = Candidate {
+            id: "event".into(),
+            start: 900000,
+            fire: 0,
+        };
+        m.queue_card("a", "s", &item, event(), 0).unwrap();
+        let k = key("a", &item);
+        m.update_card(&k, None, 1).unwrap();
+        assert!(m.card_views("a", "s", 1).is_empty());
+        m.queue_card("b", "s", &item, event(), 0).unwrap();
+        m.configure(false).unwrap();
+        assert!(m.pending_cards("a").is_empty());
+        assert!(m.card_action(&k, "a", "s", "open", 0).is_err());
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+    #[test]
+    fn position_is_persisted_and_invalid_values_do_not_change_it() {
+        let p = path();
+        let mut m = Manager::load(Some(p.clone()));
+        assert_eq!(m.status().corner, "bottom-right");
+        m.corner("top-left").unwrap();
+        assert!(m.corner("center").is_err());
+        assert_eq!(Manager::load(Some(p.clone())).status().corner, "top-left");
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+    #[test]
+    fn placement_stays_in_work_area_on_scaled_negative_origin_monitors() {
+        for corner in ["top-left", "top-right", "bottom-left", "bottom-right"] {
+            let (x, y, w, h) = placement(-1920, 40, 1920, 1600, 2.0, corner, 3);
+            assert!(x >= -1920 && y >= 40);
+            assert!(x + w as i32 <= 0 && y + h as i32 <= 1640);
+            assert_eq!(corner.ends_with("right"), x > -1800);
+            assert_eq!(corner.starts_with("bottom"), y > 72);
+        }
+    }
+    #[test]
+    fn join_only_uses_recorded_teams_hosts_and_paths() {
+        let mut e = event();
+        e["isOnlineMeeting"] = json!(true);
+        e["onlineMeetingProvider"] = json!("teamsForBusiness");
+        for url in [
+            "https://evil.test/meet/a",
+            "javascript:alert(1)",
+            "https://teams.microsoft.com.evil.test/meet/a",
+            "https://user@teams.microsoft.com/meet/a",
+            "https://teams.microsoft.com/meet/a#bad",
+        ] {
+            e["onlineMeeting"] = json!({"joinUrl":url});
+            assert!(join_url(&e).is_none());
+        }
+        e["onlineMeeting"] = json!({"joinUrl":"https://teams.microsoft.com/meet/a"});
+        assert!(join_url(&e).is_some());
+        e["isCancelled"] = json!(true);
+        assert!(join_url(&e).is_none());
     }
 }

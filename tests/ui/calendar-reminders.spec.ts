@@ -18,5 +18,9 @@ test('removed event gives an actionable error without sending or switching accou
 
 test('live reminder status shows the check and request separately from visible delivery',async({page,graph})=>{
  graph.reminderSettings={enabled:true,error:null,last_check:1795435200000,last_request:1795435200000,summary:'1 reminders due in the last two minutes; 1 banner requests.'} as any;
- await signIn(page);const settings=await preferences(page);const status=settings.getByRole('status',{name:'Calendar reminder status'});await expect(status).toContainText('Last check:');await expect(status).toContainText('Last banner request:');await expect(status).toContainText('does not confirm it appeared');expect(graph.writes).toEqual([]);
+ await signIn(page);const settings=await preferences(page);const status=settings.getByRole('status',{name:'Calendar reminder status'});await expect(status).toContainText('Last check:');await expect(status).toContainText('Last reminder prepared:');await expect(status).toContainText('does not confirm the card appeared');expect(graph.writes).toEqual([]);
+});
+
+test('reminder corner is saved without changing Outlook',async({page,graph})=>{
+ graph.reminderSettings.enabled=true;await signIn(page);const settings=await preferences(page);await settings.getByLabel('Reminder position').selectOption('top-left');await expect.poll(()=>(graph.reminderSettings as any).corner).toBe('top-left');expect(graph.writes).toEqual([]);
 });
