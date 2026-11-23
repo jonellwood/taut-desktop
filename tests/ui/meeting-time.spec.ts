@@ -45,7 +45,7 @@ test('Calendar preference persists and supplies end times while manual overrides
  await expect(page.getByLabel('End date',{exact:true})).toHaveValue('2026-11-23');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('10:45');
  await page.getByLabel('Start time',{exact:true}).fill('11:00');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('11:45');
  await page.getByLabel('End time',{exact:true}).fill('12:30');await page.getByLabel('Start time',{exact:true}).fill('11:30');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('12:30');
- await page.getByRole('button',{name:'Save & close',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();await page.getByLabel('Start time',{exact:true}).fill('11:45');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('12:30');
+ await page.getByRole('button',{name:'Close editor',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();await page.getByLabel('Start time',{exact:true}).fill('11:45');await expect(page.getByLabel('End time',{exact:true})).toHaveValue('12:30');
  expect(graph.writes).toEqual([]);
 });
 test('separate date and time inputs default to thirty minutes and handle midnight',async({page,graph},info)=>{

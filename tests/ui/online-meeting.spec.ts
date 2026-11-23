@@ -6,7 +6,7 @@ test('Teams choice persists locally, appears in review and creates hybrid invita
  graph.restoredSession=true;await page.goto('/');await open(page);await fill(page);
  const toggle=page.getByRole('checkbox',{name:'Teams meeting',exact:true});await expect(toggle).toBeEnabled();await expect(toggle).not.toBeChecked();
  await toggle.check();await page.getByRole('button').filter({hasText:'River room'}).click();
- await page.getByRole('button',{name:'Save & close',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();await expect(toggle).toBeChecked();
+ await page.getByRole('button',{name:'Close editor',exact:true}).click();await page.getByRole('button',{name:'New meeting',exact:true}).click();await expect(toggle).toBeChecked();
  await page.getByRole('button',{name:'Review meeting',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('Microsoft 365 will generate the join details');expect(graph.writes).toEqual([]);
  await page.screenshot({path:info.outputPath('online-meeting-review.png')});
  await page.getByRole('button',{name:'Create & send invitations',exact:true}).click();

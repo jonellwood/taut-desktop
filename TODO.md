@@ -59,6 +59,7 @@ Both items were requested November 22 for the near future; no implementation or 
 
 - [x] Calendar reminders using Outlook timing, opt-in desktop notifications while TAUT runs, durable duplicate prevention and open-event routing. Mocked checks pass; native acceptance and next agreed release pending.
 - [x] TAUT reminder cards: four corner positions, local countdown/time, Join/Open, persistent five-minute snooze, dismiss and stacked simultaneous meetings. Mocked checks pass; native window/focus/action acceptance pending.
+- [ ] Investigate missed/late reminders and snoozed cards disappearing after Outlook dismissal. The local pending queue was empty after the failed snooze; removal reason is not yet recorded. Verify before considering native reminder acceptance complete.
 - [ ] Calendar reminder follow-ups: custom timing, optional sound and reminder inbox. Initial timing stays in Outlook.
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
 - [x] New daily/weekly recurring meetings with weekdays, interval, explicit end date or occurrence count; named time zone retained across daylight saving. Pending native acceptance and next agreed release.
@@ -78,6 +79,7 @@ Both items were requested November 22 for the near future; no implementation or 
 
 ## Polish and validation
 
+- [ ] Mail presentation resets after automatic mark-as-read (reported November 23; reproduced three times): with Plain text as the default and automatic read delay set to 3 seconds, open an unread email and switch it to HTML before the delay expires. It unexpectedly returns to Plain text around the read-state update. Already-read emails retain the HTML selection. Suspected cause, not yet verified: read-state refresh/remount reapplies the default presentation. Preserve the current message's explicit presentation choice across read-state updates; regression coverage should include unread/read messages and both default modes.
 - [ ] Styled rail tooltips for hover/focus and an optional persistent navigation-label preference.
 - [ ] Consistent context menus while preserving useful native text/copy/writing tools.
 - [ ] Additional syntax languages as needed.

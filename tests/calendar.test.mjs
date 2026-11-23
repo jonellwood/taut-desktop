@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {calendarRange,eventDate,eventDay,eventWhen,responseLabel,attendeeResponseLabel,calendarAttendeeLabel,calendarLink,meetingResponseState,meetingMessageLabel,teamsJoinLink} from '../src/lib/calendar.ts';
+import {calendarAnchor,validCalendarDay,calendarRange,eventDate,eventDay,eventWhen,responseLabel,attendeeResponseLabel,calendarAttendeeLabel,calendarLink,meetingResponseState,meetingMessageLabel,teamsJoinLink} from '../src/lib/calendar.ts';
 test('Teams joins require recorded meeting metadata and a safe Microsoft join destination',()=>{
  const event={isOnlineMeeting:true,onlineMeetingProvider:'teamsForBusiness',onlineMeeting:{joinUrl:'https://teams.microsoft.com/l/meetup-join/example/0?context=test'}};
  assert.equal(teamsJoinLink(event),event.onlineMeeting.joinUrl);
@@ -56,3 +56,6 @@ test('organizer identity explains absent RSVP without inventing acceptance for p
  assert.equal(calendarAttendeeLabel(e,{...a,type:'resource'}),'None');
  assert.equal(calendarAttendeeLabel(e,{...a,emailAddress:{address:'other@example.test'},status:{response:'accepted'}}),'Accepted');
 });
+
+test('Graph fractional seconds are normalized without changing the UTC instant',()=>{assert.equal(eventDate({dateTime:'2026-11-23T17:30:00.1234567',timeZone:'UTC'}).toISOString(),'2026-11-23T17:30:00.123Z');assert.equal(eventDate({dateTime:'2026-11-23T12:30:00.0000000-05:00',timeZone:'America/New_York'}).toISOString(),'2026-11-23T17:30:00.000Z');});
+test('unreadable creation times never become calendar range dates',()=>{const event={start:{dateTime:'2026-11-23T12:30:00.0000000',timeZone:'America/New_York'}};assert.equal(calendarAnchor(event,'2026-11-01','2026-11-23'),'2026-11-23');assert.equal(calendarAnchor(event,'2026-11-01'),'2026-11-01');assert.equal(eventDay({isAllDay:true}),'Date unavailable');for(const day of ['Date unavailable','2026-02-30','2026-13-01','']){assert.equal(validCalendarDay(day),false);assert.throws(()=>calendarRange(day,7),/valid calendar/);}assert.equal(validCalendarDay('2026-11-23'),true);});

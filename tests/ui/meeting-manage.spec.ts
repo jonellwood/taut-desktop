@@ -5,7 +5,7 @@ async function edit(page:import('@playwright/test').Page){await page.getByRole('
 
 test('editing is local and restorable; review cancel sends nothing and subject-only save preserves other fields',async({page,graph},info)=>{
  organizer(graph);await page.goto('/');await select(page);await edit(page);await expect(page.getByRole('combobox',{name:'Optional attendees',exact:true})).toHaveValue('alex@example.test');
- await page.getByLabel('Subject',{exact:true}).fill('Adjusted planning');await page.getByRole('button',{name:'Save & close',exact:true}).click();await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Adjusted planning');
+ await page.getByLabel('Subject',{exact:true}).fill('Adjusted planning');await page.getByRole('button',{name:'Close editor',exact:true}).click();await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Adjusted planning');
  await page.getByRole('button',{name:'Review changes',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('Adjusted planning');await expect(page.getByRole('dialog')).toContainText('notify attendees');expect(graph.writes).toEqual([]);
  await page.screenshot({path:info.outputPath('meeting-update-review.png')});await page.getByRole('button',{name:'Keep editing',exact:true}).click();expect(graph.writes).toEqual([]);
  await page.getByRole('button',{name:'Review changes',exact:true}).click();await page.getByRole('button',{name:'Send meeting update',exact:true}).click();await expect(page.locator('.event-details h2')).toHaveText('Adjusted planning');
@@ -34,7 +34,7 @@ test('a stale version is not sent and preserves editable draft',async({page,grap
 
 test('uncertain update survives restart and blocks both edit and cancellation for the same version',async({page,graph})=>{
  organizer(graph);graph.meetingManageResult={status:'uncertain',error:'Update unconfirmed. Check Outlook.'};await page.goto('/');await select(page);await edit(page);await page.getByLabel('Subject',{exact:true}).fill('Keep uncertain draft');await page.getByRole('button',{name:'Review changes',exact:true}).click();await page.getByRole('button',{name:'Send meeting update',exact:true}).click();await expect(page.locator('.meeting-editor')).toContainText('Update unconfirmed');
- await page.reload();await select(page);await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Keep uncertain draft');await expect(page.getByRole('button',{name:'Review changes',exact:true})).toBeDisabled();await page.getByRole('button',{name:'Save & close',exact:true}).click();await page.getByRole('button',{name:'Cancel meeting',exact:true}).click();await expect(page.getByRole('button',{name:'Review cancellation',exact:true})).toBeDisabled();expect(graph.writes).toHaveLength(1);
+ await page.reload();await select(page);await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Keep uncertain draft');await expect(page.getByRole('button',{name:'Review changes',exact:true})).toBeDisabled();await page.getByRole('button',{name:'Close editor',exact:true}).click();await page.getByRole('button',{name:'Cancel meeting',exact:true}).click();await expect(page.getByRole('button',{name:'Review cancellation',exact:true})).toBeDisabled();expect(graph.writes).toHaveLength(1);
 });
 
 test('online descriptions are preserved and only an explicit appended note is sent',async({page,graph})=>{
@@ -54,11 +54,11 @@ test('corrupt local draft cannot bypass an uncertain attempt lock',async({page,g
 });
 
 test('unreadable attempt storage leaves management unavailable',async({page,graph})=>{
- organizer(graph);await page.addInitScript(()=>{const original=Storage.prototype.getItem;Storage.prototype.getItem=function(key){if(key.includes('taut-meeting-manage'))throw new DOMException('Unavailable','SecurityError');return original.call(this,key);};});await page.goto('/');await select(page);await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByRole('alert')).toContainText('Unavailable');await expect(page.getByRole('button',{name:'Review changes',exact:true})).toHaveCount(0);expect(graph.writes).toEqual([]);
+ organizer(graph);await page.addInitScript(()=>{const original=Storage.prototype.getItem;Storage.prototype.getItem=function(key){if(key.includes('taut-meeting-manage'))throw new DOMException('Unavailable','SecurityError');return original.call(this,key);};});await page.goto('/');await select(page);await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByRole('alert')).toContainText('Unavailable');await expect(page.getByRole('button',{name:'Review changes',exact:true})).toBeDisabled();expect(graph.writes).toEqual([]);
 });
 
 test('pending cancellation cannot be submitted twice or closed from the editor',async({page,graph})=>{
- organizer(graph);let release!:()=>void;graph.meetingManageGate=new Promise<void>(resolve=>release=resolve);await page.goto('/');await select(page);await page.getByRole('button',{name:'Cancel meeting',exact:true}).click();await page.getByRole('button',{name:'Review cancellation',exact:true}).click();await page.getByRole('button',{name:'Cancel meeting & notify attendees',exact:true}).click();await expect(page.getByRole('button',{name:'Review cancellation',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'Save & close',exact:true})).toBeDisabled();expect(graph.writes).toHaveLength(1);release();await expect(page.locator('.agenda')).toContainText('Cancellation submitted');expect(graph.writes).toHaveLength(1);
+ organizer(graph);let release!:()=>void;graph.meetingManageGate=new Promise<void>(resolve=>release=resolve);await page.goto('/');await select(page);await page.getByRole('button',{name:'Cancel meeting',exact:true}).click();await page.getByRole('button',{name:'Review cancellation',exact:true}).click();await page.getByRole('button',{name:'Cancel meeting & notify attendees',exact:true}).click();await expect(page.getByRole('button',{name:'Review cancellation',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'Close editor',exact:true})).toBeDisabled();expect(graph.writes).toHaveLength(1);release();await expect(page.locator('.agenda')).toContainText('Cancellation submitted');expect(graph.writes).toHaveLength(1);
 });
 
 
@@ -70,4 +70,13 @@ test('returning to Chats after cancellation replaces Calendar and opens a conver
 
 test('selected cancelled event unmounts cleanly when returning to Chats',async({page,graph})=>{
  organizer(graph);graph.calendarEvents[0].isCancelled=true;await page.goto('/');await row(page,alex.displayName).click();await select(page);await expect(page.locator('.event-details')).toBeVisible();await page.getByRole('button',{name:'Chats',exact:true}).click();await expect(page.locator('.calendar-workspace')).toHaveCount(0);await row(page,alex.displayName).click();await expect(page.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();expect(graph.writes).toEqual([]);
+});
+
+test('primary meeting review stays visible while scrolling and closing never sends',async({page,graph},info)=>{
+ organizer(graph);await page.setViewportSize({width:1280,height:650});await page.goto('/');await select(page);await edit(page);
+ const editor=page.getByRole('region',{name:'Edit meeting',exact:true});const review=editor.getByRole('button',{name:'Review changes',exact:true});
+ await expect(review).toBeInViewport();await expect(review).toBeDisabled();await expect(editor.getByRole('button',{name:'Save & close'})).toHaveCount(0);
+ await page.getByLabel('Subject',{exact:true}).fill('Visible review action');await expect(review).toBeEnabled();await editor.evaluate(node=>node.scrollTop=node.scrollHeight);await expect(review).toBeInViewport();
+ await page.screenshot({path:info.outputPath('sticky-meeting-review.png')});await review.click();await expect(page.getByRole('dialog',{name:'Review meeting changes'})).toContainText('Visible review action');expect(graph.writes).toEqual([]);
+ await page.getByRole('button',{name:'Keep editing',exact:true}).click();await editor.getByRole('button',{name:'Close editor',exact:true}).click();expect(graph.writes).toEqual([]);await page.getByRole('button',{name:'Edit meeting',exact:true}).click();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('Visible review action');
 });
