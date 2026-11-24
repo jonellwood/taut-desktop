@@ -62,6 +62,8 @@ export class MockGraph {
   meetingRooms:any[]=[{emailAddress:'room@example.test',displayName:'River room',building:'Main',capacity:8}];
   calendarResponseResult={status:'accepted',error:''};
   calendarPermitted=true;
+  fileRows:any[]=[{id:'folder-one',name:'Documents',folder:true,shortcut:false,size:0,owner:'You',modified:'2026-11-24T12:00:00Z'},{id:'file-one',name:'Project notes.pdf',folder:false,shortcut:false,size:1024,owner:'You',parentId:'folder-one',location:'/drive/root:/Documents',modified:'2026-11-24T12:00:00Z'}];
+  filesError='';filesNext:string|null=null;fileNextRows:any[]=[];filesDownloadResult=true;filesActionError='';
   calendarError='';
   meetingOnlineSupported=true;meetingOnlineError="";meetingOnlineGate?:Promise<void>;
   calendarEventError='';
@@ -82,7 +84,7 @@ export class MockGraph {
   mailFiles:any[]=[{id:'file-1',name:'project.txt',contentType:'text/plain',size:5}];
   mailFile={contentType:'text/plain',base64:'aGVsbG8='};
   mailSaveResult=true;
-  reminderSettings:{enabled:boolean;error:string|null}={enabled:false,error:null};
+  reminderSettings:{enabled:boolean;error:string|null;compact?:boolean}={enabled:false,error:null};
   reminderActionError='';
   reminderCards:any[]=[];reminderActions:any[]=[];
   reminderError='';pendingReminderEvent:string|null=null;
@@ -151,6 +153,9 @@ export class MockGraph {
       case 'calendar_event':{await this.calendarEventGate;if(this.calendarEventError)throw Error(this.calendarEventError);if(this.calendarEventResults.length)return this.calendarEventResults.shift();const meta=this.calendarInvitations[args.messageId]??{};return {...meta,event:this.calendarEvents.find(e=>e.id===(args.eventId??meta.eventId))??this.calendarEvents[0]};}
       case 'calendar_response':return this.calendarResponseResult;
       case 'calendar_permission':return this.calendarPermitted;
+      case 'files_page': if(this.filesError)throw Error(this.filesError);return {value:args.query.next?this.fileNextRows:this.fileRows,next:args.query.next?null:this.filesNext,driveName:'My OneDrive'};
+      case 'files_open': if(this.filesActionError)throw Error(this.filesActionError);return null;
+      case 'files_download': if(this.filesActionError)throw Error(this.filesActionError);return this.filesDownloadResult;
       case 'calendar_page':if(this.calendarError)throw Error(this.calendarError);return {value:this.calendarEvents,next:null};
       case 'mail_permission':return this.mailPermitted;
       case 'mail_unread':{const count=this.mailUnreadCount??this.mailMessages.filter(m=>m.isRead===false&&(!m.parentFolderId||m.parentFolderId==='inbox')).length;await this.mailUnreadGate;if(!this.mailPermitted)throw Error('Mail consent required');if(this.mailUnreadError)throw Error(this.mailUnreadError);return {count};}
@@ -194,11 +199,14 @@ export class MockGraph {
         const q=args.query;
         return this.teamPages[q.next??`${q.collection}:${q.teamId??''}:${q.channelId??''}:${q.messageId??''}`]??{value:this.teamData[q.collection]??[],next:null};
       }
+      case 'calendar_reminder_preview': this.reminderCards.push({key:'preview',preview:true,title:'Your next meeting',start:Date.now()+900000,allDay:false,room:'Sample meeting · No calendar event created',canJoin:true} as any);return null;
+      case 'calendar_reminder_layout': return this.reminderSettings.compact??false;
+      case 'calendar_reminder_compact': this.reminderSettings={...this.reminderSettings,compact:args.compact};return this.reminderSettings;
       case 'calendar_reminder_cards': return this.reminderCards;
       case 'calendar_reminder_card_action': if(this.reminderActionError)throw Error(this.reminderActionError);this.reminderActions.push(args);this.reminderCards=this.reminderCards.filter(c=>c.key!==args.key);return null;
       case 'calendar_reminder_corner': this.reminderSettings={...this.reminderSettings,corner:args.corner} as any;return this.reminderSettings;
       case 'calendar_reminder_settings': return this.reminderSettings;
-      case 'calendar_reminder_configure': if(this.reminderError)throw Error(this.reminderError);this.reminderSettings={enabled:args.enabled,error:null};return this.reminderSettings;
+      case 'calendar_reminder_configure': if(this.reminderError)throw Error(this.reminderError);this.reminderSettings={...this.reminderSettings,enabled:args.enabled,error:null};return this.reminderSettings;
       case 'calendar_reminder_take_open': {const id=this.pendingReminderEvent;this.pendingReminderEvent=null;return id;}
       case 'app_icon_accent': return null;
       case 'notification_settings': return this.notificationSettings;

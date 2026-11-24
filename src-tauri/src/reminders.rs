@@ -16,6 +16,8 @@ struct Saved {
     #[serde(default = "default_corner")]
     corner: String,
     #[serde(default)]
+    compact: bool,
+    #[serde(default)]
     cards: BTreeMap<String, CardPending>,
 }
 fn default_corner() -> String {
@@ -37,6 +39,7 @@ pub struct Status {
     pub last_request: Option<i64>,
     pub summary: String,
     pub corner: String,
+    pub compact: bool,
 }
 pub struct Manager {
     saved: Saved,
@@ -45,6 +48,7 @@ pub struct Manager {
     pub last_check: Option<i64>,
     pub last_request: Option<i64>,
     pub summary: String,
+    preview_until: Option<i64>,
     card_session: String,
     card_events: BTreeMap<String, (Value, i64)>,
     valid: bool,
@@ -71,6 +75,7 @@ impl Manager {
             last_check: None,
             last_request: None,
             summary: "Waiting for the next reminder check.".into(),
+            preview_until: None,
             card_session: String::new(),
             card_events: BTreeMap::new(),
             valid,
@@ -108,6 +113,7 @@ impl Manager {
     }
     pub fn status(&self) -> Status {
         Status {
+            compact: self.saved.compact,
             enabled: self.saved.enabled && self.valid,
             error: self.error.clone(),
             last_check: self.last_check,
@@ -132,6 +138,13 @@ impl Manager {
             self.save(&self.saved)?;
             self.pending = None;
         }
+        Ok(self.status())
+    }
+    pub fn compact(&mut self, compact: bool) -> Result<Status, String> {
+        let mut next = self.saved.clone();
+        next.compact = compact;
+        self.save(&next)?;
+        self.saved = next;
         Ok(self.status())
     }
     pub fn corner(&mut self, corner: &str) -> Result<Status, String> {
@@ -255,6 +268,12 @@ impl Manager {
             }
             _ => Err("Unknown reminder action".into()),
         }
+    }
+    pub fn preview(&mut self, now:i64) { self.preview_until=Some(now+60000); }
+    pub fn dismiss_preview(&mut self) { self.preview_until=None; }
+    pub fn preview_view(&self, now:i64)->Option<Value> {
+        let until=self.preview_until.filter(|until|*until>now)?;
+        Some(serde_json::json!({"key":"preview","preview":true,"title":"Your next meeting","start":until+14*60000,"allDay":false,"room":"Sample meeting · No calendar event created","canJoin":true}))
     }
     pub fn card_views(&mut self, own: &str, session: &str, now: i64) -> Vec<Value> {
         self.bind_cards(session);
@@ -531,6 +550,7 @@ mod tests {
     }
 }
 
+#[cfg(test)]
 pub fn placement(
     x: i32,
     y: i32,
@@ -540,11 +560,14 @@ pub fn placement(
     corner: &str,
     count: usize,
 ) -> (i32, i32, u32, u32) {
+    placement_with_layout(x,y,width,height,scale,corner,count,false)
+}
+pub fn placement_with_layout(x:i32,y:i32,width:u32,height:u32,scale:f64,corner:&str,count:usize,compact:bool)->(i32,i32,u32,u32){
     let aw = width as f64;
     let ah = height as f64;
     let margin = (16.0 * scale).min(aw / 4.0).min(ah / 4.0);
     let w = (400.0 * scale).min(aw - 2.0 * margin).max(1.0);
-    let h = ((150.0 + 260.0 * count as f64).min(500.0) * scale)
+    let h = ((if compact {100.0 + 195.0 * count as f64} else {150.0 + 260.0 * count as f64}).min(500.0) * scale)
         .min(ah - 2.0 * margin)
         .max(1.0);
     let px = x as f64
@@ -620,6 +643,35 @@ mod card_tests {
         assert!(m.pending_cards("a").is_empty());
         assert!(m.card_action(&k, "a", "s", "open", 0).is_err());
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+    #[test]
+    fn preview_is_temporary_local_and_does_not_touch_saved_reminders() {
+        let p=path();let mut m=Manager::load(Some(p.clone()));m.configure(true).unwrap();
+        let before=std::fs::read(&p).unwrap();m.preview(1000);
+        assert_eq!(m.preview_view(1000).unwrap()["preview"],true);
+        assert!(m.preview_view(61000).is_none());assert_eq!(before,std::fs::read(&p).unwrap());
+        assert!(Manager::load(Some(p.clone())).preview_view(1001).is_none());
+        m.preview(2000);m.dismiss_preview();assert!(m.preview_view(2001).is_none());
+        let _=std::fs::remove_dir_all(p.parent().unwrap());
+    }
+    #[test]
+    fn compact_preference_defaults_and_persists_without_changing_reminder_state() {
+        let p=path();let mut m=Manager::load(Some(p.clone()));
+        assert!(!m.status().compact);m.configure(true).unwrap();m.corner("top-left").unwrap();
+        m.compact(true).unwrap();let restored=Manager::load(Some(p.clone()));
+        assert!(restored.status().compact);assert!(restored.status().enabled);assert_eq!(restored.status().corner,"top-left");
+        let mut legacy:Value=serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();legacy.as_object_mut().unwrap().remove("compact");std::fs::write(&p,serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let restored=Manager::load(Some(p.clone()));assert!(!restored.status().compact);assert!(restored.status().enabled);
+        let _=std::fs::remove_dir_all(p.parent().unwrap());
+    }
+    #[test]
+    fn compact_window_is_smaller_and_stays_inside_work_area() {
+        for corner in ["top-left","top-right","bottom-left","bottom-right"] {
+            let full=placement_with_layout(-1920,40,1920,1600,2.0,corner,1,false);
+            let compact=placement_with_layout(-1920,40,1920,1600,2.0,corner,1,true);
+            assert!(compact.3<full.3);assert_eq!(compact.2,full.2);
+            assert!(compact.0>=-1920&&compact.1>=40);assert!(compact.0+compact.2 as i32<=0&&compact.1+compact.3 as i32<=1640);
+        }
     }
     #[test]
     fn position_is_persisted_and_invalid_values_do_not_change_it() {

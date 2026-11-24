@@ -10,3 +10,12 @@ test('mail media aggregates loaded emails, filters explicitly, groups verified i
  await expect(pane.getByText('signature.png',{exact:true})).toHaveCount(1);await expect(pane).toContainText('2 identical copies');await pane.getByText('Appears in 2 emails').click();await pane.getByRole('button',{name:/Alex Example/}).click();await expect(page.locator('#mail-message-mail-1 .mail-message-heading')).toHaveAttribute('aria-expanded','true');
  await page.screenshot({path:info.outputPath('mail-media-center.png')});await pane.getByRole('button',{name:'Close mail details'}).click();await expect(pane).toHaveCount(0);await page.getByRole('button',{name:'Toggle details panel'}).click();await expect(pane).toBeVisible();expect(graph.writes).toEqual([]);
 });
+
+test('long recipient headers start collapsed and expand independently without changing the email view',async({page,graph})=>{
+ graph.mailMessages[0].toRecipients=Array.from({length:25},(_,i)=>({emailAddress:{name:`Recipient ${i+1}`,address:`recipient${i+1}@example.test`}}));graph.mailMessages[0].ccRecipients=[{emailAddress:{name:'Copied coworker',address:'copied@example.test'}}];graph.mailMessages[0].body={contentType:'html',content:'<p>The message stays readable.</p>'};
+ await signIn(page);await page.getByRole('button',{name:'Mail',exact:true}).click();await page.locator('.mail-row').first().click();
+ const details=page.locator('.mail-addresses');const summary=details.locator('summary');await expect(summary).toHaveText('Message details · 26 recipients');await expect(details).not.toHaveAttribute('open','');await expect(details.locator('.address-list')).not.toBeVisible();await expect(page.getByRole('button',{name:'HTML',exact:true})).toHaveAttribute('aria-pressed','true');
+ await summary.focus();await page.keyboard.press('Enter');await expect(details.locator('.address-list')).toBeVisible();await expect(details).toContainText('recipient25@example.test');await expect(details).toContainText('Cc: Copied coworker');
+ await page.getByRole('button',{name:'Mark read',exact:true}).click();await expect(page.getByRole('button',{name:'Mark unread',exact:true})).toBeVisible();await expect(details.locator('.address-list')).toBeVisible();
+ await summary.click();await expect(details.locator('.address-list')).not.toBeVisible();await expect(page.getByRole('button',{name:'HTML',exact:true})).toHaveAttribute('aria-pressed','true');expect(graph.writes.filter(c=>c.command!=='mail_set_read')).toEqual([]);
+});

@@ -4,13 +4,17 @@
  import {Search,X} from 'lucide-svelte';
  import {searchLoadedChats} from './discovery';
  import {mailConversations,mergeMail,addressLabel,type MailMessage,type MailPage} from './mail';
+ import FileResults from './FileResults.svelte';
+ import {mergeFiles,type DriveItem,type FilesPage} from './files';
  import type {Conversation} from './types';
- let {chats,onClose,onChat,onMail}:{chats:Conversation[];onClose:()=>void;onChat:(id:string,messageId:string)=>void;onMail:(message:MailMessage)=>void}=$props();
+ let {ownId,chats,onClose,onChat,onMail,onFile}:{ownId:string;onFile:(item:DriveItem)=>void;chats:Conversation[];onClose:()=>void;onChat:(id:string,messageId:string)=>void;onMail:(message:MailMessage)=>void}=$props();
  let query=$state(''),applied=$state(''),mail=$state<MailMessage[]>([]),next=$state<string|null>(null),busy=$state(false),error=$state('');
+ let files=$state<DriveItem[]>([]),fileNext=$state<string|null>(null),fileBusy=$state(false),fileError=$state('');
+ async function searchFiles(more=false,text=applied,version=serial){fileBusy=true;fileError='';try{const result=await invoke<FilesPage>('files_page',{query:{folder:null,search:text,next:more?fileNext:null}});if(alive&&version===serial){files=more?mergeFiles(files,result.value):result.value;fileNext=result.next;}}catch(e){if(alive&&version===serial)fileError=String(e);}finally{if(alive&&version===serial)fileBusy=false;}}
  let alive=true,serial=0,input:HTMLInputElement;
  const chatResults=$derived(searchLoadedChats(chats,applied));
  const mailResults=$derived(mailConversations(mail));
- async function search(more=false){const text=more?applied:query.trim();if(!text)return;const version=++serial;busy=true;error='';if(!more){applied=text;mail=[];next=null;}try{
+ async function search(more=false){const text=more?applied:query.trim();if(!text)return;const version=more?serial:++serial;busy=true;error='';if(!more){applied=text;mail=[];next=null;files=[];fileNext=null;void searchFiles(false,text,version);}try{
   if(!await invoke<boolean>('mail_permission'))throw new Error('Mail search needs Mail.Read consent and a fresh sign-in. Loaded chat results remain available.');
   if(!alive||version!==serial)return;
   const result=await invoke<MailPage<MailMessage>>('mail_page',{query:{collection:'messages',search:text,next:more?next:null}});
@@ -20,14 +24,15 @@
  onMount(()=>input?.focus());onDestroy(()=>{alive=false;++serial;});
 </script>
 <div class="overlay" role="presentation" onclick={e=>{if(e.target===e.currentTarget)onClose();}}>
- <div class="discovery" role="dialog" aria-modal="true" aria-label="Search chats and mail" use:focusDialog>
+ <div class="discovery" role="dialog" aria-modal="true" aria-label="Search chats, mail and files" use:focusDialog>
  <header><div><span class="eyebrow">FIND YOUR SIGNAL</span><h2>Where did they send it?</h2></div><button aria-label="Close unified search" onclick={onClose}><X size={20}/></button></header>
- <form onsubmit={e=>{e.preventDefault();void search();}}><Search size={18}/><input bind:this={input} bind:value={query} maxlength="500" aria-label="Search chats and mail" placeholder="A person, phrase or attachment name…"/><button disabled={!query.trim()} type="submit">Search</button></form>
- <div class="results"><p>Chats: loaded history only, up to 100 matches. Mail: mailbox search. Channels are not included yet. Searching changes no read state.</p>
+ <form onsubmit={e=>{e.preventDefault();void search();}}><Search size={18}/><input bind:this={input} bind:value={query} maxlength="500" aria-label="Search chats, mail and files" placeholder="A person, phrase or attachment name…"/><button disabled={!query.trim()} type="submit">Search</button></form>
+ <div class="results"><p>Chats: loaded history only, up to 100 matches. Mail: mailbox search. Files: your OneDrive. Channels are not included yet. Searching changes no read state.</p>
  {#if applied}<h3>Chats · {chatResults.length}</h3>{#each chatResults as result}<button class="result" onclick={()=>onChat(result.chatId,result.messageId)}><span>CHAT · {result.name}</span><strong>{result.preview||'Open conversation'}</strong></button>{/each}{#if !chatResults.length}<p>No matches in loaded chats. Open older history to include it.</p>{/if}
  <h3>Mail · {mailResults.length} conversations loaded</h3>{#if busy}<p role="status">Searching your mailbox…</p>{/if}{#if error}<p role="alert">{error}</p><button onclick={()=>search(!!mail.length)}>Retry mail search</button>{/if}
  {#each mailResults as result}<button class="result" onclick={()=>onMail(result.latest)}><span>MAIL · {addressLabel(result.latest.from)}</span><strong>{result.latest.subject||'(No subject)'}</strong><small>{result.latest.bodyPreview}</small></button>{/each}
  {#if !busy&&!error&&!mail.length}<p>No matching mail.</p>{/if}{#if next}<button disabled={busy} onclick={()=>search(true)}>Load more mail results</button>{/if}
+ <h3>Files · {files.length} OneDrive items loaded</h3>{#if fileBusy}<p role="status">Searching OneDrive…</p>{/if}{#if fileError}<p role="alert">{fileError}</p><button onclick={()=>searchFiles(!!files.length)}>Retry OneDrive search</button>{/if}<FileResults items={files} {ownId} onLocate={onFile} search/>{#if !fileBusy&&!fileError&&!files.length}<p>No matching OneDrive files.</p>{/if}{#if fileNext}<button disabled={fileBusy} onclick={()=>searchFiles(true)}>Load more file results</button>{/if}
  {:else}<p>Search once. Choose a result to return to its conversation.</p>{/if}</div>
  </div>
 </div>

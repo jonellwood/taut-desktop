@@ -1,3 +1,4 @@
+mod files;
 mod app_icon;
 mod mailbox_transport;
 mod meeting;
@@ -609,6 +610,46 @@ async fn mail_unread(state:State<'_,AuthState>,own_id:String)->Result<Value,Stri
   Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid Inbox count response")?))
  })
 }).await}
+fn files_permitted(state:&AuthState)->Result<bool,String>{let scopes=collaboration_scopes(state)?;Ok(["Files.Read","Files.ReadWrite"].iter().any(|s|scope_has(&scopes,s)))}
+fn files_request(state:&AuthState,path:&str)->Result<(u16,Value),String>{
+ use std::io::Read;
+ let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"OneDrive client unavailable")?;
+ let response=client.get(format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(get_access_token(state)?).send().map_err(|_|"OneDrive network error. Try again.")?;let status=response.status().as_u16();if status!=200{return Ok((status,Value::Null));}
+ let mut bytes=vec![];response.take(2097153).read_to_end(&mut bytes).map_err(|_|"OneDrive response unreadable")?;if bytes.len()>2097152{return Err("OneDrive response is too large".into());}Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid OneDrive response")?))
+}
+#[tauri::command]
+async fn files_page(state:State<'_,AuthState>,query:files::Query)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||files::page(&query,files_permitted(&state)?,&mut|p|files_request(&state,p))).await}
+#[tauri::command]
+async fn files_open(app:tauri::AppHandle,state:State<'_,AuthState>,own_id:String,item_id:String)->Result<(),String>{let state=AuthState(state.0.clone());background_read(move||{let item=files::item(&item_id,files_permitted(&state)?,&mut|p|files_request(&state,p))?;let url=files::web_url(item["webUrl"].as_str().unwrap_or("")).ok_or("No supported OneDrive browser link is available")?;if deletion::own_id(&mut|m,p,b|graph_operation_request(&state,m,p,b))?!=own_id{return Err("Account changed. Reopen Files.".into());}app.opener().open_url(url,None::<&str>).map_err(|_|"OneDrive could not be opened".into())}).await}
+#[tauri::command]
+async fn files_download(state:State<'_,AuthState>,own_id:String,item_id:String)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||{
+ use std::io::{Read,Write};
+ if deletion::own_id(&mut|m,p,b|graph_operation_request(&state,m,p,b))?!=own_id{return Err("Account changed. Reopen Files.".into());}
+ let item=files::item(&item_id,files_permitted(&state)?,&mut|p|files_request(&state,p))?;
+ if !item["file"].is_object()||item["remoteItem"].is_object(){return Err("Choose a file in your OneDrive. Shared shortcuts can be opened in your browser.".into());}
+ const LIMIT:u64=100*1024*1024;if item["size"].as_u64().unwrap_or(LIMIT+1)>LIMIT{return Err("Downloads over 100 MB currently open in OneDrive. Use Open in browser.".into());}
+ let mut url=files::download_url(item["@microsoft.graph.downloadUrl"].as_str().ok_or("Download unavailable. Refresh Files and try again.")?)?;
+ let name=item["name"].as_str().unwrap_or("download").chars().filter(|c|!c.is_control()&&!"<>:\"/\\|?*".contains(*c)).take(180).collect::<String>();let name=if name.is_empty(){"download"}else{&name};
+ #[cfg(target_os="macos")]
+ let destination={let script="on run argv\ntry\nset destination to choose file name with prompt \"Download OneDrive file\" default name (item 1 of argv)\nreturn POSIX path of destination\non error number -128\nreturn \"\"\nend try\nend run";let output=std::process::Command::new("osascript").args(["-e",script,"--",name]).output().map_err(|_|"Save dialog unavailable")?;if !output.status.success(){return Err("Save dialog could not complete".into());}let path=String::from_utf8(output.stdout).map_err(|_|"Invalid destination")?;let path=path.trim_end_matches(['\r','\n']);if path.is_empty(){return Ok(false);}std::path::PathBuf::from(path)};
+ #[cfg(target_os="windows")]
+ let destination={let name=save_attachment::suggested_name(name);let Some(path)=rfd::FileDialog::new().set_title("Download OneDrive file").set_file_name(&name).save_file()else{return Ok(false);};path};
+ #[cfg(not(any(target_os="macos",target_os="windows")))]
+ let destination:std::path::PathBuf=return Err("Native downloads are not available on this platform yet. Use Open in browser.".into());
+ // Preauthenticated URL receives no OAuth header; every redirect is independently checked.
+ let client=Client::builder().timeout(Duration::from_secs(120)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Download client unavailable")?;let mut data=None;
+ for _ in 0..5{let response=client.get(url.clone()).send().map_err(|_|"Download failed. Try again.")?;
+  if response.status().is_redirection(){let location=response.headers().get(reqwest::header::LOCATION).and_then(|v|v.to_str().ok()).ok_or("Download redirect unavailable")?;url=files::download_url(url.join(location).map_err(|_|"Invalid download redirect")?.as_str())?;continue;}
+  if response.status().as_u16()!=200{return Err("OneDrive download failed. Refresh and try again.".into());}if response.content_length().is_some_and(|size|size>LIMIT){return Err("Download exceeds the 100 MB limit. Use Open in browser.".into());}
+  let mut bytes=vec![];response.take(LIMIT+1).read_to_end(&mut bytes).map_err(|_|"Download interrupted; nothing was saved")?;if bytes.len() as u64>LIMIT{return Err("Download exceeds the 100 MB limit".into());}data=Some(bytes);break;
+ }
+ let bytes=data.ok_or("Too many download redirects")?;
+ if deletion::own_id(&mut|m,p,b|graph_operation_request(&state,m,p,b))?!=own_id{return Err("Account changed; nothing was saved.".into());}
+ let temp=destination.with_file_name(format!(".taut-download-{}",random_urlsafe()));
+ let result=(||{let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;file.write_all(&bytes)?;file.sync_all()?;drop(file);durable_file::replace(&temp,&destination)})();
+ if result.is_err(){let _=std::fs::remove_file(&temp);return Err("File could not be saved to the chosen location.".into());}Ok(true)
+}).await}
+
 #[tauri::command]
 async fn mail_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Mail.Read"))).await}
 #[tauri::command]
@@ -886,13 +927,23 @@ fn calendar_reminder_take_open(state:State<'_,reminders::State>,notifications:St
  Ok(m.pending.take().and_then(|(session,own,event)|(m.status().enabled&&n.tracker.session==session&&n.tracker.own.as_deref()==Some(&own)).then_some(event)))
 }
 #[tauri::command]
+fn calendar_reminder_layout(state:State<'_,reminders::State>)->Result<bool,String>{Ok(state.0.lock().map_err(|_|"Calendar reminders unavailable")?.status().compact)}
+#[tauri::command]
+fn calendar_reminder_compact(state:State<'_,reminders::State>,compact:bool)->Result<reminders::Status,String>{state.0.lock().map_err(|_|"Calendar reminders unavailable")?.compact(compact)}
+#[tauri::command]
 fn calendar_reminder_corner(state:State<'_,reminders::State>,corner:String)->Result<reminders::Status,String>{state.0.lock().map_err(|_|"Calendar reminders unavailable")?.corner(&corner)}
 #[tauri::command]
+fn calendar_reminder_preview(app:tauri::AppHandle,state:State<'_,reminders::State>,notifications:State<'_,notifications::State>)->Result<(),String>{
+ state.0.lock().map_err(|_|"Calendar reminders unavailable")?.preview(notifications::now());
+ sync_reminder_window(&app,state.inner(),notifications.inner());Ok(())
+}
+#[tauri::command]
 fn calendar_reminder_cards(state:State<'_,reminders::State>,notifications:State<'_,notifications::State>)->Result<Vec<Value>,String>{
- let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let Some(own)=n.tracker.own.as_deref()else{return Ok(vec![]);};Ok(state.0.lock().map_err(|_|"Calendar reminders unavailable")?.card_views(own,&n.tracker.session,notifications::now()))
+ let n=notifications.0.lock().map_err(|_|"Notification state unavailable")?;let mut m=state.0.lock().map_err(|_|"Calendar reminders unavailable")?;let now=notifications::now();let mut cards=n.tracker.own.as_deref().map(|own|m.card_views(own,&n.tracker.session,now)).unwrap_or_default();if let Some(preview)=m.preview_view(now){cards.push(preview);}Ok(cards)
 }
 #[tauri::command]
 async fn calendar_reminder_card_action(app:tauri::AppHandle,auth:State<'_,AuthState>,state:State<'_,reminders::State>,notifications:State<'_,notifications::State>,key:String,action:String)->Result<(),String>{
+ if key=="preview"{if action!="dismiss"{return Err("This is a preview, not a real meeting.".into());}state.0.lock().map_err(|_|"Calendar reminders unavailable")?.dismiss_preview();return Ok(());}
  let auth=AuthState(auth.0.clone());let state=state.inner().clone();let notifications=notifications.inner().clone();
  background_read(move||{
   if !["dismiss","snooze","open","join"].contains(&action.as_str()){return Err("Unknown reminder action".into());}
@@ -915,12 +966,12 @@ fn sync_reminder_window(app:&tauri::AppHandle,state:&reminders::State,notificati
  let handle=app.clone();let state=state.clone();let notifications=notifications.clone();
  let _=app.run_on_main_thread(move||{
   let Ok(n)=notifications.0.lock()else{return;};let Ok(mut m)=state.0.lock()else{return;};
-  let cards=n.tracker.own.as_deref().map(|own|m.card_views(own,&n.tracker.session,notifications::now())).unwrap_or_default();
+  let now=notifications::now();let mut cards=n.tracker.own.as_deref().map(|own|m.card_views(own,&n.tracker.session,now)).unwrap_or_default();if let Some(preview)=m.preview_view(now){cards.push(preview);}
   if cards.is_empty(){if let Some(w)=handle.get_webview_window("reminders"){let _=w.hide();}return;}
-  let corner=m.status().corner;drop(m);drop(n);
+  let status=m.status();let corner=status.corner;let compact=status.compact;drop(m);drop(n);
   let w=match handle.get_webview_window("reminders"){Some(w)=>w,None=>match tauri::WebviewWindowBuilder::new(&handle,"reminders",tauri::WebviewUrl::App("index.html?surface=reminders".into())).title("TAUT reminders").inner_size(400.0,500.0).resizable(false).decorations(false).always_on_top(true).visible_on_all_workspaces(true).skip_taskbar(true).focused(false).visible(false).build(){Ok(w)=>w,Err(_)=>{if let Ok(mut m)=state.0.lock(){m.error=Some("The reminder window could not be opened.".into());}return;}}};
   let monitor=handle.get_webview_window("main").and_then(|main|main.current_monitor().ok().flatten()).or_else(||w.primary_monitor().ok().flatten());
-  if let Some(monitor)=monitor{let area=monitor.work_area();let(x,y,width,height)=reminders::placement(area.position.x,area.position.y,area.size.width,area.size.height,monitor.scale_factor(),&corner,cards.len());let _=w.set_size(tauri::PhysicalSize::new(width,height));let _=w.set_position(tauri::PhysicalPosition::new(x,y));}
+  if let Some(monitor)=monitor{let area=monitor.work_area();let(x,y,width,height)=reminders::placement_with_layout(area.position.x,area.position.y,area.size.width,area.size.height,monitor.scale_factor(),&corner,cards.len(),compact);let _=w.set_size(tauri::PhysicalSize::new(width,height));let _=w.set_position(tauri::PhysicalPosition::new(x,y));}
 
   if !w.is_visible().unwrap_or(false){let _=w.show();}
  });
@@ -988,7 +1039,7 @@ fn setup_notifications(app:&mut tauri::App)->Result<(),Box<dyn std::error::Error
     Ok(())
 }
 
-fn reminder_ipc_allowed(window:&str,command:&str)->bool{window=="main"||window=="reminders"&&["calendar_reminder_cards","calendar_reminder_card_action"].contains(&command)}
+fn reminder_ipc_allowed(window:&str,command:&str)->bool{window=="main"||window=="reminders"&&["calendar_reminder_cards","calendar_reminder_card_action","calendar_reminder_layout"].contains(&command)}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -997,14 +1048,14 @@ pub fn run() {
         .setup(|app|{setup_notifications(app)?;setup_calendar_reminders(app);setup_away(app);Ok(())})
         .manage(AuthState::default())
         .manage(attachments::AttachmentState::default())
-        .invoke_handler({let handler:fn(tauri::ipc::Invoke)->bool=tauri::generate_handler![app_icon::app_icon_accent,calendar_reminder_corner,calendar_reminder_cards,calendar_reminder_card_action,calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility];move |invoke:tauri::ipc::Invoke|{if !reminder_ipc_allowed(invoke.message.webview_ref().label(),invoke.message.command()){invoke.resolver.reject("Command unavailable in this window");return true;}handler(invoke)}})
+        .invoke_handler({let handler:fn(tauri::ipc::Invoke)->bool=tauri::generate_handler![files_page,files_open,files_download,calendar_reminder_preview,calendar_reminder_layout,calendar_reminder_compact,app_icon::app_icon_accent,calendar_reminder_corner,calendar_reminder_cards,calendar_reminder_card_action,calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility];move |invoke:tauri::ipc::Invoke|{if !reminder_ipc_allowed(invoke.message.webview_ref().label(),invoke.message.command()){invoke.resolver.reject("Command unavailable in this window");return true;}handler(invoke)}})
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]fn reminder_window_cannot_invoke_auth_mail_chat_or_opener_commands(){for command in ["sign_in","graph_send_message","mail_send_new","calendar_create","plugin:opener|open_url","calendar_reminder_configure"]{assert!(!super::reminder_ipc_allowed("reminders",command));assert!(super::reminder_ipc_allowed("main",command));}for command in ["calendar_reminder_cards","calendar_reminder_card_action"]{assert!(super::reminder_ipc_allowed("reminders",command));}assert!(!super::reminder_ipc_allowed("other","calendar_reminder_cards"));}
+    #[test]fn reminder_window_cannot_invoke_auth_mail_chat_or_opener_commands(){for command in ["files_page","files_open","files_download","sign_in","graph_send_message","mail_send_new","calendar_create","plugin:opener|open_url","calendar_reminder_configure"]{assert!(!super::reminder_ipc_allowed("reminders",command));assert!(super::reminder_ipc_allowed("main",command));}for command in ["calendar_reminder_cards","calendar_reminder_card_action"]{assert!(super::reminder_ipc_allowed("reminders",command));}assert!(!super::reminder_ipc_allowed("other","calendar_reminder_cards"));}
 
     #[test]
     fn recurring_request_keeps_named_zone_and_requests_utc_response(){

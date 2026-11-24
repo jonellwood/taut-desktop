@@ -19,6 +19,9 @@
  import {formatDraft,messageSizeError} from './lib/compose-format';
  import {quotedMessageIds,chatReplies} from './lib/chat-threads';
  import TeamsWorkspace from './lib/TeamsWorkspace.svelte';
+ import FilesWorkspace from './lib/FilesWorkspace.svelte';
+ import type {DriveItem} from './lib/files';
+ let fileTarget:DriveItem|null=$state(null),fileNavigation=$state(0);
  import Discovery from './lib/Discovery.svelte';
  import type {MailMessage} from './lib/mail';
  let mailDetailsAvailable=$state(false);
@@ -332,7 +335,7 @@
  let filtered=$derived(chats.filter(c=>Boolean(c.hidden)===showHidden&&c.name.toLowerCase().includes(search.toLowerCase())));
  const nav=[{id:'chats',icon:MessageCircle,label:'Chats'},{id:'teams',icon:Building2,label:'Teams and Channels'},{id:'mail',icon:Mail,label:'Mail'},{id:'calendar',icon:CalendarDays,label:'Calendar'},{id:'activity',icon:Bell,label:'Activity'},{id:'people',icon:Users,label:'People'},{id:'calls',icon:Phone,label:'Calls'},{id:'files',icon:Files,label:'Files'}] as const;
  const commands=[
- {label:'Search chats and mail',hint:'Discovery',run:()=>discoveryOpen=true},
+ {label:'Search chats, mail and files',hint:'Discovery',run:()=>discoveryOpen=true},
  {label:'Go to Chats',hint:'Workspace',run:()=>mode='chats'},
  {label:'Go to Teams and Channels',hint:'Workspace',run:()=>mode='teams'},
  {label:'New conversation',hint:'Messaging',run:()=>openNewChat()},
@@ -1067,8 +1070,8 @@
 </script>
 <svelte:window onclick={closePinMenu} onkeydown={keys} onfocus={windowFocused}/>
 <div use:attachmentInput={{enabled:canStageFiles,onFiles:files=>{void stageFiles(files)},onError:message=>attachmentInputNotice=message,onDrag:active=>fileDragActive=active}} class="app" class:dense style={`--sidebar-width:${sidebarWidth}px`}>
- <div class="layout-bar"><span class="layout-caption">TAUT <span>/ YOUR WORKSPACE</span></span><button type="button" class="unified-search-launch" disabled={!isLive} aria-label="Search chats and mail" onclick={()=>discoveryOpen=true}><Search size={16}/><span>Search chats and mail</span></button><div class="layout-controls" role="toolbar" aria-label="Workspace layout">
-  <button type="button" aria-label="Toggle conversation sidebar" aria-pressed={sidebarOpen} title="Conversation sidebar" onclick={()=>sidebarOpen=!sidebarOpen}><PanelLeft size={17}/></button>
+ <div class="layout-bar"><span class="layout-caption">TAUT <span>/ YOUR WORKSPACE</span></span><button type="button" class="unified-search-launch" disabled={!isLive} aria-label="Search chats, mail and files" onclick={()=>discoveryOpen=true}><Search size={16}/><span>Search chats, mail and files</span></button><div class="layout-controls" role="toolbar" aria-label="Workspace layout">
+  <button type="button" aria-label="Toggle conversation sidebar" disabled={mode==='files'} aria-pressed={sidebarOpen} title="Conversation sidebar" onclick={()=>sidebarOpen=!sidebarOpen}><PanelLeft size={17}/></button>
   <button type="button" aria-label="Toggle details panel" aria-pressed={detailsOpen&&(mode==='calendar'&&calendarDetailsAvailable||mode==='mail'&&mailDetailsAvailable||mode==='teams'||mode==='people'||mode==='chats'&&selected.id!=='empty')} disabled={mode==='calendar'?!calendarDetailsAvailable:mode==='mail'?!mailDetailsAvailable:mode!=='teams'&&mode!=='people'&&(mode!=='chats'||selected.id==='empty')} title={mode==='calendar'?'Calendar event details':mode==='mail'?'Mail conversation details and shared media':mode==='people'?'Coworker shared connections':mode==='teams'?'Channel details or reply thread':mode==='chats'&&selected.id!=='empty'?'Conversation details':'Choose a conversation to show details'} onclick={()=>detailsOpen=!detailsOpen}><PanelRight size={17}/></button>
   <span class="layout-divider"></span>
   <button type="button" aria-label="Focus mode" aria-pressed={focusMode} title={focusMode?'Exit focus mode · restore panels':'Focus mode · hide both panels'} onclick={toggleFocus}><Scan size={17}/></button>
@@ -1087,7 +1090,7 @@
    <button class="my-avatar" aria-label="Your status and preferences" disabled={!isLive} onclick={()=>{settingsPage='Presence & status';settingsOpen=true}} title={signedInName?`${signedInName} · ${userPresence(ownId).label}`:"Not signed in"}>{signedInName? signedInName[0]:"—"}{#if isLive}<i class="own-presence-dot" style:background={userPresence(ownId).color} aria-hidden="true"></i>{/if}</button>
   </div>
  </aside>
- {#if sidebarOpen&&mode!=='calendar'&&mode!=='teams'&&mode!=='mail'&&mode!=='people'}
+ {#if sidebarOpen&&mode!=='files'&&mode!=='calendar'&&mode!=='teams'&&mode!=='mail'&&mode!=='people'}
  <aside class="sidebar" aria-label="Conversations">
   <div class="sidebar-head"><div><div class="eyebrow">WORKSPACE</div><h1>{mode==='chats'?'Messages':nav.find(n=>n.id===mode)?.label}</h1></div><div class="sidebar-head-actions">{#if mode==='chats'}<button class="small-button" title="New conversation" aria-label="New conversation" disabled={!isLive||authBusy} onclick={openNewChat}><SquarePen size={18}/></button>{/if}<button class="small-button" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={()=>sidebarOpen=false}><PanelLeftClose size={18}/></button></div></div>
   {#if mode==='chats'}
@@ -1107,6 +1110,7 @@
   {#if mode==='teams'}{#key ownId}<TeamsWorkspace presencePermitted={collaboration.readPresence} onCloseDetails={()=>detailsOpen=false} drafts={channelDrafts} sendBusy={sendBusy} onSendBusy={(busy)=>sendBusy=busy} {isLive} {ownId} {sidebarOpen} {detailsOpen} {authBusy} onSignIn={signIn} onSignOut={signOut} onThreadOpen={()=>detailsOpen=true}/>{/key}
   {:else if mode==='calendar'}{#key `${ownId}:${isLive}:${calendarNavigation}`}<CalendarWorkspace initialEvent={calendarTarget?.ownId===ownId?calendarTarget.event:null} onNavigationHandled={()=>calendarTarget=null} {ownId} {isLive} {sidebarOpen} {detailsOpen} onOpenDetails={()=>detailsOpen=true} onDetailsAvailable={value=>calendarDetailsAvailable=value} onCloseDetails={()=>detailsOpen=false} onSignIn={signIn}/>{/key}
   {:else if mode==='mail'}{#key `${ownId}:${isLive}:${mailNavigation}`}<MailWorkspace inboxUnread={mailCount} unreadStale={mailCountStale} syncRevision={mailSync} onMailboxChanged={()=>mailCountRefresh++} onOpenCalendar={event=>{calendarTarget={ownId,event};sidebarOpen=true;detailsOpen=true;mode='calendar';}} readDelay={mailReadDelay} {detailsOpen} onDetails={open=>detailsOpen=open} onDetailsAvailable={value=>mailDetailsAvailable=value} {ownId} {ownMailAddresses} defaultPresentation={mailPresentation} initialDraft={chatEmailDraft} onRecipientHandled={()=>{mailRecipient='';chatEmailDraft=null;}} initialRecipient={mailRecipient} initialMessage={mailOpen} {isLive} {sidebarOpen} {authBusy} onSidebar={open=>sidebarOpen=open} onSignIn={signIn}/>{/key}
+  {:else if mode==='files'}{#key `${ownId}:${isLive}:${fileNavigation}`}<FilesWorkspace {ownId} {isLive} initialItem={fileTarget} onNavigationHandled={()=>fileTarget=null}/>{/key}
   {:else if mode==='people'}{#key `${ownId}:${isLive}`}<PeopleWorkspace {isLive} {ownId} {sidebarOpen} {detailsOpen} connections={chats} members={Object.fromEntries(knownChats.map(chat=>[chat.id,(chat.members??[]).map(member=>member.userId??'')]))} onOpenChat={id=>{mode='chats';void discoverChat(id,'');}} onOpenMail={discoverMail} presencePermitted={collaboration.readPresence} onChat={peopleChat} onEmail={peopleEmail} onSignIn={signIn}/>{/key}
   {:else if mode==='chats'}
    {#if selected.id==='empty'}
@@ -1181,7 +1185,7 @@
 </footer>
 </div>
 {#if lightbox}<div class="image-lightbox" role="presentation" onclick={(e)=>{if(e.target===e.currentTarget)lightbox=null}}><div class="image-lightbox-toolbar"><span>{lightbox.name}</span><button aria-label="Zoom out" title="Zoom out" onclick={()=>imageZoom=Math.max(0.5,imageZoom-0.25)}>−</button><button aria-label="Fit image" title="Fit to window" onclick={()=>imageZoom=1}>Fit</button><button aria-label="Zoom in" title="Zoom in" onclick={()=>imageZoom=Math.min(4,imageZoom+0.25)}>+</button><button aria-label="Close viewer" title="Close (Esc)" onclick={()=>lightbox=null}>×</button></div><div class="image-lightbox-body"><img src={lightbox.src} alt={lightbox.name} style={`transform:scale(${imageZoom})`}/></div></div>{/if}
-{#if discoveryOpen&&isLive}{#key ownId}<Discovery {chats} onClose={()=>discoveryOpen=false} onChat={discoverChat} onMail={discoverMail}/>{/key}{/if}
+{#if discoveryOpen&&isLive}{#key ownId}<Discovery {ownId} onFile={item=>{fileTarget=item;fileNavigation++;discoveryOpen=false;mode='files';}} {chats} onClose={()=>discoveryOpen=false} onChat={discoverChat} onMail={discoverMail}/>{/key}{/if}
 {#if paletteOpen}<div class="overlay" role="presentation" onclick={(e)=>{if(e.target===e.currentTarget)paletteOpen=false}}><div class="palette" role="dialog" aria-label="Command Palette" aria-modal="true"><div class="palette-search"><Command size={19}/><input bind:this={paletteInput} bind:value={commandSearch} placeholder="Type a command…" aria-label="Search commands" onkeydown={(e)=>{if(e.key==='Enter'&&matchingCommands[0])execCommand(matchingCommands[0].run)}}/><button onclick={()=>paletteOpen=false} aria-label="Close"><X size={17}/></button></div><div class="palette-list">{#each matchingCommands as command}<button onclick={()=>execCommand(command.run)}><span>{command.label}</span><small>{command.hint}</small></button>{/each}{#if matchingCommands.length===0}<div class="empty">No matching commands</div>{/if}</div><div class="palette-foot">ENTER to run first result <span>ESC to close</span></div></div></div>{/if}
 {#if newChatOpen}<div class="overlay" role="presentation" onclick={(e)=>{if(e.target===e.currentTarget&&!newChatBusy)newChatOpen=false}}><div class="settings-dialog new-chat-dialog" role="dialog" aria-modal="true" aria-label="New conversation"><div class="dialog-top"><div><span class="eyebrow">TAUT / MESSAGING</span><h2>New conversation</h2></div><button aria-label="Close" disabled={newChatBusy} onclick={()=>newChatOpen=false}><X size={18}/></button></div><p>Search coworkers by name, username, or email. Selecting someone opens an existing chat or a local draft. A new Teams conversation is created only when you press Send with a message.</p><label class="group-toggle"><input type="checkbox" bind:checked={newGroupMode} onchange={()=>{newGroupUsers=[];newChatEmail='';newChatRecipientId='';directoryResults=[];newChatError=''}}/> Group conversation</label>
 {#if newGroupMode}<label for="group-topic">Group name (optional)</label><input class="group-topic" id="group-topic" bind:value={newGroupTopic} maxlength="250" placeholder="Name this group…"/><div class="selected-group-users" aria-label="Selected coworkers">{#each newGroupUsers as person (person.id)}<button type="button" aria-label={`Remove selected ${person.displayName||person.id}`} onclick={()=>newGroupUsers=newGroupUsers.filter(u=>u.id!==person.id)}>{person.displayName||person.mail} ×</button>{/each}</div><p class="new-chat-hint">Choose 2–19 coworkers. No group is created until first Send.</p>{/if}

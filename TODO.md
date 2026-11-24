@@ -35,6 +35,7 @@ Both items were requested November 22 for the near future; no implementation or 
 - [x] Explicit per-image approval: Preview renders a received inline/CID image in HTML view, modal preview in plain text; remember approval per account/message/image and provide revocation. Never treat a click as sender-wide trust.
 - [ ] Optional trusted-sender image controls; preserve remote-image privacy protections and improve signature layout fidelity.
 - [ ] Unified search: channel provider, sender/date filters and broader chat history. Verify Teams server-search support/scopes first; current Chats search covers loaded messages.
+- [ ] **Embedded PDF attachment viewer.** View PDF attachments inside TAUT, with page navigation, zoom and an explicit Save/download action. Cover Mail and chat attachments while preserving existing access checks and original file bytes. Future feature; implementation is not requested yet.
 - [ ] Unified file discovery across mailbox attachments and OneDrive/SharePoint references, preserving source links and access boundaries.
 - [ ] Mail → Chat local draft bridge.
 
@@ -61,7 +62,8 @@ Both items were requested November 22 for the near future; no implementation or 
 - [x] TAUT reminder cards: four corner positions, local countdown/time, Join/Open, persistent five-minute snooze, dismiss and stacked simultaneous meetings. Mocked checks pass; native window/focus/action acceptance pending.
 - [ ] Investigate missed/late reminders and snoozed cards disappearing after Outlook dismissal. The local pending queue was empty after the failed snooze; removal reason is not yet recorded. Verify before considering native reminder acceptance complete.
 - [x] Advisory meeting conflict warnings during composition/editing and review, with Calendar overlap indicators. Creation remains allowed. Loaded events give immediate warnings; read-only Calendar range checks refresh them, including review. Cancelled/Free/declined events and the edited event are excluded; tentative and unavailable coverage are distinguished. Recurring checks cover the first occurrence only. User confirmed warnings November 23.
-- [ ] Reminder card size preference: Full size / Compact; user requested as a future enhancement after testing simultaneous cards.
+- [x] Reminder card size preference: Full size / Compact in Calendar settings. Persisted locally; visible cards update live and compact uses a shorter native window. Every action remains available. Mocked/browser and native unit validation complete; manual acceptance pending.
+- [x] Preview reminder button in Calendar settings: temporary, clearly labeled sample in the actual reminder window using the selected size/position/theme, with Dismiss and automatic expiry. No calendar event, Graph request, saved reminder or enabled-state changes; sample meeting actions disabled. Manual acceptance pending.
 - [ ] Calendar reminder follow-ups: custom timing, optional sound and reminder inbox. Initial timing stays in Outlook.
 - [x] Calendar meeting composer, local draft, room picker, advisory availability and reviewed invitation creation.
 - [x] New daily/weekly recurring meetings with weekdays, interval, explicit end date or occurrence count; named time zone retained across daylight saving. Pending native acceptance and next agreed release.
@@ -76,11 +78,16 @@ Both items were requested November 22 for the near future; no implementation or 
 - [x] Calendar/Mail: resolve invitations to current calendar status; reviewed Accept/Tentative/Decline and Change response with approved Calendars.ReadWrite.
 - [x] Calendar/Mail response reconciliation: current recorded RSVP, explicit superseded-request metadata, Change response for answered events, read-only refresh on return and bounded post-response confirmation. Unread mail and event version changes never imply a new response is required.
 - [ ] Teams meeting association and unified attention reconciliation: use verified calendar links/identities and avoid duplicate alerts across future surfaces.
-- [ ] Files: lightweight OneDrive browser and shared discovery across communication sources.
+- [x] Files v1: own OneDrive folder browser, breadcrumbs, loaded-item sorting/pagination, explicit native downloads up to 100 MiB, browser opening, and OneDrive results in unified search. Uses existing Files.ReadWrite; mocked validation complete, manual acceptance pending. See FILES.md.
+- [x] Files display options: compact column list and Finder-style Icons grid, saved device view preference, type-specific vector icons and local loaded-item type filter. Folder-first sorting and file actions retained. Browser/Node checks pass; user accepted List/Icons, filtering and recently modified sorting November 24.
+- [ ] Files follow-ups: optional thumbnail previews; reviewed drag-and-drop uploads with progress and duplicate-name handling; shared file/media collection from chats and Mail; PDF preview integration. Keep source links and access boundaries.
 - [ ] Calls: research supported native integration and permissions before defining scope.
 - [ ] Decide whether Activity adds useful signal before implementing a feed.
 
 ## Polish and validation
+
+- [ ] Files search clear control: accessible × button clears the query/results and returns to the current folder, preserving view and sort preferences.
+- [ ] Consider recent Files searches: up to ten distinct search phrases, clickable to rerun, stored locally per account with a Clear history action. User suggested as future polish; not implementation scope yet.
 
 - [x] Mail presentation reset after automatic mark-as-read: explicit HTML/plain choice is scoped to message ID and survives read/unread object refreshes, without changing the default. Regression checks cover both defaults, initially read/unread messages, automatic read and manual unread. User confirmed the fix November 23; existing Mac alpha.3 DMG predates it.
 - [ ] Styled rail tooltips for hover/focus and an optional persistent navigation-label preference.

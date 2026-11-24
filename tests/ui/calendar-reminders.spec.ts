@@ -24,3 +24,15 @@ test('live reminder status shows the check and request separately from visible d
 test('reminder corner is saved without changing Outlook',async({page,graph})=>{
  graph.reminderSettings.enabled=true;await signIn(page);const settings=await preferences(page);await settings.getByLabel('Reminder position').selectOption('top-left');await expect.poll(()=>(graph.reminderSettings as any).corner).toBe('top-left');expect(graph.writes).toEqual([]);
 });
+
+test('reminder layout preference persists across settings reload without changing enabled state',async({page,graph})=>{
+ graph.restoredSession=true;graph.reminderSettings.enabled=true;await page.goto('/');
+ async function settings(){await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Calendar',exact:true}).click();}
+ await settings();await page.getByLabel('Reminder size',{exact:true}).selectOption('compact');await expect(page.getByLabel('Reminder size',{exact:true})).toHaveValue('compact');expect(graph.reminderSettings.enabled).toBe(true);
+ await page.reload();await settings();await expect(page.getByLabel('Reminder size',{exact:true})).toHaveValue('compact');await page.getByLabel('Reminder size',{exact:true}).selectOption('full');expect(graph.reminderSettings.enabled).toBe(true);expect(graph.writes).toEqual([]);
+});
+
+test('preview reminder is explicit and creates no calendar event or enabled-state change',async({page,graph})=>{
+ graph.restoredSession=true;graph.reminderSettings.enabled=true;await page.goto('/');await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('navigation',{name:'Preferences categories'}).getByRole('button',{name:'Calendar',exact:true}).click();
+ expect(graph.calls.some(c=>c.command==='calendar_reminder_preview')).toBe(false);await page.getByRole('button',{name:'Preview reminder',exact:true}).click();await expect.poll(()=>graph.calls.filter(c=>c.command==='calendar_reminder_preview').length).toBe(1);expect(graph.reminderSettings.enabled).toBe(true);expect(graph.writes).toEqual([]);
+});
