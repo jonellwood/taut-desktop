@@ -1,4 +1,4 @@
-export type DriveItem={id:string;name:string;size:number;modified?:string|null;folder:boolean;shortcut:boolean;mime?:string|null;parentId?:string|null;location?:string|null;owner:string};
+export type DriveItem={id:string;name:string;size:number;created?:string|null;modified?:string|null;folder:boolean;shortcut:boolean;mime?:string|null;parentId?:string|null;location?:string|null;owner:string};
 export type FilesPage={value:DriveItem[];next:string|null;driveName?:string};
 export function fileSize(size:number){if(!Number.isFinite(size)||size<0)return 'Size unavailable';if(size<1024)return `${size} B`;if(size<1048576)return `${(size/1024).toFixed(1)} KB`;return `${(size/1048576).toFixed(1)} MB`;}
 export function fileDate(value?:string|null){const date=new Date(value??'');return Number.isNaN(date.getTime())?'Date unavailable':date.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});}
@@ -23,3 +23,5 @@ export function fileKind(item:Pick<DriveItem,'folder'|'name'|'mime'>):{category:
  return {category:'other',label:ext&&item.name.includes('.')?`${ext.toUpperCase()} file`:'File',icon:'file'};
 }
 export function filterFiles(items:DriveItem[],category:string){return category==='all'?items:items.filter(item=>fileKind(item).category===category);}
+
+export function sortFiles(items:DriveItem[],sort:string){const timestamp=(value?:string|null)=>{const n=Date.parse(value??'');return Number.isFinite(n)?n:-Infinity;};return [...items].sort((a,b)=>Number(!!b.folder)-Number(!!a.folder)||(sort==='modified'?timestamp(b.modified)-timestamp(a.modified):sort==='created'?timestamp(b.created)-timestamp(a.created):0)||a.name.localeCompare(b.name));}

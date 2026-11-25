@@ -49,3 +49,7 @@ Build, architecture, signature, disk-image integrity and SHA-256 results are rec
 - `codesign --verify --deep --strict` passed. Ad-hoc signing only; not notarized. No app launch or live Microsoft 365 testing performed by automation.
 - SHA-256: `b9c9e11c86032770c37d63e35c87cf8068450f1530a6c154e71b96dc8ad210bb`.
 - Durable local copy, install notes and checksum: `release-artifacts/macos-alpha.3/` (Git-ignored). Build used current local source, including changes not yet committed. No GitHub release/upload or Windows build was triggered.
+
+## November 24 — alpha.4 release approved
+
+User requested a new Apple Silicon Mac candidate alongside Windows x64/ARM64. Version 1.4.4-alpha.4. A dedicated GitHub Actions macOS workflow builds the DMG from the approved release tag, verifies native arm64, identifier/version, ad-hoc signature and disk-image integrity, then uploads the DMG and checksum. Download from Actions artifacts. Fully quit TAUT and replace the app in Applications; existing app identity/data remain. Ad-hoc signing and lack of notarization are unchanged. Native tester acceptance of this new package remains pending.

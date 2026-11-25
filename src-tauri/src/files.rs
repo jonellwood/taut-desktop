@@ -25,11 +25,11 @@ fn continuation(value:&str,path:&str)->Result<String,String>{
 fn row(value:&Value,owner:&str,drive_id:&str)->Option<Value>{
  let id=value["id"].as_str()?;segment(id).ok()?;
  let remote=value["remoteItem"].is_object()||value["parentReference"]["driveId"].as_str().is_some_and(|id|id!=drive_id);
- Some(json!({"id":id,"name":value["name"].as_str().unwrap_or("Untitled"),"size":value["size"].as_u64().unwrap_or(0),"modified":value["lastModifiedDateTime"],"folder":value["folder"].is_object(),"shortcut":remote,"mime":value["file"]["mimeType"],"parentId":value["parentReference"]["id"],"location":value["parentReference"]["path"],"owner":if remote{"Shared item"}else{owner}}))
+ Some(json!({"id":id,"name":value["name"].as_str().unwrap_or("Untitled"),"size":value["size"].as_u64().unwrap_or(0),"created":value["createdDateTime"],"modified":value["lastModifiedDateTime"],"folder":value["folder"].is_object(),"shortcut":remote,"mime":value["file"]["mimeType"],"parentId":value["parentReference"]["id"],"location":value["parentReference"]["path"],"owner":if remote{"Shared item"}else{owner}}))
 }
 pub fn page(q:&Query,permitted:bool,request:&mut Request<'_>)->Result<Value,String>{
  let drive=drive(permitted,request)?;let id=drive["id"].as_str().ok_or("OneDrive identity unavailable")?;let base=base(id,q)?;
- let fields="id,name,size,lastModifiedDateTime,folder,file,parentReference,remoteItem";
+ let fields="id,name,size,createdDateTime,lastModifiedDateTime,folder,file,parentReference,remoteItem";
  let path=match q.next.as_deref(){Some(next)=>continuation(next,&base)?,None=>format!("{base}?{}",url::form_urlencoded::Serializer::new(String::new()).append_pair("$select",fields).append_pair("$top","100").finish())};
  let result=get(&path,request)?;let next=result["@odata.nextLink"].as_str();if let Some(next)=next{continuation(next,&base)?;}
  let owner=drive["owner"]["user"]["displayName"].as_str().unwrap_or("You");let rows=result["value"].as_array().ok_or("Invalid OneDrive response")?;if rows.len()>1000{return Err("OneDrive page is too large".into());}

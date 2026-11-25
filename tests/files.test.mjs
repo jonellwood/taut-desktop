@@ -15,3 +15,11 @@ test('file categories use folders, MIME and extensions consistently',async()=>{
  }
  const rows=[item('one.pdf'),item('two.docx'),item('three.zip')];assert.deepEqual(filterFiles(rows,'pdf').map(x=>x.name),['one.pdf']);assert.equal(filterFiles(rows,'all').length,3);assert.equal(filterFiles(rows,'images').length,0);
 });
+
+test('recently added uses creation instant, folders first and unknown dates last',async()=>{
+ const {sortFiles}=await import('../src/lib/files.ts');
+ const rows=[{id:'a',name:'Old',created:'2026-11-24T10:00:00Z',modified:'2026-11-25T10:00:00Z'},{id:'b',name:'New',created:'2026-11-24T06:00:00-05:00'},{id:'c',name:'Unknown'},{id:'d',name:'Folder',folder:true}];
+ assert.deepEqual(sortFiles(rows,'created').map(x=>x.id),['d','b','a','c']);
+ assert.deepEqual(sortFiles(rows,'modified').map(x=>x.id),['d','a','b','c']);
+ assert.equal(rows[0].id,'a');
+});

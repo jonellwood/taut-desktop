@@ -1,0 +1,66 @@
+name: macOS alpha candidate
+
+on:
+  push:
+    tags: ['v*-alpha.*']
+  workflow_dispatch:
+    inputs:
+      release_approved:
+        description: Confirm this release has been explicitly agreed with the user
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-alpha-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.release_approved }}
+    name: Internal Apple Silicon Mac candidate
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Verify native Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:ui
+      - name: Test backend with mocked Graph only
+        working-directory: src-tauri
+        run: cargo +stable test --locked --lib
+      - name: Build ad-hoc signed internal DMG
+        run: npm run tauri -- build --bundles app,dmg --config src-tauri/tauri.macos.conf.json -- --locked
+      - name: Verify app and disk image
+        run: |
+          set -euo pipefail
+          app=src-tauri/target/release/bundle/macos/TAUT.app
+          test "$(lipo -archs "$app/Contents/MacOS/taut_desktop")" = arm64
+          codesign --verify --deep --strict "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist")" = app.taut.desktop
+          version=$(node -p "require('./package.json').version")
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          images=(src-tauri/target/release/bundle/dmg/*.dmg)
+          test "${#images[@]}" = 1
+          hdiutil verify "${images[0]}"
+          cd src-tauri/target/release/bundle/dmg
+          shasum -a 256 *.dmg > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TAUT-macos-arm64-alpha-${{ github.sha }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/dmg/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

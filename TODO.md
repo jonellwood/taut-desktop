@@ -80,7 +80,12 @@ Both items were requested November 22 for the near future; no implementation or 
 - [ ] Teams meeting association and unified attention reconciliation: use verified calendar links/identities and avoid duplicate alerts across future surfaces.
 - [x] Files v1: own OneDrive folder browser, breadcrumbs, loaded-item sorting/pagination, explicit native downloads up to 100 MiB, browser opening, and OneDrive results in unified search. Uses existing Files.ReadWrite; mocked validation complete, manual acceptance pending. See FILES.md.
 - [x] Files display options: compact column list and Finder-style Icons grid, saved device view preference, type-specific vector icons and local loaded-item type filter. Folder-first sorting and file actions retained. Browser/Node checks pass; user accepted List/Icons, filtering and recently modified sorting November 24.
-- [ ] Files follow-ups: optional thumbnail previews; reviewed drag-and-drop uploads with progress and duplicate-name handling; shared file/media collection from chats and Mail; PDF preview integration. Keep source links and access boundaries.
+- [x] Reviewed OneDrive uploads: choose/drop individual files, exact destination and duplicate policy, explicit confirm, acknowledged progress, partial-batch feedback and no automatic write retries. Five files / 10 MiB each / 25 MiB total; Keep both or Stop on conflict, no overwrites. Mocked acceptance complete; user confirmed a live upload November 24.
+- [ ] Files polish: Recently added sort using OneDrive createdDateTime, alongside Recently modified; clearly label sorting as loaded items until server-side sorting is implemented.
+- [ ] New Folder in the currently browsed own-drive folder: validate name, review destination, handle duplicates and uncertain results without automatic creation retries.
+- [ ] Move OneDrive files/folders to Recycle Bin with explicit confirmation, clear folder-content impact and stale-version checks. Existing Files.ReadWrite covers Graph delete; no new permission requested. No permanent deletion or automatic retries. Restore initially remains in OneDrive web.
+- [ ] Share via Email / Share via Chat from a file: open an editable local draft with a stable source link, choose recipients, review before sending. Separate link delivery from granting access; verify intended-recipient access and review any permission change. Do not create public/organization-wide links implicitly. Determine least-privilege requirements before adding scopes.
+- [ ] Files follow-ups: optional thumbnail previews; larger/resumable uploads; shared file/media collection from chats and Mail; PDF preview integration. Keep source links and access boundaries.
 - [ ] Calls: research supported native integration and permissions before defining scope.
 - [ ] Decide whether Activity adds useful signal before implementing a feed.
 
@@ -104,3 +109,31 @@ Both items were requested November 22 for the near future; no implementation or 
 - [x] Accent-matched runtime app icon, promoted by user November 23: five accent variants; macOS Dock and Windows/Linux main-window icon updates, browser favicon, saved-accent restoration. Bundle/Finder/installer icons remain unchanged. Native macOS compile and mocked appearance checks pass; user confirmed the Dock icon November 23.
 - [ ] Looping feature showcase after core workflows settle.
 - [ ] Desktop alpha after Calendar acceptance: Windows 11 ARM64 first (two testers), macOS second (one tester), Linux deferred (tentative tester). Windows compatibility implementation and build pipeline are prepared; see WINDOWS_ALPHA.md. First ARM64 installer built and checksum verified; clean-device native acceptance remains pending; installer/clean-machine verification and Settings feedback link to GitHub Issues (implemented per user preference). Recurring editing remains deferred. New Teams meeting links are implemented in development and await manual acceptance/next agreed release; shipped alpha.2 does not include them.
+
+
+### Files development — November 24
+- [x] Recently added sorting using OneDrive creation timestamps (loaded items, folders first).
+- [x] Reviewed New folder in current own-drive folder; fail on duplicate names, no automatic retries. Manual acceptance pending.
+- [x] User confirmed manual file upload success.
+- [x] Delete to OneDrive Recycle Bin with explicit confirmation (development; manual acceptance pending).
+- [x] Share via Email / Chat with recipient access review (development; manual acceptance pending).
+
+- [x] Files selection and reviewed Recycle Bin deletion for files/nonempty folders, partial outcomes and selected-descendant deduplication (development).
+- [ ] Manual Files deletion acceptance: disposable file, nonempty folder, multi-select; verify restore in OneDrive.
+- [x] User confirmed New folder creation works as expected (November 24).
+
+- [ ] Files: Move selected files/folders to another own-drive folder, with destination review and conflict handling (polish; requested November 24).
+
+- [ ] Manual Files sharing: email and existing chat, open originals as recipient, folder contents, existing edit access preservation.
+
+- [ ] Manual Files sharing acceptance: send to a coworker by email and existing chat, verify recipient can open the original; verify a shared folder and existing edit access.
+
+### Windows pilot feedback — November 24
+- [ ] Shared calendars — prioritize discovery/design for daily-driver use. Start with viewing existing shared calendars, clear calendar/owner labels, visibility controls and a readable combined/separate agenda. Respect private/busy-only access. Keep reminders on the user's calendar initially; shared-calendar editing/RSVP requires a separate design. Inspect Graph support and document any new scope before seeking approval; do not broaden permissions automatically.
+- [ ] Triage screenshot access using tester sender build/version and a newly sent screenshot. Recorded Windows alpha.2 (e02a507, Nov 20 13:02) predates attachment reference fix 92f6d9c (Nov 20 15:03); fix is sender-side and earlier messages are not rewritten. No new installer release authorized.
+- [ ] Compare intranet-generated Outlook signature HTML with received rendering and TAUT outgoing signatures before attributing formatting issues. Saved signatures currently accept text/Markdown, not pasted rich Outlook HTML/tables/images. Obtain representative HTML sample and expected appearance.
+- [ ] Spelling and grammar assistance (later): evaluate native/local spellcheck first; any remote text processing must be explicit and privacy-reviewed.
+- [x] Received signature screenshot triaged: [2] follows the textual website link. Current sanitizer keeps numbered references for text links and hides references for approved image-only links. No blanket removal requested or applied.
+- [x] User accepted persistent Files selection details panel.
+
+- Mail safe senders: user reaffirmed explicit user-managed trust as a later roadmap item; do not automatically allow tenant-account images. External-image controls now allow individual HTTPS raster images per open email. Future work may cover reviewed redirect handling and persisted per-email approval.

@@ -103,3 +103,10 @@ test('reaction updates remain in the selected chat and deleted messages have no 
  await row(page,blair.displayName).click();await expect(page.getByRole('button',{name:'Add reaction',exact:true})).toHaveCount(0);
  expect(graph.writes[0].args.chatId).toBe('chat-alex');expect(graph.writes).toHaveLength(1);
 });
+
+test('emoji picker stays compact and within a short viewport with scrollable choices',async({page,graph},info)=>{
+ graph.chatWritePermission=true;await signIn(page);await page.getByRole('button',{name:'Add reaction',exact:true}).click();const picker=page.getByRole('dialog',{name:'React to message',exact:true});
+ let box=await picker.boundingBox();expect(box!.width).toBeLessThanOrEqual(480);expect(box!.height).toBeLessThan(500);await page.screenshot({path:info.outputPath('emoji-compact.png')});
+ await page.setViewportSize({width:360,height:340});await page.getByLabel('Emoji category',{exact:true}).selectOption('All');box=await picker.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(15);expect(box!.y).toBeGreaterThanOrEqual(15);expect(box!.x+box!.width).toBeLessThanOrEqual(345);expect(box!.y+box!.height).toBeLessThanOrEqual(325);
+ const grid=picker.getByRole('group',{name:'Emoji choices'});await grid.getByRole('button').last().focus();await expect(grid.getByRole('button').last()).toBeInViewport();await expect(page.getByRole('button',{name:'Close emoji picker'})).toBeInViewport();await page.screenshot({path:info.outputPath('emoji-short-viewport.png')});await page.keyboard.press('Escape');await expect(picker).toBeHidden();expect(graph.writes).toEqual([]);
+});

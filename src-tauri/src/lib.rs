@@ -1,3 +1,7 @@
+mod files_share;
+mod files_delete;
+mod files_folder;
+mod files_upload;
 mod files;
 mod app_icon;
 mod mailbox_transport;
@@ -9,6 +13,7 @@ mod chat_list;
 mod calendar;
 mod people;
 mod mail;
+mod mail_images;
 mod mail_send;
 mod mail_read;
 mod mail_delete;
@@ -610,6 +615,47 @@ async fn mail_unread(state:State<'_,AuthState>,own_id:String)->Result<Value,Stri
   Ok((status,serde_json::from_slice(&bytes).map_err(|_|"Invalid Inbox count response")?))
  })
 }).await}
+#[tauri::command]
+async fn files_share_review(state:State<'_,AuthState>,own_id:String,input:files_share::Input)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;let can_send=scope_has(&scopes,if input.channel=="email"{"Mail.Send"}else{"ChatMessage.Send"})||input.channel=="chat"&&scope_has(&scopes,"Chat.ReadWrite");files_share::prepare(&own_id,input,scope_has(&scopes,"Files.ReadWrite"),can_send,&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
+#[tauri::command]
+async fn files_share_send(state:State<'_,AuthState>,own_id:String,plan_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;files_share::send(&own_id,&plan_id,scope_has(&scopes,"Files.ReadWrite"),scope_has(&scopes,"Mail.Send"),scope_has(&scopes,"ChatMessage.Send")||scope_has(&scopes,"Chat.ReadWrite"),&mut|m,p,b|graph_operation_request(&state,m,p,b))}).await}
+#[tauri::command]
+async fn files_delete_items(state:State<'_,AuthState>,own_id:String,items:Vec<files_delete::Item>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||files_delete::delete(&own_id,&items,scope_has(&collaboration_scopes(&state)?,"Files.ReadWrite"),&mut|method,path,tag|{
+ let token=get_access_token(&state)?;let client=Client::builder().timeout(Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"HTTP client unavailable")?;
+ let mut request=client.request(method,format!("https://graph.microsoft.com/v1.0{path}")).bearer_auth(token);if let Some(tag)=tag{request=request.header("If-Match",tag);}
+ let response=request.send().map_err(|_|"Operation unconfirmed")?;let status=response.status().as_u16();let body=if status==200{response.json::<Value>().map_err(|_|"Response unreadable")?}else{Value::Null};Ok((status,body))
+})).await}
+#[tauri::command]
+async fn files_create_folder(state:State<'_,AuthState>,own_id:String,folder:Option<String>,name:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||files_folder::create(&own_id,folder.as_deref(),&name,scope_has(&collaboration_scopes(&state)?,"Files.ReadWrite"),&mut|m,p,b|graph_operation_request(&state,m,p,b))).await}
+#[tauri::command]
+fn files_upload_progress(uploads:State<'_,std::sync::Arc<files_upload::State>>,own_id:String,attempt_id:String)->Result<Value,String>{uploads.progress(&attempt_id,&own_id)}
+#[tauri::command]
+async fn files_upload(state:State<'_,AuthState>,uploads:State<'_,std::sync::Arc<files_upload::State>>,own_id:String,attempt_id:String,folder:Option<String>,name:String,data:String,behavior:String)->Result<Value,String>{
+ let state=AuthState(state.0.clone());let uploads=uploads.inner().clone();background_read(move||{
+  use std::io::Read;
+  let bytes=files_upload::input(&attempt_id,&name,&data,&behavior)?;
+  if !scope_has(&collaboration_scopes(&state)?,"Files.ReadWrite"){return Err("Uploads need Files.ReadWrite consent and a fresh sign-in.".into());}
+  let verify=||->Result<(),String>{if deletion::own_id(&mut|m,p,b|graph_operation_request(&state,m,p,b))?!=own_id{return Err("Account changed. Upload stopped.".into());}Ok(())};verify()?;
+  let drive=files::drive(true,&mut|p|files_request(&state,p))?;let drive_id=drive["id"].as_str().ok_or("OneDrive identity unavailable")?;
+  let parent_path=match folder.as_deref(){Some(id)=>format!("/drives/{}/items/{}",files::segment(drive_id)?,files::segment(id)?),None=>format!("/drives/{}/root",files::segment(drive_id)?)};
+  let(status,parent)=files_request(&state,&parent_path)?;if status!=200||!parent["folder"].is_object()||parent["remoteItem"].is_object(){return Err("Choose a folder in your own OneDrive before uploading.".into());}
+  let path=files_upload::session_path(drive_id,parent["id"].as_str().ok_or("Destination unavailable")?,&name)?;
+  uploads.begin(&attempt_id,&own_id,bytes.len())?;
+  let result=(||->Result<Value,String>{
+   verify()?;let reply=graph_operation_request(&state,reqwest::Method::POST,&path,Some(serde_json::json!({"item":{"@microsoft.graph.conflictBehavior":behavior,"name":name}})))?;let status=reply.status;let session=reply.body;
+   if status!=200{return Err(if status==409{"A file with this name already exists. Nothing was overwritten.".into()}else{format!("Upload session could not be created (HTTP {status}).")});}
+   let url=session["uploadUrl"].as_str().ok_or("Upload session unavailable")?;files::download_url(url)?;
+   let client=Client::builder().timeout(Duration::from_secs(120)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"Upload client unavailable")?;
+   files_upload::transfer(url,&bytes,&mut|url,range,chunk|{
+    verify()?;let response=client.put(url).header(reqwest::header::CONTENT_RANGE,range).header(reqwest::header::CONTENT_TYPE,"application/octet-stream").body(chunk.to_vec()).send().map_err(|_|"Upload interrupted. Check OneDrive before retrying.")?;
+    let status=response.status().as_u16();let mut body=vec![];response.take(65537).read_to_end(&mut body).map_err(|_|"Upload response unreadable")?;if body.len()>65536{return Err("Upload response too large".into());}
+    let value=serde_json::from_slice(&body).unwrap_or(Value::Null);Ok((status,value))
+   },&mut|uploaded|uploads.update(&attempt_id,uploaded,"uploading"))
+  })();
+  match result{Ok(item)=>{uploads.update(&attempt_id,bytes.len(),"complete");Ok(serde_json::json!({"status":"complete","item":item}))},Err(error)=>{let uploaded=uploads.progress(&attempt_id,&own_id).ok().and_then(|v|v["uploaded"].as_u64()).unwrap_or(0) as usize;uploads.update(&attempt_id,uploaded,"unconfirmed");Ok(serde_json::json!({"status":"unconfirmed","error":format!("{error} Check OneDrive before starting another upload. No retry was sent.")}))}}
+ }).await
+}
+
 fn files_permitted(state:&AuthState)->Result<bool,String>{let scopes=collaboration_scopes(state)?;Ok(["Files.Read","Files.ReadWrite"].iter().any(|s|scope_has(&scopes,s)))}
 fn files_request(state:&AuthState,path:&str)->Result<(u16,Value),String>{
  use std::io::Read;
@@ -656,6 +702,8 @@ async fn mail_permission(state:State<'_,AuthState>)->Result<bool,String>{let sta
 async fn mail_page(state:State<'_,AuthState>,query:mail::Query)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");mail::page(&query,permitted,&mut|path|mail_request(&state,path))}).await}
 #[tauri::command]
 async fn mail_attachment(state:State<'_,AuthState>,message_id:String,attachment_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");mail::attachment(&message_id,&attachment_id,permitted,&mut|path|mail_request(&state,path))}).await}
+#[tauri::command]
+async fn mail_external_image(url:String,allow_intranet:Option<bool>)->Result<String,String>{background_read(move||mail_images::load(&url,allow_intranet.unwrap_or(false))).await}
 #[tauri::command]
 async fn mail_save_attachment(state:State<'_,AuthState>,message_id:String,attachment_id:String)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||{
  let permitted=scope_has(&collaboration_scopes(&state)?,"Mail.Read");
@@ -1047,15 +1095,16 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app|{setup_notifications(app)?;setup_calendar_reminders(app);setup_away(app);Ok(())})
         .manage(AuthState::default())
+        .manage(std::sync::Arc::new(files_upload::State::default()))
         .manage(attachments::AttachmentState::default())
-        .invoke_handler({let handler:fn(tauri::ipc::Invoke)->bool=tauri::generate_handler![files_page,files_open,files_download,calendar_reminder_preview,calendar_reminder_layout,calendar_reminder_compact,app_icon::app_icon_accent,calendar_reminder_corner,calendar_reminder_cards,calendar_reminder_card_action,calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility];move |invoke:tauri::ipc::Invoke|{if !reminder_ipc_allowed(invoke.message.webview_ref().label(),invoke.message.command()){invoke.resolver.reject("Command unavailable in this window");return true;}handler(invoke)}})
+        .invoke_handler({let handler:fn(tauri::ipc::Invoke)->bool=tauri::generate_handler![mail_external_image,files_share_review,files_share_send,files_delete_items,files_create_folder,files_upload,files_upload_progress,files_page,files_open,files_download,calendar_reminder_preview,calendar_reminder_layout,calendar_reminder_compact,app_icon::app_icon_accent,calendar_reminder_corner,calendar_reminder_cards,calendar_reminder_card_action,calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility];move |invoke:tauri::ipc::Invoke|{if !reminder_ipc_allowed(invoke.message.webview_ref().label(),invoke.message.command()){invoke.resolver.reject("Command unavailable in this window");return true;}handler(invoke)}})
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]fn reminder_window_cannot_invoke_auth_mail_chat_or_opener_commands(){for command in ["files_page","files_open","files_download","sign_in","graph_send_message","mail_send_new","calendar_create","plugin:opener|open_url","calendar_reminder_configure"]{assert!(!super::reminder_ipc_allowed("reminders",command));assert!(super::reminder_ipc_allowed("main",command));}for command in ["calendar_reminder_cards","calendar_reminder_card_action"]{assert!(super::reminder_ipc_allowed("reminders",command));}assert!(!super::reminder_ipc_allowed("other","calendar_reminder_cards"));}
+    #[test]fn reminder_window_cannot_invoke_auth_mail_chat_or_opener_commands(){for command in ["files_share_review","files_share_send","files_delete_items","files_page","files_open","files_download","sign_in","graph_send_message","mail_send_new","calendar_create","plugin:opener|open_url","calendar_reminder_configure"]{assert!(!super::reminder_ipc_allowed("reminders",command));assert!(super::reminder_ipc_allowed("main",command));}for command in ["calendar_reminder_cards","calendar_reminder_card_action"]{assert!(super::reminder_ipc_allowed("reminders",command));}assert!(!super::reminder_ipc_allowed("other","calendar_reminder_cards"));}
 
     #[test]
     fn recurring_request_keeps_named_zone_and_requests_utc_response(){

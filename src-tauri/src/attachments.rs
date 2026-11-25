@@ -48,7 +48,7 @@ fn valid_chat(id: &str) -> Result<(), String> {
     }
     Ok(())
 }
-fn members(chat: &str, request: &mut Request<'_>) -> Result<Vec<String>, String> {
+pub(crate) fn members(chat: &str, request: &mut Request<'_>) -> Result<Vec<String>, String> {
     let me = ok(request(Method::GET, "/me?$select=id", None, None)?)?;
     let own = me["id"]
         .as_str()
@@ -303,7 +303,7 @@ pub fn prepare(
     Ok(())
 }
 // Match Entra user identities, never SharePoint siteUser IDs or permission counts.
-fn confirms_recipients(permissions: &[Value], recipients: &[String]) -> bool {
+pub(crate) fn confirms_recipients(permissions: &[Value], recipients: &[String]) -> bool {
     recipients.iter().all(|recipient| permissions.iter().any(|permission| {
         if permission.get("error").is_some()
             || permission["id"].as_str().filter(|id| !id.is_empty()).is_none()

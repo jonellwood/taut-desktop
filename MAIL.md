@@ -145,3 +145,18 @@ When Mail is open, successful checks also refresh the latest page of its current
 Fresh summary isRead values reconcile loaded bodies without replacing their content. An external Outlook mark-unread on an already read open message pauses optional automatic read marking until reopening, so quiet sync does not immediately undo it. These background operations are read-only; existing explicit read-state controls remain separate.
 
 Reference: https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0 (unreadItemCount includes all item types in the folder).
+
+## Signature generator compatibility — November 24
+
+The user tested the replacement intranet generator in Outlook: compose, sent/received with images blocked, and received after enabling images looked correct. This is the user's tested Outlook environment, not a cross-version Windows certification. Updated generator is a standalone ignored artifact under release-artifacts/signature-generator/signature-vue.js; it has not changed the intranet production server automatically.
+
+Received HTML now preserves bounded literal padding/margins, common local font stacks and sizes, line height, vertical alignment, table widths/collapse/spacing and presentation roles. Link wrappers retain safe display layout; approved CID images retain declared sizing/display. Resource styles, positioning, hidden content styles and excessive dimensions are not imported. Existing sandbox/CSP, reviewed numbered links and explicit CID-image approval remain intact. Hosted external images in the supplied signature stay blocked; they are not CID attachment previews. Rich outgoing signature paste/import remains future work.
+
+An anonymized copy of the accepted signature markup covers layout, blocked remote resources, approved inline sizing and rejected unsafe CSS in Chromium/WebKit mocks. No live mailbox mutations or installer build.
+
+### External received images and conversation alignment — November 24
+Hosted HTTPS images now have a separate External images disclosure showing image labels and source domains. Each explicit Load for this email retrieves one image without Microsoft credentials, cookies, referrer or proxy; no automatic loading or tenant/sender trust. Approval is in memory in that open message reader, with Block again; it is not a safe-sender entry. Local/private/special destination addresses, nonstandard ports, redirects, unsupported formats and downloads over 5 MiB are refused. DNS answers are validated and pinned for the request. The sandboxed iframe still only displays validated raster data URLs; no remote URL is placed in its document. HTTP-only images remain blocked. Safe senders remain roadmap work.
+
+Conversation cards now offset sent messages left and received messages right, with mirrored received headers. Body text and sender HTML alignment are preserved for readability, including tables/signatures. Sender direction uses existing verified account addresses; unknown direction remains neutral. No mailbox writes or permission changes.
+
+Intranet image follow-up: my.berkeleycountysc.gov resolves to an RFC1918 private address on the user's network, and an unauthenticated logo probe returned HTTP 200/image/png. Loader now distinguishes intranet approval from failures: a second explicit Load this intranet image action authorizes only that selected URL/request. No host allowlist or sender trust is saved. Loopback, link-local and other special destinations remain blocked even with approval; DNS remains pinned and redirects disabled. Known native failures now show their specific safe reason. Email links and External images share the same bordered disclosure styling.

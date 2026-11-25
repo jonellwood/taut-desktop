@@ -63,6 +63,10 @@ export class MockGraph {
   calendarResponseResult={status:'accepted',error:''};
   calendarPermitted=true;
   fileRows:any[]=[{id:'folder-one',name:'Documents',folder:true,shortcut:false,size:0,owner:'You',modified:'2026-11-24T12:00:00Z'},{id:'file-one',name:'Project notes.pdf',folder:false,shortcut:false,size:1024,owner:'You',parentId:'folder-one',location:'/drive/root:/Documents',modified:'2026-11-24T12:00:00Z'}];
+  filesShareReviewError='';filesShareSendGate:Promise<void>|null=null;filesShareSendResult:any={status:'sent'};
+  filesDeleteResults:any[]|null=null;filesDeleteGate:Promise<void>|null=null;
+  filesFolderResult:any={status:'created'};filesFolderGate:Promise<void>|null=null;
+  filesUploadResult:any={status:'complete',item:{id:'uploaded',name:'Uploaded.txt'}};filesUploadGate:Promise<void>|null=null;filesUploadError='';filesUploadStatus='unknown';filesUploadResults:any[]=[];
   filesError='';filesNext:string|null=null;fileNextRows:any[]=[];filesDownloadResult=true;filesActionError='';
   calendarError='';
   meetingOnlineSupported=true;meetingOnlineError="";meetingOnlineGate?:Promise<void>;
@@ -83,6 +87,7 @@ export class MockGraph {
   mailFilesByMessage:Record<string,any[]>={};
   mailFiles:any[]=[{id:'file-1',name:'project.txt',contentType:'text/plain',size:5}];
   mailFile={contentType:'text/plain',base64:'aGVsbG8='};
+  mailExternalError='';
   mailSaveResult=true;
   reminderSettings:{enabled:boolean;error:string|null;compact?:boolean}={enabled:false,error:null};
   reminderActionError='';
@@ -134,7 +139,7 @@ export class MockGraph {
   imageGate?: Promise<void>;
   messagesGate?: Promise<void>;
   createId = 'chat-casey';
-  get writes() { return this.calls.filter(c => ['calendar_manage','calendar_create','calendar_response','mail_set_read','mail_move_deleted','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_mark_chat_unread','graph_change_reaction'].includes(c.command)); }
+  get writes() { return this.calls.filter(c => ['files_share_send','files_delete_items','files_create_folder','files_upload','calendar_manage','calendar_create','calendar_response','mail_set_read','mail_move_deleted','mail_send_new','graph_set_presence','collaboration_member_change','away_configure','graph_send_channel','graph_reply_with_quote','graph_create_chat', 'graph_send_message', 'graph_prepare_attachment', 'graph_send_attachments','graph_create_group_chat','graph_add_group_member','graph_remove_group_member','graph_change_message','graph_set_chat_visibility','graph_mark_chat_read','graph_mark_chat_unread','graph_change_reaction'].includes(c.command)); }
   async invoke(command: string, args: Call['args'] = {}) {
     this.calls.push({ command, args });
     switch (command) {
@@ -153,6 +158,12 @@ export class MockGraph {
       case 'calendar_event':{await this.calendarEventGate;if(this.calendarEventError)throw Error(this.calendarEventError);if(this.calendarEventResults.length)return this.calendarEventResults.shift();const meta=this.calendarInvitations[args.messageId]??{};return {...meta,event:this.calendarEvents.find(e=>e.id===(args.eventId??meta.eventId))??this.calendarEvents[0]};}
       case 'calendar_response':return this.calendarResponseResult;
       case 'calendar_permission':return this.calendarPermitted;
+      case 'files_share_review': if(this.filesShareReviewError)throw Error(this.filesShareReviewError);return {planId:'mock-share-plan',files:args.input.items.map((item:any)=>({...item,newAccess:['Alex Rivera']})),recipients:[{name:'Alex Rivera',email:'alex@example.test'}],channel:args.input.channel,subject:args.input.subject,message:args.input.message};
+      case 'files_share_send': await this.filesShareSendGate;return this.filesShareSendResult;
+      case 'files_delete_items': await this.filesDeleteGate;return {results:this.filesDeleteResults??args.items.map((item:any)=>({id:item.id,status:'deleted'}))};
+      case 'files_create_folder': await this.filesFolderGate;return this.filesFolderResult;
+      case 'files_upload_progress': return {status:this.filesUploadStatus,uploaded:1,total:3};
+      case 'files_upload': {this.filesUploadStatus='uploading';await this.filesUploadGate;if(this.filesUploadError){this.filesUploadStatus='unconfirmed';throw Error(this.filesUploadError);}const result=this.filesUploadResults.shift()??this.filesUploadResult;this.filesUploadStatus=result.status==='complete'?'complete':'unconfirmed';return result;}
       case 'files_page': if(this.filesError)throw Error(this.filesError);return {value:args.query.next?this.fileNextRows:this.fileRows,next:args.query.next?null:this.filesNext,driveName:'My OneDrive'};
       case 'files_open': if(this.filesActionError)throw Error(this.filesActionError);return null;
       case 'files_download': if(this.filesActionError)throw Error(this.filesActionError);return this.filesDownloadResult;
@@ -170,6 +181,7 @@ export class MockGraph {
         if(q.collection==='conversation')return {value:this.mailMessages.filter(m=>m.conversationId===q.conversationId),next:null};
         return this.mailPages.first??{value:q.search?this.mailMessages.filter(m=>(m.subject+' '+m.bodyPreview).toLowerCase().includes(q.search.toLowerCase())):this.mailMessages,next:null};
       }
+      case 'mail_external_image':if(this.mailExternalError&&!(this.mailExternalError==='INTRANET_IMAGE_APPROVAL_REQUIRED'&&args.allowIntranet))throw Error(this.mailExternalError);return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
       case 'mail_attachment':return this.mailFile;
       case 'mail_save_attachment':return this.mailSaveResult;
       case 'collaboration_permissions':return this.collaboration;

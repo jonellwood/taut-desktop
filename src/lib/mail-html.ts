@@ -1,7 +1,7 @@
 import {safeMessageLink} from './message-body.ts';
 const allowed=new Set('p div span font br hr strong b em i u s del small sub sup h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code table thead tbody tfoot tr th td caption colgroup col'.split(' '));
 const drop=new Set('script style iframe frame frameset object embed svg math form input button textarea select option video audio canvas link meta base template noscript head title'.split(' '));
-export type RenderedMail={html:string;links:string[];images:number;shortened:boolean;hasContent:boolean};
+export type RenderedMail={html:string;links:string[];images:number;externalImages:{url:string;domain:string;alt:string}[];shortened:boolean;hasContent:boolean};
 // Preserve only bounded literal dimensions, never arbitrary email CSS.
 function imageSize(el:Element,img:HTMLImageElement){
  const style=(el as HTMLElement).style;
@@ -18,9 +18,29 @@ function imageSize(el:Element,img:HTMLImageElement){
  if(width&&height)img.style.aspectRatio=`${width} / ${height}`;
  else if(height)img.style.height=`${height}px`;
 }
+// Resource-free, bounded layout values. Never copy arbitrary CSS or positioning.
+function layoutStyles(el:Element,clean:HTMLElement){
+ const style=(el as HTMLElement).style;if(!style)return;
+ const length=(value:string,max:number,min=0):string|undefined=>{const match=/^(\d+(?:\.\d+)?)(px|pt|in|cm|mm)?$/i.exec(value.trim());if(!match)return;const scale:Record<string,number>={px:1,pt:96/72,in:96,cm:96/2.54,mm:96/25.4};const n=Number(match[1])*scale[(match[2]||'px').toLowerCase()];return n>=min&&n<=max?`${Math.round(n*10000)/10000}px`:undefined;};
+ for(const prefix of ['padding','margin'])for(const side of ['top','right','bottom','left']){const property=`${prefix}-${side}`;const value=length(style.getPropertyValue(property),64);if(value)clean.style.setProperty(property,value);}
+ const size=length(style.fontSize,64,8);if(size)clean.style.fontSize=size;
+ const line=style.lineHeight.trim();const lineSize=length(line,96,10);if(lineSize&&/[a-z]/i.test(line))clean.style.lineHeight=lineSize;else if(/^(?:0?\.\d+|[1-3](?:\.\d+)?)$/.test(line)&&Number(line)>=.8&&Number(line)<=3)clean.style.lineHeight=line;
+ const fonts=new Set(['aptos','calibri','arial','helvetica','verdana','tahoma','georgia','times new roman','courier new','segoe ui','system-ui','sans-serif','serif','monospace']);
+ const family=style.fontFamily.split(',').map(value=>value.trim().replace(/^["']|["']$/g,''));if(family.length&&family.length<=6&&family.every(value=>fonts.has(value.toLowerCase())))clean.style.fontFamily=family.map(value=>value.includes(' ')?`"${value}"`:value).join(',');
+ if(['top','middle','bottom','baseline'].includes(style.verticalAlign||el.getAttribute('valign')||''))clean.style.verticalAlign=style.verticalAlign||el.getAttribute('valign')!;
+ if(['block','inline','inline-block'].includes(style.display))clean.style.display=style.display;
+ if(el.localName==='table'){
+  if(el.getAttribute('role')==='presentation')clean.setAttribute('role','presentation');
+  if(['collapse','separate'].includes(style.borderCollapse))clean.style.borderCollapse=style.borderCollapse;
+  const spacing=style.borderSpacing||el.getAttribute('cellspacing')||'';const parts=spacing.trim().split(/\s+/).map(value=>length(value,24));if(parts.length<=2&&parts.every(Boolean))clean.style.borderSpacing=parts.join(' ');
+ }
+ if(['table','td','th'].includes(el.localName)){
+  const width=style.width||el.getAttribute('width')||'';const bounded=length(width,1600);if(bounded)clean.style.width=bounded;else if(/^(?:100|\d{1,2})(?:\.\d+)?%$/.test(width)&&Number(width.slice(0,-1))<=100)clean.style.width=width;
+ }
+}
 export function renderMailHtml(source:string,approved:Record<string,string>={}):RenderedMail{
  const template=document.createElement('template');template.innerHTML=source.slice(0,300000);
- const output=document.createElement('div'),links:string[]=[];let images=0,count=0,shortened=source.length>300000;
+ const output=document.createElement('div'),links:string[]=[];const externalImages:RenderedMail["externalImages"]=[];let images=0,count=0,shortened=source.length>300000;
  function walk(parent:ParentNode,target:Node,depth:number){
   if(depth>40){shortened=true;return;}
   for(const node of Array.from(parent.childNodes)){
@@ -29,10 +49,10 @@ export function renderMailHtml(source:string,approved:Record<string,string>={}):
    if(node.nodeType!==1)continue;
    const el=node as Element,tag=el.localName.toLowerCase();
    if(drop.has(tag))continue;
-   if(tag==='img'){const src=el.getAttribute('src')??'';const data=src.startsWith('cid:')?approved[src.slice(4)]:undefined;if(data&&/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(data)){const img=document.createElement('img');img.src=data;img.alt=(el.getAttribute('alt')??'Inline image').slice(0,150);imageSize(el,img);target.appendChild(img);continue;}images++;const placeholder=document.createElement('span');placeholder.className='blocked-image';placeholder.textContent=`[Image blocked${el.getAttribute('alt')?`: ${el.getAttribute('alt')!.slice(0,150)}`:''}]`;target.appendChild(placeholder);continue;}
+   if(tag==='img'){const src=el.getAttribute('src')??'';let remote='';try{const u=new URL(src);if(u.protocol==='https:'&&!u.username&&!u.password&&(!u.port||u.port==='443'))remote=u.href;}catch{}if(remote&&!externalImages.some(image=>image.url===remote)&&externalImages.length<40)externalImages.push({url:remote,domain:new URL(remote).hostname,alt:(el.getAttribute('alt')||'External image').slice(0,150)});const data=src.startsWith('cid:')?approved[src.slice(4)]:remote?approved[remote]:undefined;if(data&&/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(data)){const img=document.createElement('img');img.src=data;img.alt=(el.getAttribute('alt')??'Inline image').slice(0,150);imageSize(el,img);if(['block','inline','inline-block'].includes((el as HTMLElement).style.display))img.style.display=(el as HTMLElement).style.display;target.appendChild(img);continue;}images++;const placeholder=document.createElement('span');placeholder.className='blocked-image';placeholder.textContent=`[Image blocked${el.getAttribute('alt')?`: ${el.getAttribute('alt')!.slice(0,150)}`:''}]`;target.appendChild(placeholder);continue;}
    if(tag==='a'){
     const url=safeMessageLink(el.getAttribute('href')??'');
-    const label=document.createElement('span');if(url)label.className='mail-link';
+    const label=document.createElement('span');layoutStyles(el,label);if(url)label.className='mail-link';
     // Signatures often wrap CID images in links. Sanitize their children too,
     // so image approval works without making the original link navigable.
     walk(el,label,depth+1);
@@ -40,7 +60,7 @@ export function renderMailHtml(source:string,approved:Record<string,string>={}):
     target.appendChild(label);continue;
    }
    if(!allowed.has(tag)){walk(el,target,depth+1);continue;}
-   const clean=document.createElement(tag);
+   const clean=document.createElement(tag);layoutStyles(el,clean);
    // Reconstruct bounded semantic values and validated resource-free colors only.
    if(['td','th'].includes(tag))for(const attr of ['colspan','rowspan']){const value=el.getAttribute(attr)??'';if(/^[1-9]\d?$/.test(value))clean.setAttribute(attr,value);}
    if(tag==='ol'){const value=el.getAttribute('start')??'';if(/^-?\d{1,4}$/.test(value))clean.setAttribute('start',value);}
@@ -67,7 +87,7 @@ export function renderMailHtml(source:string,approved:Record<string,string>={}):
   }
  }
  walk(template.content,output,0);
- return {html:output.innerHTML,links,images,shortened,hasContent:!!output.querySelector('img')||!!output.textContent?.replace(/[\s\u200b\ufeff]/g,'')};
+ return {html:output.innerHTML,links,images,externalImages,shortened,hasContent:!!output.querySelector('img')||!!output.textContent?.replace(/[\s\u200b\ufeff]/g,'')};
 }
 // Resolve each element against its effective background. Keep readable sender colors,
 // and supply a black/white fallback for WebKit versions without contrast-color().

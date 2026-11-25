@@ -4034,7 +4034,7 @@ dependencies = [
 
 [[package]]
 name = "taut_desktop"
-version = "1.4.4-alpha.3"
+version = "1.4.4-alpha.4"
 dependencies = [
  "base64 0.22.1",
  "chrono",
