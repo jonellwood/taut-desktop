@@ -61,6 +61,8 @@ export class MockGraph {
   meetingManageGate?:Promise<void>;
   meetingRooms:any[]=[{emailAddress:'room@example.test',displayName:'River room',building:'Main',capacity:8}];
   calendarResponseResult={status:'accepted',error:''};
+  calendarGroups:any[]=[];calendarGroupError='';calendarPersonError='';
+  calendarSources:any[]=[];calendarSourcesError='';calendarSourceRows:Record<string,any[]>={};calendarSourceErrors:Record<string,string>={};calendarSourceNext:Record<string,string|null>={};
   calendarPermitted=true;
   fileRows:any[]=[{id:'folder-one',name:'Documents',folder:true,shortcut:false,size:0,owner:'You',modified:'2026-11-24T12:00:00Z'},{id:'file-one',name:'Project notes.pdf',folder:false,shortcut:false,size:1024,owner:'You',parentId:'folder-one',location:'/drive/root:/Documents',modified:'2026-11-24T12:00:00Z'}];
   filesShareReviewError='';filesShareSendGate:Promise<void>|null=null;filesShareSendResult:any={status:'sent'};
@@ -167,6 +169,10 @@ export class MockGraph {
       case 'files_page': if(this.filesError)throw Error(this.filesError);return {value:args.query.next?this.fileNextRows:this.fileRows,next:args.query.next?null:this.filesNext,driveName:'My OneDrive'};
       case 'files_open': if(this.filesActionError)throw Error(this.filesActionError);return null;
       case 'files_download': if(this.filesActionError)throw Error(this.filesActionError);return this.filesDownloadResult;
+      case 'calendar_group_sources':if(this.calendarGroupError)throw Error(this.calendarGroupError);return {value:this.calendarGroups};
+      case 'calendar_person_source':if(this.calendarPersonError)throw Error(this.calendarPersonError);return {id:'person:'+args.userId,name:'Alex Example',kind:'person',isSharedWithMe:true,owner:{name:'Alex Example',address:'alex@example.com'}};
+      case 'calendar_sources':if(this.calendarSourcesError)throw Error(this.calendarSourcesError);return {value:this.calendarSources,next:null};
+      case 'calendar_source_page':if(this.calendarSourceErrors[args.calendarId])throw Error(this.calendarSourceErrors[args.calendarId]);return {value:this.calendarSourceRows[args.calendarId]??[],next:args.next?null:this.calendarSourceNext[args.calendarId]??null};
       case 'calendar_page':if(this.calendarError)throw Error(this.calendarError);return {value:this.calendarEvents,next:null};
       case 'mail_permission':return this.mailPermitted;
       case 'mail_unread':{const count=this.mailUnreadCount??this.mailMessages.filter(m=>m.isRead===false&&(!m.parentFolderId||m.parentFolderId==='inbox')).length;await this.mailUnreadGate;if(!this.mailPermitted)throw Error('Mail consent required');if(this.mailUnreadError)throw Error(this.mailUnreadError);return {count};}

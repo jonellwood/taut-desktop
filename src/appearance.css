@@ -88,3 +88,7 @@ select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(max-width:700px){.settings-dialog[aria-label="TAUT preferences"]{max-height:calc(100dvh - 24px)}}
 .rail-buttons{min-height:0;overflow-y:auto;flex-shrink:1}
 .rail-bottom,.brand{flex-shrink:0}
+
+/* Stable shared-calendar identities, paired with calendar-name labels. */
+:root{--calendar-color-1:#386b9e;--calendar-color-2:#287064;--calendar-color-3:#795b98}
+:root[data-theme='dark']{--calendar-color-1:#8ebcff;--calendar-color-2:#81cbb6;--calendar-color-3:#c6a5e9}

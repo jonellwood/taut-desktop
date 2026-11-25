@@ -11,6 +11,7 @@ mod meeting_manage;
 mod chat_history;
 mod chat_list;
 mod calendar;
+mod calendar_sources;
 mod people;
 mod mail;
 mod mail_images;
@@ -51,7 +52,7 @@ use url::Url;
 
 const TENANT: &str = "5c747a22-76d4-498e-9d9a-75523aff7ceb";
 const CLIENT_ID: &str = "082aabde-4018-4e9e-8936-d2b74a34d9de";
-const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All User.Read.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All Mail.Read Mail.Send Mail.ReadWrite Calendars.Read Calendars.ReadWrite Place.Read.All";
+const SCOPES: &str = "openid profile offline_access User.Read Chat.Read ChatMessage.Send Chat.Create User.ReadBasic.All User.Read.All Files.ReadWrite ChatMember.ReadWrite Chat.ReadWrite Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send ChannelMember.Read.All Presence.Read.All Presence.ReadWrite TeamMember.Read.All TeamMember.ReadWriteNonOwnerRole.All ChannelMember.ReadWrite.All Mail.Read Mail.Send Mail.ReadWrite Calendars.Read Calendars.ReadWrite Calendars.Read.Shared Place.Read.All";
 
 #[derive(Default)]
 struct AuthState(std::sync::Arc<Mutex<auth::Session>>);
@@ -523,6 +524,14 @@ async fn calendar_page(state:State<'_,AuthState>,start:String,end:String,next:Op
  let scopes=collaboration_scopes(&state)?;let permitted=scope_has(&scopes,"Calendars.Read")||scope_has(&scopes,"Calendars.ReadWrite");
  calendar::page(&start,&end,next.as_deref(),permitted,&mut|path|mail_request(&state,path))
 }).await}
+#[tauri::command]
+async fn calendar_sources(state:State<'_,AuthState>,next:Option<String>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;calendar_sources::sources(next.as_deref(),scope_has(&scopes,"Calendars.Read")||scope_has(&scopes,"Calendars.ReadWrite"),&mut|p|mail_request(&state,p))}).await}
+#[tauri::command]
+async fn calendar_group_sources(state:State<'_,AuthState>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;calendar_sources::groups(scope_has(&scopes,"Team.ReadBasic.All"),&mut|p|mail_request(&state,p))}).await}
+#[tauri::command]
+async fn calendar_person_source(state:State<'_,AuthState>,user_id:String)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;calendar_sources::person(&user_id,scope_has(&scopes,"Calendars.Read.Shared"),&mut|p|mail_request(&state,p))}).await}
+#[tauri::command]
+async fn calendar_source_page(state:State<'_,AuthState>,calendar_id:String,start:String,end:String,next:Option<String>)->Result<Value,String>{let state=AuthState(state.0.clone());background_read(move||{let scopes=collaboration_scopes(&state)?;calendar_sources::routed_page(&calendar_id,&start,&end,next.as_deref(),scope_has(&scopes,"Calendars.Read")||scope_has(&scopes,"Calendars.ReadWrite"),scope_has(&scopes,"Calendars.Read.Shared"),scope_has(&scopes,"Team.ReadBasic.All"),&mut|p|mail_request(&state,p))}).await}
 #[tauri::command]
 async fn calendar_response_permission(state:State<'_,AuthState>)->Result<bool,String>{let state=AuthState(state.0.clone());background_read(move||Ok(scope_has(&collaboration_scopes(&state)?,"Calendars.ReadWrite"))).await}
 #[tauri::command]
@@ -1097,7 +1106,7 @@ pub fn run() {
         .manage(AuthState::default())
         .manage(std::sync::Arc::new(files_upload::State::default()))
         .manage(attachments::AttachmentState::default())
-        .invoke_handler({let handler:fn(tauri::ipc::Invoke)->bool=tauri::generate_handler![mail_external_image,files_share_review,files_share_send,files_delete_items,files_create_folder,files_upload,files_upload_progress,files_page,files_open,files_download,calendar_reminder_preview,calendar_reminder_layout,calendar_reminder_compact,app_icon::app_icon_accent,calendar_reminder_corner,calendar_reminder_cards,calendar_reminder_card_action,calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility];move |invoke:tauri::ipc::Invoke|{if !reminder_ipc_allowed(invoke.message.webview_ref().label(),invoke.message.command()){invoke.resolver.reject("Command unavailable in this window");return true;}handler(invoke)}})
+        .invoke_handler({let handler:fn(tauri::ipc::Invoke)->bool=tauri::generate_handler![calendar_group_sources,calendar_person_source,calendar_sources,calendar_source_page,mail_external_image,files_share_review,files_share_send,files_delete_items,files_create_folder,files_upload,files_upload_progress,files_page,files_open,files_download,calendar_reminder_preview,calendar_reminder_layout,calendar_reminder_compact,app_icon::app_icon_accent,calendar_reminder_corner,calendar_reminder_cards,calendar_reminder_card_action,calendar_reminder_settings,calendar_reminder_configure,calendar_reminder_take_open,calendar_manage_read,calendar_manage,mail_unread,calendar_rooms,calendar_availability,calendar_online_support,calendar_create,calendar_response_permission,calendar_event,calendar_response,calendar_permission,calendar_page,mail_write_permission,mail_set_read,mail_move_deleted,people_page,people_profile,mail_send_permission,mail_send_new,mail_permission,mail_page,mail_attachment,mail_save_attachment,away_settings,away_configure,away_watch_channel,collaboration_roster,collaboration_member_change,collaboration_permissions,graph_presence,graph_set_presence,graph_send_channel, graph_reply_with_quote, graph_chat_message, teams_permissions, graph_teams_page, notification_settings, notification_configure, notification_view, notification_take_open, notification_test, graph_change_reaction, graph_reaction_state, graph_mark_chat_read, graph_mark_chat_unread, sign_in, sign_out, restore_session, auth_persistence_status, graph_profile, graph_chats, graph_chat_members, graph_search_users, graph_messages, graph_send_message, graph_create_chat, graph_hosted_image, attachment_permission, graph_prepare_attachment, graph_send_attachments, group_member_permission, graph_create_group_chat, graph_add_group_member, graph_remove_group_member, graph_event_names, chat_write_permission, graph_change_message, graph_message_status, graph_set_chat_visibility, graph_chat_visibility];move |invoke:tauri::ipc::Invoke|{if !reminder_ipc_allowed(invoke.message.webview_ref().label(),invoke.message.command()){invoke.resolver.reject("Command unavailable in this window");return true;}handler(invoke)}})
         .run(tauri::generate_context!())
         .expect("error while running TAUT desktop");
 }

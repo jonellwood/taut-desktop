@@ -165,3 +165,45 @@ User confirmed organizer meeting edits passed live testing. TAUT-initiated organ
 
 
 Organizer cancellation live follow-up: user observed the event removed in TAUT and later Outlook, matching the cancel action's Deleted Items behavior. Cancellation delivery to attendees remains unverified. A separate native workspace-switching issue is under investigation; mocked development and production navigation regressions currently pass.
+
+## Shared mailbox calendar views — November 25 (development)
+
+Implemented the approved My view / temporary Focus controls. Larger labeled visibility switches persist selected calendar IDs per account on this device (up to 12). Separate Focus buttons toggle focus off as well as on; the banner also returns to My view. Entering focus snapshots date, range, selected event, detail visibility and agenda scroll; switching between focused calendars does not replace that snapshot. Date/range navigation and meeting creation stay disabled during focus so the original view remains intact.
+
+Read-only discovery uses `/me/calendars` and reads `/me/calendars/{id}/calendarView` under the existing Calendars.Read / Calendars.ReadWrite consent. The default calendar retains its existing `/me/calendarView` path and existing create/edit/RSVP behavior. Other calendars remain read-only in TAUT even when Microsoft grants edit access; their events never mount MeetingResponse or invoke primary-calendar edit actions. Reminders and composer conflict checks remain primary-calendar-only. No OAuth scopes were added.
+
+Microsoft documents that shared calendars exposed in a recipient mailbox can be read using these existing permissions. Direct access through another owner's `/users/{owner}/calendar` requires Calendars.Read.Shared (or its write counterpart) and is **not** implemented/requested here. Accept/add calendars through Outlook first; listing is limited to what Graph exposes, not an assertion that every Outlook shared/resource/group calendar will appear. Directory-based owner lookup, direct-owner access and busy-only schedule discovery remain follow-ups requiring separate design/permission approval.
+
+Each source has independent loading, error, paging and retry states. Source IDs plus event IDs form UI identity; no subject-based deduplication across mailboxes. New calendars start hidden. Missing/denied calendars do not imply free time. Calendar ownership/name labels and stable theme-aware color accents accompany events. Paging URLs are bound to their exact Graph calendar route; ranges are bounded to 32 days. Current calendar metadata is re-read before each secondary event page. Private events are reduced to Busy/time/status fields unless canViewPrivateItems explicitly allows details. Refresh failure clears stale selected secondary details. Access checks are read-only; no test mutates Microsoft 365.
+
+Validation: production frontend build/UI type check, 118 Node tests and 276 Rust tests passed. Initial changed Calendar/editor browser run passed 84 checks; final privacy/refresh Calendar regression run passed 50 Chromium/WebKit checks, including new shared visibility, source-scoped identity, read-only controls, both focus exits/date/scroll/selection restoration, persistence, paging, denied access and clearing stale details. Native tenant discovery/manual acceptance pending. Restart local dev app for the new commands; no installer build.
+
+Sources: https://learn.microsoft.com/en-us/graph/outlook-get-shared-events-calendars and https://learn.microsoft.com/en-us/graph/api/resources/calendar?view=graph-rest-1.0
+
+### Next discovery scope and permission review
+
+User identified missing sources: Michael Gaskins (person), IT Admin, IT Development and Library Team - IT (likely Teams-backed Microsoft 365 groups). County Store and Dashboard are explicitly excluded; additional mailbox/account support is separate.
+
+For Teams-backed groups, reuse `/me/joinedTeams` under existing Team.ReadBasic.All to obtain verified IDs/names, and load selected sources through `/groups/{id}/calendarView`. Microsoft's current v1.0 permission table includes existing Calendars.Read/Calendars.ReadWrite for that read. This does not establish tenant acceptance: denied/unavailable groups must show an independent access error, never empty/free availability. Non-Teams groups require separate discovery; do not add Group.Read.All merely to enumerate these three candidates. Group routes are not implemented yet.
+
+For a person's primary calendar missing from the recipient list, provide explicit directory selection and read `/users/{verified-id}/calendar` and its calendarView. Microsoft documents delegated Calendars.Read.Shared for this route. Proposed additional scope is **Calendars.Read.Shared only**, allowing reads of calendars already shared/delegated to the signed-in user; no shared write scope, tenant-wide application permission, or creation of calendar shares. User approval is required before adding the scope; currently pending. Keep secondary sources view-only, source-bound paging/private-item redaction and existing My view/Focus restoration. No reminders or writes for these sources.
+
+References checked November 25: https://learn.microsoft.com/en-us/graph/api/user-list-joinedteams?view=graph-rest-1.0 and https://learn.microsoft.com/en-us/graph/api/group-list-calendarview?view=graph-rest-1.0 .
+
+
+### November 25 — People and Teams calendar expansion (development)
+
+User explicitly approved delegated Calendars.Read.Shared and is updating Entra consent. Added that single scope to the authorization request. No shared write or group-directory scope added. Existing signed-in sessions need a fresh sign-in after consent; merely rebuilding does not add a scope to an existing access token.
+
+Added Teams calendars from bounded `/me/joinedTeams` discovery (10 pages / 1,000 sources), with membership reverified on each `/groups/{id}/calendarView` read. The Teams calendars start hidden. Group calendar support under existing calendar permissions follows the current v1.0 table and still needs manual tenant verification; HTTP errors are independent of primary/calendar-list results. Non-Teams group discovery is deferred.
+
+Added explicit coworker search and Add calendar: verified directory ID plus owner calendar read, no sharing invitation or server change. Up to 24 selected person IDs persist per account locally; names and access are resolved again on reopen. Remove from TAUT affects only local selection. Persons start hidden; enabling or Focus loads their events. Route-prefixed source IDs separate mailbox/person/group events. Metadata and page continuations are bound to the chosen route, private details remain redacted without explicit permission, group private events are conservatively redacted, and refresh/access errors clear selected secondary details. County Store/Dashboard accounts remain excluded. All secondary events stay view-only; reminders remain primary-only.
+
+Automated tests use mocked IPC/HTTP only. Manual acceptance: restart dev app, sign out/in after Entra consent, use Add a person’s calendar to find Michael Gaskins, then enable/Focus; confirm IT Admin, IT Development and Library Team - IT under Teams calendars and open their events. Verify existing sharing restrictions and My view restoration. No installer build requested.
+
+Expansion validation: frontend build and UI TypeScript checks passed (three existing App.svelte accessibility warnings); 118 Node tests, 279 Rust tests and 56 Chromium/WebKit Calendar/shared regressions passed. Visually inspected the people/Teams picker and read-only group details screenshot. No real Microsoft 365 calls or mutations during automated checks. Native source availability remains unverified.
+
+
+### November 25 — Cards / Agenda presentation
+
+Calendar defaults to Cards: responsive one/two/three-column event cards grouped under readable day headings and event counts. Agenda is a compact row alternative with time, title/location, source and recorded status. Both use the same loaded events and source-scoped identity; changing layout performs no Graph reads or writes, preserves selection/details/date/visible calendars/Focus, and anchors the currently visible event when possible. Layout preference is device-local (`taut-calendar-layout`), safely falling back to Cards when unavailable. Existing per-account calendar visibility is separate. Titles wrap; narrow Agenda rows stack. Calendar labels/colors, all-day/cancellation/read-only/overlap information and existing details actions are retained. No additional permissions or installer build.

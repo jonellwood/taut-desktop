@@ -137,3 +137,7 @@ Both items were requested November 22 for the near future; no implementation or 
 - [x] User accepted persistent Files selection details panel.
 
 - Mail safe senders: user reaffirmed explicit user-managed trust as a later roadmap item; do not automatically allow tenant-account images. External-image controls now allow individual HTTPS raster images per open email. Future work may cover reviewed redirect handling and persisted per-email approval.
+
+- Shared calendars development November 25: mailbox-exposed calendar discovery, visibility switches, temporary Focus and context restoration implemented with existing scopes. Manual tenant discovery/acceptance next. Direct-owner calendar access and availability-only schedule discovery still require a separate permission/design decision; no Calendars.Read.Shared requested. See CALENDAR.md.
+
+- Shared calendar expansion November 25: approved Calendars.Read.Shared added; explicit person Add calendar and joined-Teams calendar discovery implemented. Manual Gaskins/IT Admin/IT Development/Library Team acceptance pending after fresh sign-in. County Store/Dashboard and non-Teams group discovery deferred; no installer build.

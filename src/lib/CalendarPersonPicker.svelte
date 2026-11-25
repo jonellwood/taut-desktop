@@ -1,0 +1,13 @@
+<script lang="ts">
+ import {invoke} from '@tauri-apps/api/core';
+ import {onDestroy} from 'svelte';
+ let {ownId,onAdd,locked=false}:{ownId:string;onAdd:(source:any)=>void;locked?:boolean}=$props();
+ let query=$state(''),people=$state<{id:string;displayName?:string;mail?:string;userPrincipalName?:string}[]>([]),busy=$state(false),error=$state(''),searched=$state(false);
+ let serial=0,alive=true;onDestroy(()=>{alive=false;serial++;});
+ async function search(){if(busy||locked||query.trim().length<2)return;const n=++serial;busy=true;error='';people=[];searched=false;try{const r=await invoke<{value:typeof people}>('graph_search_users',{query:query.trim()});if(alive&&n===serial){people=r.value.filter(p=>p.id!==ownId);searched=true;}}catch(e){if(alive&&n===serial)error=String(e);}finally{if(alive&&n===serial)busy=false;}}
+ async function add(userId:string){if(busy||locked)return;const n=++serial;busy=true;error='';try{const source=await invoke('calendar_person_source',{userId});if(alive&&n===serial){onAdd(source);people=[];query='';searched=false;}}catch(e){if(alive&&n===serial)error=String(e);}finally{if(alive&&n===serial)busy=false;}}
+</script>
+<details><summary>Add a person’s calendar</summary><p>Choose a coworker whose calendar is already shared with you. This checks access without sending a sharing request. A fresh sign-in is needed after shared-calendar consent.</p><form onsubmit={e=>{e.preventDefault();void search();}}><label for="calendar-person">Name or email</label><input id="calendar-person" bind:value={query} disabled={busy||locked} maxlength="80"/><button disabled={busy||locked||query.trim().length<2}>Find coworker</button></form>{#if busy}<p role="status">Checking calendars…</p>{/if}{#if error}<p role="alert">{error}</p>{/if}{#if searched&&!people.length}<p>No matching coworkers.</p>{/if}{#each people as person(person.id)}<div class="person"><strong>{person.displayName}</strong><small>{person.mail||person.userPrincipalName}</small><button disabled={busy||locked} onclick={()=>void add(person.id)}>Add calendar · {person.displayName}</button></div>{/each}</details>
+<style>
+details{margin:18px 0;font-size:11px;line-height:1.7;color:var(--text-secondary)}summary{color:var(--accent);cursor:pointer}form,.person{display:grid;gap:7px;margin-top:12px}.person{border-top:1px solid var(--border);padding-top:10px;overflow-wrap:anywhere}input,button{font:inherit;color:var(--text-primary);background:var(--surface-panel);border:1px solid var(--border);border-radius:6px;padding:9px;min-width:0;width:100%;box-sizing:border-box}button{color:var(--accent);cursor:pointer}button:disabled{opacity:.5}input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
